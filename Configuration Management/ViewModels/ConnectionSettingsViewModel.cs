@@ -81,16 +81,31 @@ public class ConnectionSettingsViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedGroup, value))
             {
-                Group = value?.Name ?? string.Empty;
+                // В свойстве Group храним полный путь группы в иерархии
+                // (например, «Учёт / Бухгалтерия»), чтобы сохранялась структура.
+                Group = value is null
+                    ? string.Empty
+                    : GroupHierarchyHelper.GetFullPath(value, Groups);
             }
         }
     }
 
-    /// <summary>Группа базы.</summary>
+    /// <summary>Группа базы (полный путь в иерархии).</summary>
     public string Group
     {
         get => _group;
         set => SetProperty(ref _group, value);
+    }
+
+    /// <summary>
+    /// Находит группу по полному пути (например, «Учёт / Бухгалтерия»).
+    /// </summary>
+    private Group? FindGroupByPath(string fullPath)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath))
+            return null;
+
+        return GroupHierarchyHelper.FindByFullPath(fullPath, Groups);
     }
 
     /// <summary>Описание базы.</summary>
@@ -188,19 +203,17 @@ public class ConnectionSettingsViewModel : ViewModelBase
     }
 
     /// <summary>Признак клиент-серверного подключения.</summary>
-    public bool IsClientServer => ConnectionType == ConnectionType.ClientServer;
+    public bool IsClientServer
+    {
+        get => ConnectionType == ConnectionType.ClientServer;
+        set { if (value) ConnectionType = ConnectionType.ClientServer; }
+    }
 
     /// <summary>Признак файлового подключения.</summary>
-    public bool IsFile => ConnectionType == ConnectionType.File;
-
-    /// <summary>Индекс типа подключения для ComboBox (0 - клиент-серверный, 1 - файловый).</summary>
-    public int ConnectionTypeIndex
+    public bool IsFile
     {
-        get => ConnectionType == ConnectionType.ClientServer ? 0 : 1;
-        set
-        {
-            ConnectionType = value == 0 ? ConnectionType.ClientServer : ConnectionType.File;
-        }
+        get => ConnectionType == ConnectionType.File;
+        set { if (value) ConnectionType = ConnectionType.File; }
     }
 
     /// <summary>Имя сервера.</summary>
@@ -272,7 +285,7 @@ public class ConnectionSettingsViewModel : ViewModelBase
             Id = infobase.Id;
             Name = infobase.Name;
             Group = infobase.Group;
-            SelectedGroup = Groups.FirstOrDefault(g => g.Name == infobase.Group);
+            SelectedGroup = FindGroupByPath(infobase.Group);
             Description = infobase.Description;
             PlatformVersion = infobase.PlatformVersion;
             LaunchMode = infobase.LaunchMode;

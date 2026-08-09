@@ -14,12 +14,13 @@ public class GroupColorConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        var groupName = values[0]?.ToString() ?? string.Empty;
+        var groupPath = values[0]?.ToString() ?? string.Empty;
 
         if (values.Length > 1 && values[1] is ObservableCollection<Group> groups)
         {
+            // Ищем группу по полному пути в иерархии (например, «Учёт / Бухгалтерия»).
             var group = groups.FirstOrDefault(g =>
-                string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(GroupHierarchyHelper.GetFullPath(g, groups), groupPath, StringComparison.OrdinalIgnoreCase));
             if (group is not null)
             {
                 return CreateBrush(group.Color);
