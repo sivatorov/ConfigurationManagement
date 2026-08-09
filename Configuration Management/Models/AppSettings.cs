@@ -19,4 +19,16 @@ public class AppSettings
 
     /// <summary>Список установленных версий платформы 1С.</summary>
     public List<string> InstalledPlatformVersions { get; set; } = new();
+
+    /// <summary>Ширина колонки «Название» в списке баз (0 — по умолчанию).</summary>
+    public double NameColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Версия платформы» в списке баз (0 — по умолчанию).</summary>
+    public double VersionColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Режим запуска» в списке баз (0 — по умолчанию).</summary>
+    public double LaunchModeColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Сервер/База» в списке баз (0 — по умолчанию).</summary>
+    public double ServerColumnWidth { get; set; }
 }

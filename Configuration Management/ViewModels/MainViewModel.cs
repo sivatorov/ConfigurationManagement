@@ -25,6 +25,16 @@ public class MainViewModel : ViewModelBase
     private string _savedTheme = string.Empty;
     private readonly HashSet<string> _collapsedGroups = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _installedPlatformVersions = new();
+    private double _nameColumnWidth;
+    private double _versionColumnWidth;
+    private double _launchModeColumnWidth;
+    private double _serverColumnWidth;
+
+    /// <summary>
+    /// Внутренний набор узлов дерева групп, перестраиваемый при изменении данных.
+    /// Заполняется в методе <see cref="RebuildGroupTree"/>.
+    /// </summary>
+    private List<GroupNodeViewModel> _groupNodes = new();
 
     public MainViewModel()
     {
@@ -36,6 +46,10 @@ public class MainViewModel : ViewModelBase
         _groupByGroup = settings.GroupByGroup;
         _savedTheme = settings.Theme;
         _installedPlatformVersions = new List<string>(settings.InstalledPlatformVersions);
+        _nameColumnWidth = settings.NameColumnWidth;
+        _versionColumnWidth = settings.VersionColumnWidth;
+        _launchModeColumnWidth = settings.LaunchModeColumnWidth;
+        _serverColumnWidth = settings.ServerColumnWidth;
         foreach (var groupName in settings.CollapsedGroups)
         {
             _collapsedGroups.Add(groupName);
@@ -49,15 +63,15 @@ public class MainViewModel : ViewModelBase
         var loadedGroups = _repository.LoadGroups();
         Groups = new ObservableCollection<Group>(loadedGroups);
 
-        // Коллекция закреплённых баз для отображения вверху списка.
-        PinnedInfobases = new ObservableCollection<Infobase>(Infobases.Where(i => i.IsPinned));
-
         InfobasesView = CollectionViewSource.GetDefaultView(Infobases);
         InfobasesView.Filter = FilterInfobase;
-        if (_groupByGroup)
-        {
-            InfobasesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Infobase.GroupDisplay)));
-        }
+        // Сортировка: закреплённые базы идут первыми, затем по названию базы.
+        InfobasesView.SortDescriptions.Add(new SortDescription(nameof(Infobase.GroupSortOrder), ListSortDirection.Ascending));
+        InfobasesView.SortDescriptions.Add(new SortDescription(nameof(Infobase.Name), ListSortDirection.Ascending));
+
+        // Дерево групп (отображается в виде «группа в группе»).
+        GroupNodes = new ObservableCollection<GroupNodeViewModel>();
+        RebuildGroupTree();
 
         SelectInfobaseCommand = new RelayCommand(SelectInfobase);
         RefreshCommand = new RelayCommand(Refresh);
@@ -100,14 +114,11 @@ public class MainViewModel : ViewModelBase
     /// <summary>Список информационных баз.</summary>
     public ObservableCollection<Infobase> Infobases { get; }
 
-    /// <summary>Коллекция закреплённых баз для отображения вверху списка без группы.</summary>
-    public ObservableCollection<Infobase> PinnedInfobases { get; private set; }
-
-    /// <summary>Признак наличия закреплённых баз (для отображения секции «Закреплённые»).</summary>
-    public bool HasPinnedInfobases => PinnedInfobases.Count > 0;
-
     /// <summary>Представление списка баз с группировкой и фильтрацией.</summary>
     public ICollectionView InfobasesView { get; }
+
+    /// <summary>Узлы дерева групп информационных баз для отображения «группа в группе».</summary>
+    public ObservableCollection<GroupNodeViewModel> GroupNodes { get; }
 
     /// <summary>Выбранная информационная база.</summary>
     public Infobase? SelectedInfobase
@@ -144,6 +155,7 @@ public class MainViewModel : ViewModelBase
             if (SetProperty(ref _showFavoritesOnly, value))
             {
                 InfobasesView.Refresh();
+                RebuildGroupTree();
                 SaveSettings();
             }
         }
@@ -157,22 +169,78 @@ public class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _groupByGroup, value))
             {
-                InfobasesView.GroupDescriptions.Clear();
-                if (value)
-                {
-                    InfobasesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Infobase.GroupDisplay)));
-                }
                 InfobasesView.Refresh();
+                RebuildGroupTree();
                 SaveSettings();
+                OnPropertyChanged(nameof(GroupByGroupText));
             }
         }
     }
+
+    /// <summary>Текст кнопки переключения отображения групп.</summary>
+    public string GroupByGroupText => _groupByGroup ? "📁 Скрыть группы" : "📁 Показывать группы";
 
     /// <summary>Список групп информационных баз.</summary>
     public ObservableCollection<Group> Groups { get; }
 
     /// <summary>Название сохранённой темы оформления (пусто, если тема не сохранялась).</summary>
     public string SavedTheme => _savedTheme;
+
+    /// <summary>Ширина колонки «Название» (0 — по умолчанию).</summary>
+    public double NameColumnWidth
+    {
+        get => _nameColumnWidth;
+        private set
+        {
+            if (_nameColumnWidth != value)
+            {
+                _nameColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Версия платформы» (0 — по умолчанию).</summary>
+    public double VersionColumnWidth
+    {
+        get => _versionColumnWidth;
+        private set
+        {
+            if (_versionColumnWidth != value)
+            {
+                _versionColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Режим запуска» (0 — по умолчанию).</summary>
+    public double LaunchModeColumnWidth
+    {
+        get => _launchModeColumnWidth;
+        private set
+        {
+            if (_launchModeColumnWidth != value)
+            {
+                _launchModeColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Сервер/База» (0 — по умолчанию).</summary>
+    public double ServerColumnWidth
+    {
+        get => _serverColumnWidth;
+        private set
+        {
+            if (_serverColumnWidth != value)
+            {
+                _serverColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
 
     /// <summary>Команда управления группами.</summary>
     public ICommand ManageGroupsCommand { get; }
@@ -281,6 +349,7 @@ public class MainViewModel : ViewModelBase
         }
         SelectedInfobase = null;
         Save();
+        RebuildGroupTree();
     }
 
     private void AddInfobase(object? parameter)
@@ -294,6 +363,7 @@ public class MainViewModel : ViewModelBase
             Infobases.Add(dialog.Result);
             SelectedInfobase = dialog.Result;
             Save();
+            RebuildGroupTree();
         }
     }
 
@@ -309,9 +379,7 @@ public class MainViewModel : ViewModelBase
         if (dialog.ShowDialog() == true)
         {
             // Применяем изменения к существующему объекту, а не заменяем его новым.
-            // Это важно, потому что на один и тот же объект могут ссылаться и основной список,
-            // и коллекция закреплённых баз (PinnedInfobases). Замена объекта привела бы к тому,
-            // что закреплённая база продолжала бы показывать старые параметры подключения.
+            // Это важно, потому что на объект могут ссылаться и основной список, и представление.
             var target = SelectedInfobase;
             target.Id = dialog.Result.Id;
             target.Name = dialog.Result.Name;
@@ -328,10 +396,10 @@ public class MainViewModel : ViewModelBase
             target.MetadataRoot = dialog.Result.MetadataRoot;
             target.Connection = dialog.Result.Connection;
 
-            // Обновляем отображаемые данные.
-            UpdatePinnedInfobases();
+            // Обновляем отображаемые данные (перегруппировка с учётом изменения закрепления).
             InfobasesView.Refresh();
             Save();
+            RebuildGroupTree();
         }
     }
 
@@ -351,6 +419,7 @@ public class MainViewModel : ViewModelBase
             Infobases.Remove(SelectedInfobase);
             SelectedInfobase = null;
             Save();
+            RebuildGroupTree();
         }
     }
 
@@ -366,6 +435,9 @@ public class MainViewModel : ViewModelBase
         {
             InfobasesView.Refresh();
         }
+        // Перестраиваем дерево групп, чтобы пустые группы скрывались/показывались
+        // в зависимости от состояния избранного.
+        RebuildGroupTree();
         Save();
     }
 
@@ -381,6 +453,9 @@ public class MainViewModel : ViewModelBase
         {
             InfobasesView.Refresh();
         }
+        // Перестраиваем дерево групп, чтобы пустые группы скрывались/показывались
+        // в зависимости от состояния избранного.
+        RebuildGroupTree();
         Save();
     }
 
@@ -390,8 +465,9 @@ public class MainViewModel : ViewModelBase
             return;
 
         SelectedInfobase.IsPinned = !SelectedInfobase.IsPinned;
-        UpdatePinnedInfobases();
+        InfobasesView.Refresh();
         Save();
+        RebuildGroupTree();
     }
 
     private void TogglePinFor(object? parameter)
@@ -400,30 +476,9 @@ public class MainViewModel : ViewModelBase
             return;
 
         infobase.IsPinned = !infobase.IsPinned;
-        UpdatePinnedInfobases();
+        InfobasesView.Refresh();
         Save();
-    }
-
-    /// <summary>
-    /// Обновляет коллекцию закреплённых баз в соответствии с признаком IsPinned.
-    /// </summary>
-    private void UpdatePinnedInfobases()
-    {
-        // Точечно добавляем/удаляем изменившуюся базу, чтобы не пересоздавать всю коллекцию.
-        var pinned = PinnedInfobases.ToList();
-        foreach (var infobase in Infobases)
-        {
-            var isInPinned = pinned.Contains(infobase);
-            if (infobase.IsPinned && !isInPinned)
-            {
-                PinnedInfobases.Add(infobase);
-            }
-            else if (!infobase.IsPinned && isInPinned)
-            {
-                PinnedInfobases.Remove(infobase);
-            }
-        }
-        OnPropertyChanged(nameof(HasPinnedInfobases));
+        RebuildGroupTree();
     }
 
     private void LaunchEnterprise(object? parameter)
@@ -510,8 +565,36 @@ public class MainViewModel : ViewModelBase
             GroupByGroup = _groupByGroup,
             Theme = _savedTheme,
             CollapsedGroups = _collapsedGroups.ToList(),
-            InstalledPlatformVersions = _installedPlatformVersions
+            InstalledPlatformVersions = _installedPlatformVersions,
+            NameColumnWidth = _nameColumnWidth,
+            VersionColumnWidth = _versionColumnWidth,
+            LaunchModeColumnWidth = _launchModeColumnWidth,
+            ServerColumnWidth = _serverColumnWidth
         });
+    }
+
+    /// <summary>
+    /// Сохраняет ширины колонок списка баз в настройках.
+    /// </summary>
+    public void SaveColumnWidths(double nameWidth, double versionWidth, double launchModeWidth, double serverWidth)
+    {
+        NameColumnWidth = nameWidth;
+        VersionColumnWidth = versionWidth;
+        LaunchModeColumnWidth = launchModeWidth;
+        ServerColumnWidth = serverWidth;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Обновляет ширины колонок в памяти (без сохранения в файл).
+    /// Используется для синхронизации колонок строк во время перетаскивания разделителя.
+    /// </summary>
+    public void UpdateColumnWidths(double nameWidth, double versionWidth, double launchModeWidth, double serverWidth)
+    {
+        NameColumnWidth = nameWidth;
+        VersionColumnWidth = versionWidth;
+        LaunchModeColumnWidth = launchModeWidth;
+        ServerColumnWidth = serverWidth;
     }
 
     /// <summary>
@@ -548,29 +631,175 @@ public class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Сворачивает все группы в списке баз.
+    /// Сворачивает все группы в дереве баз.
     /// </summary>
     private void CollapseAllGroups(object? parameter)
     {
-        foreach (var group in InfobasesView.Groups)
-        {
-            if (group is CollectionViewGroup cvg && cvg.Name is string name)
-            {
-                _collapsedGroups.Add(name);
-            }
-        }
+        CollapseAllNodes(_groupNodes, collapse: true);
         SaveSettings();
-        InfobasesView.Refresh();
     }
 
     /// <summary>
-    /// Разворачивает все группы в списке баз.
+    /// Разворачивает все группы в дереве баз.
     /// </summary>
     private void ExpandAllGroups(object? parameter)
     {
+        CollapseAllNodes(_groupNodes, collapse: false);
         _collapsedGroups.Clear();
         SaveSettings();
-        InfobasesView.Refresh();
+    }
+
+    /// <summary>
+    /// Рекурсивно устанавливает состояние развёрнутости всех узлов дерева групп.
+    /// </summary>
+    private static void CollapseAllNodes(IEnumerable<GroupNodeViewModel> nodes, bool collapse)
+    {
+        foreach (var node in nodes)
+        {
+            node.IsExpanded = !collapse;
+            CollapseAllNodes(node.Children, collapse);
+        }
+    }
+
+    /// <summary>
+    /// Перестраивает дерево групп на основе текущего списка групп и баз.
+    /// Закреплённые базы попадают в корневой узел «Закреплённые», базы без группы — в «Без группы».
+    /// Группы и подгруппы, не содержащие баз (в том числе при активном фильтре «Только избранные»),
+    /// в дерево не попадают.
+    /// </summary>
+    public void RebuildGroupTree()
+    {
+        // Когда группировка отключена — показываем плоский список всех баз в одном узле.
+        if (!_groupByGroup)
+        {
+            var flatNode = new GroupNodeViewModel(null, displayName: "Все базы");
+            foreach (var infobase in Infobases)
+            {
+                if (ShowFavoritesOnly && !infobase.IsFavorite)
+                    continue;
+                flatNode.Infobases.Add(infobase);
+            }
+
+            flatNode.PopulateItems();
+            _groupNodes = new List<GroupNodeViewModel> { flatNode };
+            GroupNodes.Clear();
+            GroupNodes.Add(flatNode);
+            ApplyExpandedState(_groupNodes);
+            OnPropertyChanged(nameof(GroupNodes));
+            return;
+        }
+
+        var roots = GroupNodeViewModel.BuildTree(Groups);
+
+        // Корневой узел «Закреплённые» для закреплённых баз.
+        var pinnedNode = new GroupNodeViewModel(null, displayName: "Закреплённые");
+
+        // Определяем, какая группа реально соответствует каждой базе (по полному пути).
+        var pathToNode = new Dictionary<string, GroupNodeViewModel>(StringComparer.OrdinalIgnoreCase);
+        void IndexNode(GroupNodeViewModel node)
+        {
+            if (node.Group is not null)
+            {
+                pathToNode[GroupHierarchyHelper.GetFullPath(node.Group, Groups)] = node;
+            }
+            foreach (var child in node.Children)
+            {
+                IndexNode(child);
+            }
+        }
+        foreach (var root in roots)
+        {
+            IndexNode(root);
+        }
+
+        // Распределяем базы по узлам и в «Закреплённые».
+        foreach (var infobase in Infobases)
+        {
+            // Фильтр «Только избранные».
+            if (ShowFavoritesOnly && !infobase.IsFavorite)
+                continue;
+
+            if (infobase.IsPinned)
+            {
+                pinnedNode.Infobases.Add(infobase);
+                continue;
+            }
+
+            var groupPath = infobase.Group?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(groupPath))
+            {
+                continue; // База без группы — не показываем в дереве (или добавить отдельный узел при необходимости).
+            }
+
+            if (pathToNode.TryGetValue(groupPath, out var node))
+            {
+                node.Infobases.Add(infobase);
+            }
+        }
+
+        // Заполняем единые коллекции Items (подгруппы + базы) для вложенного отображения.
+        foreach (var root in roots)
+        {
+            root.PopulateItems();
+        }
+        pinnedNode.PopulateItems();
+
+        // Блок «Закреплённые» показываем в начале дерева, только если в нём есть базы.
+        _groupNodes = roots;
+        GroupNodes.Clear();
+        if (pinnedNode.ContainsInfobases)
+        {
+            GroupNodes.Add(pinnedNode);
+        }
+        foreach (var root in roots)
+        {
+            // Пустые группы (не содержащие баз в текущем фильтре, например при активном
+            // режиме «Только избранные») в дерево не добавляются.
+            if (root.ContainsInfobases)
+            {
+                GroupNodes.Add(root);
+            }
+        }
+
+        // Применяем сохранённое состояние развёрнутости.
+        ApplyExpandedState(_groupNodes);
+
+        OnPropertyChanged(nameof(GroupNodes));
+    }
+
+    /// <summary>
+    /// Применяет сохранённое состояние развёрнутости к узлам дерева.
+    /// </summary>
+    private void ApplyExpandedState(IEnumerable<GroupNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Group is not null)
+            {
+                node.IsExpanded = !IsGroupCollapsed(node.FullPath);
+            }
+            ApplyExpandedState(node.Children);
+        }
+    }
+
+    /// <summary>
+    /// Рекурсивно ищет узел дерева групп по идентификатору группы.
+    /// </summary>
+    private GroupNodeViewModel? FindGroupNode(GroupNodeViewModel node, string groupId)
+    {
+        if (node.Group is not null && string.Equals(node.Group.Id, groupId, StringComparison.OrdinalIgnoreCase))
+        {
+            return node;
+        }
+        foreach (var child in node.Children)
+        {
+            var found = FindGroupNode(child, groupId);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -613,6 +842,7 @@ public class MainViewModel : ViewModelBase
 
         InfobasesView.Refresh();
         Save();
+        RebuildGroupTree();
     }
 
     private void ManageGroups(object? parameter)
@@ -631,6 +861,7 @@ public class MainViewModel : ViewModelBase
             }
             SaveGroups();
             InfobasesView.Refresh();
+            RebuildGroupTree();
         }
     }
 
@@ -693,6 +924,7 @@ public class MainViewModel : ViewModelBase
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Импорт завершён.\n\n" +
@@ -743,6 +975,7 @@ public class MainViewModel : ViewModelBase
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Импорт завершён.\n\n" +
@@ -910,11 +1143,11 @@ public class MainViewModel : ViewModelBase
                 Groups.Add(group);
             }
 
-            UpdatePinnedInfobases();
             SelectedInfobase = null;
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Список информационных баз успешно загружен.\n\n" +
@@ -963,14 +1196,11 @@ public class MainViewModel : ViewModelBase
 
         Infobases.Clear();
         Groups.Clear();
-        // Очищаем коллекцию закреплённых баз, иначе она сохранит ссылки на удалённые базы,
-        // так как UpdatePinnedInfobases() синхронизирует её только по текущему списку Infobases.
-        PinnedInfobases.Clear();
-        UpdatePinnedInfobases();
         SelectedInfobase = null;
         InfobasesView.Refresh();
         Save();
         SaveGroups();
+        RebuildGroupTree();
 
         MessageBox.Show(
             "Список информационных баз очищен.",

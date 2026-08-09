@@ -57,14 +57,19 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Наименование:" VerticalAlignment="Center" Margin="0,4"/>
                 <TextBox x:Name="NameBox" Grid.Row="0" Grid.Column="1" Margin="0,4" Padding="4,3"
                          Style="{DynamicResource ModernTextBox}"/>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Описание:" VerticalAlignment="Center" Margin="0,4"/>
-                <TextBox x:Name="DescriptionBox" Grid.Row="1" Grid.Column="1" Margin="0,4" Padding="4,3"
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Родительская группа:" VerticalAlignment="Center" Margin="0,4"/>
+                <ComboBox x:Name="ParentCombo" Grid.Row="1" Grid.Column="1" Margin="0,4" Padding="4,3"
+                          ToolTip="Группа, внутри которой будет находиться данная группа"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Описание:" VerticalAlignment="Center" Margin="0,4"/>
+                <TextBox x:Name="DescriptionBox" Grid.Row="2" Grid.Column="1" Margin="0,4" Padding="4,3"
                          Style="{DynamicResource ModernTextBox}"/>
             </Grid>
         </GroupBox>

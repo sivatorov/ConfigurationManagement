@@ -91,6 +91,17 @@ public class Infobase : INotifyPropertyChanged
     public string GroupDisplay => string.IsNullOrWhiteSpace(Group) ? "Без группы" : Group;
 
     /// <summary>
+    /// Группа, в которой отображается база в общем списке. Закреплённые базы
+    /// выводятся в отдельной группе «Закреплённые» вверху таблицы, независимо от их группы.
+    /// </summary>
+    public string DisplayGroup => IsPinned ? "Закреплённые" : GroupDisplay;
+
+    /// <summary>
+    /// Порядок группы для сортировки: закреплённые базы всегда идут первыми.
+    /// </summary>
+    public int GroupSortOrder => IsPinned ? 0 : 1;
+
+    /// <summary>
     /// Возвращает путь к файловой базе в кавычках (без префикса File=).
     /// Для клиент-серверного режима возвращает строку соединения.
     /// </summary>
@@ -107,6 +118,27 @@ public class Infobase : INotifyPropertyChanged
     {
         ConnectionType.File => "Файловая",
         _ => "Клиент-серверная"
+    };
+
+    /// <summary>
+    /// Режим запуска для отображения. Используется в колонке «Режим запуска».
+    /// </summary>
+    public string ParsedLaunchMode => string.IsNullOrWhiteSpace(LaunchMode)
+        ? "Автоматический"
+        : LaunchMode;
+
+    /// <summary>
+    /// Сервер или база для отображения. Для файлового режима — путь к базе,
+    /// для клиент-серверного — сервер и имя базы. Используется в колонке «Сервер/База».
+    /// </summary>
+    public string ServerDatabaseDisplay => Connection.Type switch
+    {
+        ConnectionType.File => string.IsNullOrWhiteSpace(Connection.FilePath)
+            ? "—"
+            : Connection.FilePath,
+        _ => string.IsNullOrWhiteSpace(Connection.Server)
+            ? Connection.DatabaseName
+            : $"{Connection.Server}\\{Connection.DatabaseName}"
     };
 
     /// <summary>

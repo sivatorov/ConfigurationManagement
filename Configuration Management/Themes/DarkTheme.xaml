@@ -53,6 +53,11 @@
     <SolidColorBrush x:Key="TreeHoverBrush" Color="{StaticResource TreeHoverColor}"/>
     <SolidColorBrush x:Key="TreeSelectedBrush" Color="{StaticResource TreeSelectedColor}"/>
 
+    <SolidColorBrush x:Key="ScrollTrackBrush" Color="#16202E"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#3B4A5F"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#52657F"/>
+    <SolidColorBrush x:Key="ScrollThumbPressedBrush" Color="#6B80A0"/>
+
     <!-- ===================== Стиль кнопки ===================== -->
     <Style x:Key="ModernButton" TargetType="Button">
         <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
@@ -376,43 +381,18 @@
                                               Background="Transparent" BorderThickness="0">
                                     <ToggleButton.Template>
                                         <ControlTemplate TargetType="ToggleButton">
-                                            <Path x:Name="Chevron"
-                                                  Width="10" Height="10"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                  Data="M 0,0 L 4,4 L 0,8"
-                                                  Stroke="{StaticResource TextSecondaryBrush}"
-                                                  StrokeThickness="2"
-                                                  StrokeStartLineCap="Round"
-                                                  StrokeEndLineCap="Round"
-                                                  StrokeLineJoin="Round"
-                                                  RenderTransformOrigin="0.5,0.5">
-                                                <Path.RenderTransform>
-                                                    <RotateTransform Angle="0"/>
-                                                </Path.RenderTransform>
-                                            </Path>
+                                            <TextBlock x:Name="ExpanderSymbol"
+                                                       Text="+"
+                                                       FontSize="12"
+                                                       FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Chevron" Property="Opacity" Value="0.6"/>
+                                                    <Setter TargetName="ExpanderSymbol" Property="Opacity" Value="0.6"/>
                                                 </Trigger>
                                                 <Trigger Property="IsChecked" Value="True">
-                                                    <Trigger.EnterActions>
-                                                        <BeginStoryboard>
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Chevron"
-                                                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                 To="90" Duration="0:0:0.15"/>
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </Trigger.EnterActions>
-                                                    <Trigger.ExitActions>
-                                                        <BeginStoryboard>
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Chevron"
-                                                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                 To="0" Duration="0:0:0.15"/>
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </Trigger.ExitActions>
+                                                    <Setter TargetName="ExpanderSymbol" Property="Text" Value="−"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -433,9 +413,13 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="header" Property="Background" Value="{StaticResource TreeHoverBrush}"/>
                         </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
+                                <Condition Binding="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
                             <Setter TargetName="header" Property="Background" Value="{StaticResource TreeSelectedBrush}"/>
-                        </Trigger>
+                        </MultiDataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -539,23 +523,25 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <!-- Chevron-стрелка -->
-                                        <Path x:Name="Chevron"
+                                        <!-- Символ «+» / «−» -->
+                                        <Border x:Name="ToggleSymbol"
                                               Grid.Column="0"
-                                              Width="12" Height="12"
+                                              Width="22" Height="22"
                                               Margin="0,0,8,0"
+                                              CornerRadius="11"
                                               VerticalAlignment="Center"
-                                              Data="M 0,0 L 4,4 L 0,8"
-                                              Stroke="{StaticResource TextSecondaryBrush}"
-                                              StrokeThickness="2.2"
-                                              StrokeStartLineCap="Round"
-                                              StrokeEndLineCap="Round"
-                                              StrokeLineJoin="Round"
-                                              RenderTransformOrigin="0.5,0.5">
-                                            <Path.RenderTransform>
-                                                <RotateTransform Angle="0"/>
-                                            </Path.RenderTransform>
-                                        </Path>
+                                              Background="#27364A"
+                                              BorderBrush="#3B4A5F"
+                                              BorderThickness="1">
+                                            <TextBlock x:Name="ToggleSymbolText"
+                                                  Text="+"
+                                                  FontSize="16"
+                                                  FontWeight="Bold"
+                                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  LineHeight="16"/>
+                                        </Border>
                                         <ContentPresenter Grid.Column="1"
                                                           Content="{Binding Header, RelativeSource={RelativeSource AncestorType=Expander}}"
                                                           VerticalAlignment="Center"
@@ -563,14 +549,14 @@
                                     </Grid>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Chevron" Property="Opacity" Value="0.7"/>
+                                            <Setter TargetName="ToggleSymbol" Property="Background" Value="#33465E"/>
+                                            <Setter TargetName="ToggleSymbolText" Property="Foreground" Value="{StaticResource AccentBrush}"/>
                                         </Trigger>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Chevron" Property="RenderTransform">
-                                                <Setter.Value>
-                                                    <RotateTransform Angle="90"/>
-                                                </Setter.Value>
-                                            </Setter>
+                                            <Setter TargetName="ToggleSymbol" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                            <Setter TargetName="ToggleSymbol" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            <Setter TargetName="ToggleSymbolText" Property="Text" Value="−"/>
+                                            <Setter TargetName="ToggleSymbolText" Property="Foreground" Value="{StaticResource ButtonTextBrush}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -633,6 +619,142 @@
         <Setter Property="ItemContainerStyle" Value="{StaticResource ModernListBoxItem}"/>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
         <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+    </Style>
+
+    <!-- ===================== Стиль DataGrid (таблица баз) ===================== -->
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="RowBackground" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="RowHeaderWidth" Value="0"/>
+        <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+        <Setter Property="HeadersVisibility" Value="Column"/>
+        <Setter Property="SelectionMode" Value="Single"/>
+        <Setter Property="CanUserAddRows" Value="False"/>
+        <Setter Property="CanUserDeleteRows" Value="False"/>
+        <Setter Property="RowHeight" Value="38"/>
+        <Setter Property="ColumnHeaderHeight" Value="36"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+    </Style>
+
+    <!-- ===================== Стиль заголовка колонки DataGrid ===================== -->
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridColumnHeader">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Border BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              TextElement.FontWeight="{TemplateBinding FontWeight}"
+                                              TextElement.FontSize="{TemplateBinding FontSize}"/>
+                        </Border>
+                        <Thumb x:Name="PART_RightHeaderGripper"
+                               HorizontalAlignment="Right" Width="2"
+                               Cursor="SizeWE"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{StaticResource ItemHoverBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== Стиль строки DataGrid ===================== -->
+    <Style TargetType="DataGridRow">
+        <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrushColor}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource ItemHoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{StaticResource ItemSelectedBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ===================== Стиль ячейки DataGrid ===================== -->
+    <Style TargetType="DataGridCell">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ===================== Динамический стиль ScrollBar (скрывается, когда не нужен) ===================== -->
+    <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="MinWidth" Value="12"/>
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border x:Name="ThumbBorder"
+                                                    Background="{StaticResource ScrollThumbBrush}"
+                                                    CornerRadius="6" Margin="2,2" MinHeight="32"/>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollThumbHoverBrush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollThumbPressedBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter Property="Width" Value="Auto"/>
+                            <Setter Property="Height" Value="12"/>
+                            <Setter Property="MinHeight" Value="12"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>

@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -16,13 +17,6 @@ namespace Configuration_Management
     {
         private readonly MainViewModel _viewModel;
 
-        // Флаг для предотвращения рекурсии при синхронизации выделения между двумя списками.
-        private bool _isSyncingSelection;
-
-        // Имя группы, над которой находится курсор во время перетаскивания.
-        // Определяется в DragOver (где Mouse.DirectlyOver надёжен) и используется в Drop.
-        private string? _dragTargetGroup;
-
         public MainWindow()
         {
             InitializeComponent();
@@ -37,6 +31,8 @@ namespace Configuration_Management
 
             UpdateThemeButton();
 
+            // Применяем сохранённые ширины колонок списка баз.
+            ApplySavedColumnWidths();
         }
 
         private void OnToggleTheme_Click(object sender, RoutedEventArgs e)
@@ -47,38 +43,18 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Синхронизирует выделение между списком закреплённых баз и основным списком,
-        /// чтобы одновременно выделялась только одна база.
+        /// Синхронизирует выделение в дереве с выбранной базой.
+        /// При выборе группы снимает выделение базы.
         /// </summary>
-        private void OnPinnedList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void OnMainTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            if (_isSyncingSelection)
-                return;
-
-            if (PinnedListBox.SelectedItem is Infobase selected)
+            if (e.NewValue is Infobase infobase)
             {
-                _isSyncingSelection = true;
-                _viewModel.SelectedInfobase = selected;
-                MainListBox.SelectedItem = null;
-                _isSyncingSelection = false;
+                _viewModel.SelectedInfobase = infobase;
             }
-        }
-
-        /// <summary>
-        /// Синхронизирует выделение между основным списком и списком закреплённых баз,
-        /// чтобы одновременно выделялась только одна база.
-        /// </summary>
-        private void OnMainList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isSyncingSelection)
-                return;
-
-            if (MainListBox.SelectedItem is Infobase selected)
+            else
             {
-                _isSyncingSelection = true;
-                _viewModel.SelectedInfobase = selected;
-                PinnedListBox.SelectedItem = null;
-                _isSyncingSelection = false;
+                _viewModel.SelectedInfobase = null;
             }
         }
 
@@ -119,7 +95,7 @@ namespace Configuration_Management
             }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
-        private void OnInfobaseList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private void OnInfobaseTree_PreviewMouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (_viewModel.LaunchEnterpriseCommand.CanExecute(null))
             {
@@ -127,105 +103,26 @@ namespace Configuration_Management
             }
         }
 
-        private void OnGroupExpanded(object sender, RoutedEventArgs e)
-        {
-            if (sender is Expander expander && expander.DataContext is CollectionViewGroup group)
-            {
-                _viewModel.SetGroupCollapsed(group.Name?.ToString() ?? string.Empty, false);
-            }
-        }
-
-        private void OnGroupCollapsed(object sender, RoutedEventArgs e)
-        {
-            if (sender is Expander expander && expander.DataContext is CollectionViewGroup group)
-            {
-                _viewModel.SetGroupCollapsed(group.Name?.ToString() ?? string.Empty, true);
-            }
-        }
-
         /// <summary>
-        /// Начинает перетаскивание группы при нажатии на ручку перетаскивания.
+        /// Выделяет базу под курсором при правом клике в дереве,
+        /// чтобы команды контекстного меню применялись именно к этой базе.
         /// </summary>
-        private void OnGroupDragHandle_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void OnInfobaseTree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (sender is not Button button)
+            var treeView = sender as TreeView;
+            if (treeView is null)
+            {
                 return;
-
-            // Помечаем событие как обработанное ДО запуска перетаскивания,
-            // чтобы кнопка и Expander не реагировали на клик.
-            e.Handled = true;
-
-            var expander = FindAncestor<Expander>(button);
-            if (expander?.DataContext is CollectionViewGroup group)
-            {
-                var groupName = group.Name?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(groupName))
-                {
-                    _dragTargetGroup = null;
-                    DragDrop.DoDragDrop(button, groupName, DragDropEffects.Move);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Обрабатывает перетаскивание над списком: разрешает перемещение групп
-        /// и запоминает целевую группу под курсором.
-        /// </summary>
-        private void OnListBox_DragOver(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(typeof(string)))
-            {
-                e.Effects = DragDropEffects.Move;
-                _dragTargetGroup = GetGroupNameAtPosition(sender as ListBox, e.GetPosition(sender as IInputElement));
-            }
-            else
-            {
-                e.Effects = DragDropEffects.None;
-            }
-            e.Handled = true;
-        }
-
-        /// <summary>
-        /// Завершает перетаскивание группы: перемещает её на позицию целевой группы.
-        /// </summary>
-        private void OnListBox_Drop(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetData(typeof(string)) is not string sourceGroup)
-                return;
-
-            var targetGroup = _dragTargetGroup;
-            if (string.IsNullOrEmpty(targetGroup))
-            {
-                // Если цель не была определена в DragOver, пробуем определить её по позиции.
-                targetGroup = GetGroupNameAtPosition(sender as ListBox, e.GetPosition(sender as IInputElement));
             }
 
-            _dragTargetGroup = null;
-            if (!string.IsNullOrEmpty(targetGroup))
+            // Если клик попал по строке базы, выделяем её.
+            var source = e.OriginalSource as DependencyObject;
+            var treeViewItem = source is null ? null : FindAncestor<TreeViewItem>(source);
+            if (treeViewItem?.DataContext is Infobase infobase)
             {
-                _viewModel.MoveGroup(sourceGroup, targetGroup);
+                treeViewItem.IsSelected = true;
+                _viewModel.SelectedInfobase = infobase;
             }
-        }
-
-        /// <summary>
-        /// Определяет имя группы, над которой находится курсор мыши,
-        /// по позиции относительно списка через hit-test.
-        /// </summary>
-        private static string? GetGroupNameAtPosition(ListBox? listBox, Point position)
-        {
-            if (listBox is null)
-                return null;
-
-            var hit = VisualTreeHelper.HitTest(listBox, position);
-            if (hit?.VisualHit is not DependencyObject element)
-                return null;
-
-            var expander = FindAncestor<Expander>(element);
-            if (expander?.DataContext is CollectionViewGroup group)
-            {
-                return group.Name?.ToString();
-            }
-            return null;
         }
 
         /// <summary>
@@ -376,6 +273,51 @@ namespace Configuration_Management
                     return result;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Применяет сохранённые ширины колонок списка баз.
+        /// </summary>
+        private void ApplySavedColumnWidths()
+        {
+            SetColumnWidth(NameColumn, _viewModel.NameColumnWidth);
+            SetColumnWidth(VersionColumn, _viewModel.VersionColumnWidth);
+            SetColumnWidth(LaunchModeColumn, _viewModel.LaunchModeColumnWidth);
+            SetColumnWidth(ServerColumn, _viewModel.ServerColumnWidth);
+        }
+
+        /// <summary>
+        /// Устанавливает ширину колонки, если задано значение больше нуля.
+        /// </summary>
+        private static void SetColumnWidth(ColumnDefinition? column, double width)
+        {
+            if (column is null || width <= 0)
+                return;
+            column.Width = new GridLength(width);
+        }
+
+        /// <summary>
+        /// Синхронизирует ширины колонок строк списка при перетаскивании разделителя.
+        /// </summary>
+        private void OnColumnSplitter_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            _viewModel.UpdateColumnWidths(
+                NameColumn?.ActualWidth ?? 0,
+                VersionColumn?.ActualWidth ?? 0,
+                LaunchModeColumn?.ActualWidth ?? 0,
+                ServerColumn?.ActualWidth ?? 0);
+        }
+
+        /// <summary>
+        /// Сохраняет ширины колонок списка баз после изменения размера разделителем.
+        /// </summary>
+        private void OnColumnSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+        {
+            _viewModel.SaveColumnWidths(
+                NameColumn?.ActualWidth ?? 0,
+                VersionColumn?.ActualWidth ?? 0,
+                LaunchModeColumn?.ActualWidth ?? 0,
+                ServerColumn?.ActualWidth ?? 0);
         }
 
         private void UpdateThemeButton()
