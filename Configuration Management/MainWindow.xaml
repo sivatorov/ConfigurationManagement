@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Configuration_Management"
         xmlns:vm="clr-namespace:Configuration_Management.ViewModels"
+        xmlns:models="clr-namespace:Configuration_Management.Models"
         xmlns:conv="clr-namespace:Configuration_Management.Converters"
         mc:Ignorable="d"
         Title="Управление конфигурациями 1С"
@@ -18,6 +19,7 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:DoubleToGridLengthConverter x:Key="DoubleToGridLength"/>
         <conv:GroupExpandedConverter x:Key="GroupExpandedConverter"/>
         <conv:MultiValueToArrayConverter x:Key="MultiValueToArrayConverter"/>
         <conv:GroupColorConverter x:Key="GroupColorConverter"/>
@@ -92,7 +94,7 @@
             <!-- ============ Левая панель: список информационных баз ============ -->
             <Border Grid.Column="0" Background="{DynamicResource CardBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="0,0,1,0">
-                <Grid Margin="12">
+                <Grid Margin="12" Grid.IsSharedSizeScope="True">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -109,9 +111,11 @@
                         <ToggleButton Content="★ Избранные" IsChecked="{Binding ShowFavoritesOnly}"
                                       Style="{DynamicResource FilterToggleButton}" Margin="0,0,8,0"
                                       ToolTip="Показать только избранные базы"/>
-                        <ToggleButton Content="▤ Группировать" IsChecked="{Binding GroupByGroup}"
+                        <ToggleButton IsChecked="{Binding GroupByGroup}"
                                       Style="{DynamicResource FilterToggleButton}"
-                                      ToolTip="Группировать базы по группам"/>
+                                      ToolTip="Группировать базы по группам">
+                            <TextBlock Text="{Binding GroupByGroupText}"/>
+                        </ToggleButton>
                     </StackPanel>
 
                     <!-- Поиск по базам с кнопками управления группами слева -->
@@ -120,20 +124,21 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0"
-                                    Visibility="{Binding GroupByGroup, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
                             <Button Command="{Binding CollapseAllGroupsCommand}"
-                                    Style="{DynamicResource SecondaryButton}" Padding="6,4"
-                                    Margin="0,0,4,0" ToolTip="Свернуть все группы">
-                                <Path Width="14" Height="14" Stretch="Uniform"
+                                    Style="{DynamicResource SecondaryButton}" Padding="8,6"
+                                    Margin="0,0,6,0" ToolTip="Свернуть все группы">
+                                <Path Width="20" Height="20" Stretch="Uniform"
                                       Fill="{DynamicResource TextPrimaryBrush}"
+                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2"
                                       Data="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41ZM7.41,8.41L12,3.83L16.59,8.41L18,7L12,1L6,7L7.41,8.41Z"/>
                             </Button>
                             <Button Command="{Binding ExpandAllGroupsCommand}"
-                                    Style="{DynamicResource SecondaryButton}" Padding="6,4"
+                                    Style="{DynamicResource SecondaryButton}" Padding="8,6"
                                     ToolTip="Развернуть все группы">
-                                <Path Width="14" Height="14" Stretch="Uniform"
+                                <Path Width="20" Height="20" Stretch="Uniform"
                                       Fill="{DynamicResource TextPrimaryBrush}"
+                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2"
                                       Data="M7.41,8.59L12,13.17L16.59,8.59L18,10L12,16L6,10L7.41,8.59ZM7.41,15.59L12,20.17L16.59,15.59L18,17L12,23L6,17L7.41,15.59Z"/>
                             </Button>
                         </StackPanel>
@@ -150,333 +155,363 @@
                         </Grid>
                     </Grid>
 
-                    <!-- ============ Секция закреплённых баз (вверху, без группы) ============ -->
-                    <StackPanel Grid.Row="3" Margin="4,0,4,8"
-                                Visibility="{Binding HasPinnedInfobases, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Text="📌 Закреплённые" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" Margin="4,0,0,4"/>
-                        <ListBox x:Name="PinnedListBox"
-                                 ItemsSource="{Binding PinnedInfobases}"
-                                 SelectedItem="{Binding SelectedInfobase, Mode=OneWay}"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 ItemContainerStyle="{DynamicResource ModernListBoxItem}"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                 MouseDoubleClick="OnInfobaseList_MouseDoubleClick"
-                                 SelectionChanged="OnPinnedList_SelectionChanged">
-                            <ListBox.ContextMenu>
-                                <ContextMenu Style="{DynamicResource ModernContextMenu}">
-                                    <MenuItem Header="▶ Запустить 1С:Предприятие" Command="{Binding LaunchEnterpriseCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <MenuItem Header="⚙ Запустить Конфигуратор" Command="{Binding LaunchConfiguratorCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <Separator/>
-                                    <MenuItem Header="★ Добавить в избранное / убрать" Command="{Binding ToggleFavoriteCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <Separator/>
-                                    <MenuItem Header="🧹 Очистить кеш базы" Command="{Binding ClearCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <Separator/>
-                                    <MenuItem Header="✎ Изменить настройки" Command="{Binding EditInfobaseCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <MenuItem Header="🗑 Удалить базу" Command="{Binding DeleteInfobaseCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                </ContextMenu>
-                            </ListBox.ContextMenu>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Padding="8,6" Background="Transparent">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0" Width="32" Height="32" CornerRadius="6"
-                                                    Background="{DynamicResource AvatarBackgroundBrush}"
-                                                    VerticalAlignment="Center" Margin="0,0,10,0">
-                                                <TextBlock Text="{Binding Initials}" FontWeight="Bold" FontSize="12"
-                                                           Foreground="{DynamicResource AvatarTextBrush}"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Button Command="{Binding DataContext.TogglePinForCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                            CommandParameter="{Binding}"
-                                                            Background="Transparent" BorderThickness="0"
-                                                            Padding="2,0" Margin="0,0,2,0"
-                                                            Cursor="Hand" VerticalAlignment="Center"
-                                                            ToolTip="Открепить базу">
-                                                        <TextBlock Text="📌" FontSize="13">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
-                                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
-                                                    </Button>
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
-                                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                           FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </StackPanel>
+                    <!-- Область списка: заголовки колонок + дерево баз с общими колонками -->
+                    <Grid Grid.Row="3" Grid.RowSpan="2" Margin="4,0,4,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="30"/>
+                            <ColumnDefinition Width="26"/>
+                            <ColumnDefinition Width="26"/>
+                            <ColumnDefinition x:Name="NameColumn" Width="250"/>
+                            <ColumnDefinition x:Name="VersionColumn" Width="120"/>
+                            <ColumnDefinition x:Name="LaunchModeColumn" Width="120"/>
+                            <ColumnDefinition x:Name="ServerColumn" Width="200"/>
+                            <ColumnDefinition x:Name="LastLaunchColumn" Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                    <!-- Список баз -->
-                    <ListBox x:Name="MainListBox"
-                            Grid.Row="4"
-                            ItemsSource="{Binding InfobasesView}"
-                            SelectedItem="{Binding SelectedInfobase, Mode=OneWay}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            ItemContainerStyle="{DynamicResource ModernListBoxItem}"
-                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                            ScrollViewer.VerticalScrollBarVisibility="Auto"
-                            AllowDrop="True"
-                            DragOver="OnListBox_DragOver"
-                            Drop="OnListBox_Drop"
-                            MouseDoubleClick="OnInfobaseList_MouseDoubleClick"
-                            SelectionChanged="OnMainList_SelectionChanged">
+                        <TextBlock Grid.Column="3" Grid.Row="0" Text="Название" FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <TextBlock Grid.Column="4" Grid.Row="0" Text="Версия платформы" FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                        <TextBlock Grid.Column="5" Grid.Row="0" Text="Режим запуска" FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                        <TextBlock Grid.Column="6" Grid.Row="0" Text="Сервер/База" FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                        <TextBlock Grid.Column="7" Grid.Row="0" Text="Последний запуск" FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
 
-                        <ListBox.GroupStyle>
-                            <GroupStyle>
-                                <GroupStyle.ContainerStyle>
-                                    <Style TargetType="GroupItem">
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="GroupItem">
-                                                    <Expander Style="{DynamicResource GroupExpanderStyle}"
-                                                              Expanded="OnGroupExpanded" Collapsed="OnGroupCollapsed">
-                                                        <Expander.IsExpanded>
-                                                            <MultiBinding Converter="{StaticResource GroupExpandedConverter}" Mode="OneWay">
-                                                                <Binding Path="Name" Mode="OneWay"/>
-                                                                <Binding Path="DataContext" Mode="OneWay" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                        <!-- Разделители для изменения ширины колонок на всю высоту списка -->
+                        <GridSplitter Grid.Column="4" Grid.Row="0" Grid.RowSpan="2" HorizontalAlignment="Left"
+                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
+                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
+                                      ToolTip="Изменить ширину колонки"
+                                      DragDelta="OnColumnSplitter_DragDelta"
+                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
+                        <GridSplitter Grid.Column="5" Grid.Row="0" Grid.RowSpan="2" HorizontalAlignment="Left"
+                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
+                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
+                                      ToolTip="Изменить ширину колонки"
+                                      DragDelta="OnColumnSplitter_DragDelta"
+                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
+                        <GridSplitter Grid.Column="6" Grid.Row="0" Grid.RowSpan="2" HorizontalAlignment="Left"
+                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
+                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
+                                      ToolTip="Изменить ширину колонки"
+                                      DragDelta="OnColumnSplitter_DragDelta"
+                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
+                        <GridSplitter Grid.Column="7" Grid.Row="0" Grid.RowSpan="2" HorizontalAlignment="Left"
+                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
+                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
+                                      ToolTip="Изменить ширину колонки"
+                                      DragDelta="OnColumnSplitter_DragDelta"
+                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
+
+                    <!-- Список баз в виде дерева «группа в группе» -->
+                    <TreeView x:Name="MainTree"
+                              Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="9"
+                              ItemsSource="{Binding GroupNodes}"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              Padding="4"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              SelectedItemChanged="OnMainTree_SelectedItemChanged"
+                              PreviewMouseDoubleClick="OnInfobaseTree_PreviewMouseDoubleClick"
+                              PreviewMouseRightButtonDown="OnInfobaseTree_PreviewMouseRightButtonDown"
+                              PreviewMouseLeftButtonDown="OnInfobaseTree_PreviewMouseLeftButtonDown">
+
+                        <TreeView.Resources>
+                            <!-- Узел группы: заголовок + вложенные подгруппы и базы -->
+                            <HierarchicalDataTemplate DataType="{x:Type vm:GroupNodeViewModel}"
+                                                      ItemsSource="{Binding Items}">
+                                <Border CornerRadius="6" Padding="8,6" Margin="0,1">
+                                    <Border.Background>
+                                        <MultiBinding Converter="{StaticResource GroupColorConverter}">
+                                            <Binding Path="FullPath"/>
+                                            <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                        </MultiBinding>
+                                    </Border.Background>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontSize="17" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="📁"/>
+                                                    <Setter Property="Foreground">
+                                                        <Setter.Value>
+                                                            <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
+                                                                <Binding Path="FullPath"/>
+                                                                <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=Window}"/>
                                                             </MultiBinding>
-                                                        </Expander.IsExpanded>
-                                                        <Expander.Header>
-                                                            <Border CornerRadius="6" Padding="8,6">
-                                                                <Border.Background>
-                                                                    <MultiBinding Converter="{StaticResource GroupColorConverter}">
-                                                                        <Binding Path="Name"/>
-                                                                        <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                                                                    </MultiBinding>
-                                                                </Border.Background>
-                                                                <StackPanel Orientation="Horizontal">
-                                                                    <TextBlock Text="📁" FontSize="17" Margin="0,0,8,0"
-                                                                               VerticalAlignment="Center">
-                                                                        <TextBlock.Foreground>
-                                                                            <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
-                                                                                <Binding Path="Name"/>
-                                                                                <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                                                                            </MultiBinding>
-                                                                        </TextBlock.Foreground>
-                                                                    </TextBlock>
-                                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="15"
-                                                                               VerticalAlignment="Center">
-                                                                        <TextBlock.Foreground>
-                                                                            <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
-                                                                                <Binding Path="Name"/>
-                                                                                <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                                                                            </MultiBinding>
-                                                                        </TextBlock.Foreground>
-                                                                    </TextBlock>
-                                                                    <Button Content="☰" FontSize="14" Padding="4,0"
-                                                                            Background="Transparent" BorderThickness="0"
-                                                                            Cursor="SizeAll" VerticalAlignment="Center"
-                                                                            Margin="8,0,0,0"
-                                                                            ToolTip="Перетащить группу"
-                                                                            PreviewMouseLeftButtonDown="OnGroupDragHandle_PreviewMouseLeftButtonDown">
-                                                                        <Button.Foreground>
-                                                                            <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
-                                                                                <Binding Path="Name"/>
-                                                                                <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                                                                            </MultiBinding>
-                                                                        </Button.Foreground>
-                                                                    </Button>
-                                                                </StackPanel>
-                                                            </Border>
-                                                        </Expander.Header>
-                                                        <ItemsPresenter/>
-                                                    </Expander>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </GroupStyle.ContainerStyle>
-                            </GroupStyle>
-                        </ListBox.GroupStyle>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DisplayName}" Value="Закреплённые">
+                                                            <Setter Property="Text" Value="📌"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="15"
+                                                   VerticalAlignment="Center">
+                                            <TextBlock.Foreground>
+                                                <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
+                                                    <Binding Path="FullPath"/>
+                                                    <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                </MultiBinding>
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding TotalInfobaseCount, StringFormat=' ({0})'}" FontSize="13"
+                                                   VerticalAlignment="Center" Margin="6,0,0,0">
+                                            <TextBlock.Foreground>
+                                                <MultiBinding Converter="{StaticResource GroupTextColorConverter}">
+                                                    <Binding Path="FullPath"/>
+                                                    <Binding Path="DataContext.Groups" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                </MultiBinding>
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Border>
+                            </HierarchicalDataTemplate>
 
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="8,8" Background="Transparent">
+                            <!-- Строка информационной базы -->
+                            <DataTemplate DataType="{x:Type models:Infobase}">
+                                <Border Padding="4,3" Margin="0,1">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="CornerRadius" Value="4"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="26"/>
+                                            <ColumnDefinition Width="26"/>
+                                            <ColumnDefinition Width="{Binding DataContext.NameColumnWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DoubleToGridLength}, ConverterParameter=250}"/>
+                                            <ColumnDefinition Width="{Binding DataContext.VersionColumnWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DoubleToGridLength}, ConverterParameter=120}"/>
+                                            <ColumnDefinition Width="{Binding DataContext.LaunchModeColumnWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DoubleToGridLength}, ConverterParameter=120}"/>
+                                            <ColumnDefinition Width="{Binding DataContext.ServerColumnWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DoubleToGridLength}, ConverterParameter=200}"/>
+                                            <ColumnDefinition Width="{Binding DataContext.LastLaunchColumnWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DoubleToGridLength}, ConverterParameter=140}"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
 
-                                        <!-- Аватар с инициалами -->
-                                        <Border Grid.Column="0" Width="40" Height="40" CornerRadius="8"
-                                                Background="{DynamicResource AvatarBackgroundBrush}"
-                                                VerticalAlignment="Top" Margin="0,0,10,0">
-                                            <TextBlock Text="{Binding Initials}" FontWeight="Bold" FontSize="14"
-                                                       Foreground="{DynamicResource AvatarTextBrush}"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
+                                        <Button Grid.Column="1"
+                                                Command="{Binding DataContext.ToggleFavoriteForCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                Background="Transparent" BorderThickness="0"
+                                                Cursor="Hand" Padding="0"
+                                                MinWidth="0" MinHeight="0"
+                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                                ToolTip="Добавить/убрать из избранного">
+                                            <TextBlock Text="★" FontSize="14">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource FavoriteBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
 
-                                        <!-- Основная информация -->
-                                        <StackPanel Grid.Column="1">
-                                            <StackPanel Orientation="Horizontal">
-                                                <Button Command="{Binding DataContext.ToggleFavoriteForCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                        CommandParameter="{Binding}"
-                                                        Background="Transparent" BorderThickness="0"
-                                                        Padding="2,0" Margin="0,0,2,0"
-                                                        Cursor="Hand" VerticalAlignment="Center"
-                                                        ToolTip="Добавить в избранное / убрать">
-                                                    <TextBlock Text="★" FontSize="15" Margin="0,0,0,0">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                                        <Setter Property="Foreground" Value="{DynamicResource FavoriteBrush}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </Button>
-                                                <!-- Кнопка закрепления базы вверху списка -->
-                                                <Button Command="{Binding DataContext.TogglePinForCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                        CommandParameter="{Binding}"
-                                                        Background="Transparent" BorderThickness="0"
-                                                        Padding="2,0" Margin="0,0,2,0"
-                                                        Cursor="Hand" VerticalAlignment="Center"
-                                                        ToolTip="Закрепить базу вверху списка / открепить">
-                                                    <TextBlock Text="📌" FontSize="13" Margin="0,0,0,0">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </Button>
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
-                                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </StackPanel>
-                                            <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       FontSize="11" Margin="0,0,0,0" TextTrimming="CharacterEllipsis"/>
-                                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
-                                                <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4" Padding="5,1">
-                                                    <Border.Style>
-                                                        <Style TargetType="Border">
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding PlatformVersion}" Value="">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Border.Style>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="📦" FontSize="11" Margin="0,0,4,0"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                        <TextBlock Text="{Binding PlatformVersion}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
-                                                    </StackPanel>
-                                                </Border>
-                                                <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4" Padding="5,1" Margin="4,0,0,0">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="🖥" FontSize="11" Margin="0,0,4,0"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                        <TextBlock Text="{Binding LaunchMode}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
-                                                    </StackPanel>
-                                                </Border>
-                                                <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4" Padding="5,1" Margin="4,0,0,0">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="💾" FontSize="11" Margin="0,0,4,0"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                        <TextBlock Text="{Binding ConnectionTypeDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
-                                                    </StackPanel>
-                                                </Border>
-                                                <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4" Padding="5,1" Margin="4,0,0,0">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="🕒" FontSize="11" Margin="0,0,4,0"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                        <TextBlock Text="{Binding LastLaunchDisplay}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11"/>
-                                                    </StackPanel>
-                                                </Border>
-                                            </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Command="{Binding DataContext.TogglePinForCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                Background="Transparent" BorderThickness="0"
+                                                Cursor="Hand" Padding="0"
+                                                MinWidth="0" MinHeight="0"
+                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                                ToolTip="Закрепить/открепить базу вверху списка">
+                                            <TextBlock Text="📌" FontSize="14">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
 
-                                            <!-- Теги базы -->
-                                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                                <ItemsControl ItemsSource="{Binding Tags}">
-                                                    <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                            <WrapPanel/>
-                                                        </ItemsPanelTemplate>
-                                                    </ItemsControl.ItemsPanel>
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4"
-                                                                    Padding="6,2" Margin="0,0,6,4">
-                                                                <StackPanel Orientation="Horizontal">
-                                                                    <Button Command="{Binding DataContext.SearchByTagCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                                            CommandParameter="{Binding}"
-                                                                            Background="Transparent" BorderThickness="0" Padding="0"
-                                                                            Cursor="Hand" ToolTip="Показать базы с этим тегом">
-                                                                        <TextBlock Text="{Binding}" Foreground="{DynamicResource AccentBrush}"
-                                                                                   FontSize="11" FontWeight="SemiBold"/>
-                                                                    </Button>
-                                                                    <Button Click="OnRemoveTag_Click"
-                                                                            Background="Transparent" BorderThickness="0" Padding="2,0"
-                                                                            Margin="4,0,0,0" Cursor="Hand" ToolTip="Удалить тег">
-                                                                        <TextBlock Text="✕" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10"/>
-                                                                    </Button>
-                                                                </StackPanel>
-                                                            </Border>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                                <Button x:Name="AddTagButton" Content="+ тег"
-                                                        Click="OnAddTagInline_Click"
-                                                        Background="Transparent" BorderThickness="0" Padding="4,2"
-                                                        Cursor="Hand" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                        FontSize="11" VerticalAlignment="Top" Margin="0,0,0,4"
-                                                        ToolTip="Добавить тег к базе"/>
-                                                <TextBox x:Name="InlineTagBox" Visibility="Collapsed"
-                                                         Width="120" FontSize="12" Padding="4,2"
-                                                         Margin="6,0,0,0" VerticalAlignment="Center"
-                                                         KeyDown="OnInlineTagBox_KeyDown"
-                                                         LostFocus="OnInlineTagBox_LostFocus"
-                                                         ToolTip="Введите тег и нажмите Enter"/>
-                                            </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"
+                                                   HorizontalAlignment="Stretch" TextTrimming="CharacterEllipsis"/>
+
+                                        <TextBlock Grid.Column="4" Text="{Binding PlatformVersion}" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+
+                                        <TextBlock Grid.Column="5" Text="{Binding ParsedLaunchMode}" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+
+                                        <TextBlock Grid.Column="6" Text="{Binding ServerDatabaseDisplay}" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+
+                                        <TextBlock Grid.Column="7" Text="{Binding LastLaunchDisplay}" FontSize="12"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+
+                                        <!-- Теги базы -->
+                                        <StackPanel Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="6"
+                                                    Orientation="Horizontal" Margin="0,6,0,0">
+                                            <ItemsControl ItemsSource="{Binding Tags}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="4"
+                                                                Padding="6,2" Margin="0,0,6,4">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Button Command="{Binding DataContext.SearchByTagCommand, RelativeSource={RelativeSource AncestorType=TreeView}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        Background="Transparent" BorderThickness="0" Padding="0"
+                                                                        Cursor="Hand" ToolTip="Показать базы с этим тегом">
+                                                                    <TextBlock Text="{Binding}" Foreground="{DynamicResource AccentBrush}"
+                                                                               FontSize="11" FontWeight="SemiBold"/>
+                                                                </Button>
+                                                                <Button Click="OnRemoveTag_Click"
+                                                                        Background="Transparent" BorderThickness="0" Padding="2,0"
+                                                                        Margin="4,0,0,0" Cursor="Hand" ToolTip="Удалить тег">
+                                                                    <TextBlock Text="✕" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10"/>
+                                                                </Button>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Button x:Name="AddTagButton" Content="+ тег"
+                                                    Click="OnAddTagInline_Click"
+                                                    Background="Transparent" BorderThickness="0" Padding="4,2"
+                                                    Cursor="Hand" Foreground="{DynamicResource TextSecondaryBrush}"
+                                                    FontSize="11" VerticalAlignment="Top" Margin="0,0,0,4"
+                                                    ToolTip="Добавить тег к базе"/>
+                                            <TextBox x:Name="InlineTagBox" Visibility="Collapsed"
+                                                     Width="120" FontSize="12" Padding="4,2"
+                                                     Margin="6,0,0,0" VerticalAlignment="Center"
+                                                     KeyDown="OnInlineTagBox_KeyDown"
+                                                     LostFocus="OnInlineTagBox_LostFocus"
+                                                     ToolTip="Введите тег и нажмите Enter"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
-                        </ListBox.ItemTemplate>
+                        </TreeView.Resources>
 
-                        <!-- ============ Контекстное меню для списка баз ============ -->
-                        <ListBox.ContextMenu>
+                        <TreeView.ItemContainerStyle>
+                            <!-- Шаблон без отступа вложенных уровней, чтобы колонки данных
+                                 совпадали с колонками заголовка -->
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="TreeViewItem">
+                                            <StackPanel>
+                                                <Border x:Name="row" Background="Transparent">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="16"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <ToggleButton x:Name="Expander"
+                                                                      Grid.Column="0"
+                                                                      IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
+                                                                      ClickMode="Press"
+                                                                      Width="16" Height="16"
+                                                                      Background="Transparent" BorderThickness="0">
+                                                            <ToggleButton.Template>
+                                                                <ControlTemplate TargetType="ToggleButton">
+                                                                    <TextBlock x:Name="ExpanderSymbol"
+                                                                               Text="+"
+                                                                               FontSize="12"
+                                                                               FontWeight="Bold"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                                    <ControlTemplate.Triggers>
+                                                                        <Trigger Property="IsChecked" Value="True">
+                                                                            <Setter TargetName="ExpanderSymbol" Property="Text" Value="−"/>
+                                                                        </Trigger>
+                                                                    </ControlTemplate.Triggers>
+                                                                </ControlTemplate>
+                                                            </ToggleButton.Template>
+                                                        </ToggleButton>
+                                                        <ContentPresenter Grid.Column="1" ContentSource="Header" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </Border>
+                                                <ItemsPresenter x:Name="ItemsHost" Margin="16,0,0,0"/>
+                                            </StackPanel>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsExpanded" Value="False">
+                                                    <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/>
+                                                </Trigger>
+                                                <Trigger Property="HasItems" Value="False">
+                                                    <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="row" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                                                </Trigger>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
+                                                        <Condition Binding="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}}" Value="False"/>
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter TargetName="row" Property="Background" Value="{DynamicResource TreeSelectedBrush}"/>
+                                                </MultiDataTrigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+
+                        <!-- Контекстное меню по правой кнопке мыши для выбранной базы -->
+                        <TreeView.ContextMenu>
                             <ContextMenu Style="{DynamicResource ModernContextMenu}">
                                 <MenuItem Header="▶ Запустить 1С:Предприятие" Command="{Binding LaunchEnterpriseCommand}" Style="{DynamicResource ModernMenuItem}"/>
                                 <MenuItem Header="⚙ Запустить Конфигуратор" Command="{Binding LaunchConfiguratorCommand}" Style="{DynamicResource ModernMenuItem}"/>
                                 <Separator/>
-                                <MenuItem Header="★ Добавить в избранное / убрать" Command="{Binding ToggleFavoriteCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                <Separator/>
+                                <MenuItem Header="★ Избранное" Command="{Binding ToggleFavoriteCommand}" Style="{DynamicResource ModernMenuItem}"/>
+                                <MenuItem Header="📌 Закрепить" Command="{Binding TogglePinCommand}" Style="{DynamicResource ModernMenuItem}"/>
                                 <MenuItem Header="🧹 Очистить кеш базы" Command="{Binding ClearCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
+                                <MenuItem Header="📋 Копировать строку подключения" Command="{Binding CopyConnectionStringCommand}" Style="{DynamicResource ModernMenuItem}"/>
                                 <Separator/>
                                 <MenuItem Header="✎ Изменить настройки" Command="{Binding EditInfobaseCommand}" Style="{DynamicResource ModernMenuItem}"/>
                                 <MenuItem Header="🗑 Удалить базу" Command="{Binding DeleteInfobaseCommand}" Style="{DynamicResource ModernMenuItem}"/>
                             </ContextMenu>
-                        </ListBox.ContextMenu>
-                    </ListBox>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+                </Grid>
                 </Grid>
             </Border>
 
@@ -528,6 +563,12 @@
                     <Button Content="✎ Изменить" Command="{Binding EditInfobaseCommand}"
                             Style="{DynamicResource SecondaryButton}" Margin="0,0,0,8" Padding="10,8"
                             ToolTip="Изменить настройки выбранной базы"/>
+                    <Button Content="★ Избранное" Command="{Binding ToggleFavoriteCommand}"
+                            Style="{DynamicResource SecondaryButton}" Margin="0,0,0,8" Padding="10,8"
+                            ToolTip="Добавить/убрать базу из избранного"/>
+                    <Button Content="📌 Закрепить" Command="{Binding TogglePinCommand}"
+                            Style="{DynamicResource SecondaryButton}" Margin="0,0,0,8" Padding="10,8"
+                            ToolTip="Закрепить базу вверху списка"/>
                     <Button Content="🗑 Удалить" Command="{Binding DeleteInfobaseCommand}"
                             Style="{DynamicResource SecondaryButton}" Padding="10,8"
                             ToolTip="Удалить выбранную базу"/>

@@ -13,6 +13,12 @@ public class Group
     /// <summary>Наименование группы.</summary>
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Идентификатор родительской группы (Id). Пустая строка — корневая группа.
+    /// Позволяет строить иерархию групп, как в типовом списке баз 1С.
+    /// </summary>
+    public string ParentId { get; set; } = string.Empty;
+
     /// <summary>Описание группы.</summary>
     public string Description { get; set; } = string.Empty;
 
