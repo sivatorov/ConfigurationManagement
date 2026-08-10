@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -16,13 +17,6 @@ namespace Configuration_Management
     {
         private readonly MainViewModel _viewModel;
 
-        // Флаг для предотвращения рекурсии при синхронизации выделения между двумя списками.
-        private bool _isSyncingSelection;
-
-        // Имя группы, над которой находится курсор во время перетаскивания.
-        // Определяется в DragOver (где Mouse.DirectlyOver надёжен) и используется в Drop.
-        private string? _dragTargetGroup;
-
         public MainWindow()
         {
             InitializeComponent();
@@ -37,6 +31,69 @@ namespace Configuration_Management
 
             UpdateThemeButton();
 
+            // Применяем сохранённые ширины колонок списка баз.
+            ApplySavedColumnWidths();
+
+            // Применяем сохранённые размер, позицию и состояние окна.
+            ApplySavedWindowLayout();
+        }
+
+        /// <summary>
+        /// Восстанавливает сохранённые размер, позицию и состояние окна приложения.
+        /// </summary>
+        private void ApplySavedWindowLayout()
+        {
+            var width = _viewModel.SavedWindowWidth;
+            var height = _viewModel.SavedWindowHeight;
+
+            if (width > 0 && height > 0)
+            {
+                // Не допускаем выход окна за пределы рабочей области экрана.
+                var area = SystemParameters.WorkArea;
+                var left = _viewModel.SavedWindowLeft;
+                var top = _viewModel.SavedWindowTop;
+                if (left <= 0 && top <= 0)
+                {
+                    // Если позиция не сохранена — центрируем окно.
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                }
+                else
+                {
+                    // Ограничиваем позицию, чтобы окно оставалось видимым.
+                    var safeLeft = Math.Max(area.Left, Math.Min(left, area.Right - Math.Min(width, area.Width)));
+                    var safeTop = Math.Max(area.Top, Math.Min(top, area.Bottom - Math.Min(height, area.Height)));
+                    Left = safeLeft;
+                    Top = safeTop;
+                }
+
+                Width = width;
+                Height = height;
+            }
+
+            // Восстанавливаем развёрнутое состояние окна.
+            if (Enum.TryParse<WindowState>(_viewModel.SavedWindowState, out var state) &&
+                state != WindowState.Minimized)
+            {
+                WindowState = state;
+            }
+        }
+
+        /// <summary>
+        /// Сохраняет размер, позицию и состояние окна приложения при закрытии.
+        /// </summary>
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Сохраняем только в обычном состоянии, чтобы не сохранить развёрнутое окно как размер по умолчанию.
+            if (WindowState == WindowState.Normal)
+            {
+                _viewModel.SaveWindowLayout(Width, Height, Left, Top, WindowState.ToString());
+            }
+            else if (WindowState == WindowState.Maximized)
+            {
+                _viewModel.SaveWindowLayout(RestoreBounds.Width, RestoreBounds.Height, RestoreBounds.Left, RestoreBounds.Top, WindowState.ToString());
+            }
+
+            base.OnClosing(e);
         }
 
         private void OnToggleTheme_Click(object sender, RoutedEventArgs e)
@@ -47,38 +104,25 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Синхронизирует выделение между списком закреплённых баз и основным списком,
-        /// чтобы одновременно выделялась только одна база.
+        /// Синхронизирует выделение в дереве с выбранной базой.
+        /// При выборе группы снимает выделение базы.
         /// </summary>
-        private void OnPinnedList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void OnMainTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            if (_isSyncingSelection)
-                return;
-
-            if (PinnedListBox.SelectedItem is Infobase selected)
+            // Сбрасываем признак выделения у предыдущей базы, чтобы она визуально не оставалась залитой.
+            if (e.OldValue is Infobase oldInfobase)
             {
-                _isSyncingSelection = true;
-                _viewModel.SelectedInfobase = selected;
-                MainListBox.SelectedItem = null;
-                _isSyncingSelection = false;
+                oldInfobase.IsSelected = false;
             }
-        }
 
-        /// <summary>
-        /// Синхронизирует выделение между основным списком и списком закреплённых баз,
-        /// чтобы одновременно выделялась только одна база.
-        /// </summary>
-        private void OnMainList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isSyncingSelection)
-                return;
-
-            if (MainListBox.SelectedItem is Infobase selected)
+            if (e.NewValue is Infobase infobase)
             {
-                _isSyncingSelection = true;
-                _viewModel.SelectedInfobase = selected;
-                PinnedListBox.SelectedItem = null;
-                _isSyncingSelection = false;
+                infobase.IsSelected = true;
+                _viewModel.SelectedInfobase = infobase;
+            }
+            else
+            {
+                _viewModel.SelectedInfobase = null;
             }
         }
 
@@ -119,7 +163,7 @@ namespace Configuration_Management
             }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
-        private void OnInfobaseList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private void OnInfobaseTree_PreviewMouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (_viewModel.LaunchEnterpriseCommand.CanExecute(null))
             {
@@ -127,105 +171,107 @@ namespace Configuration_Management
             }
         }
 
-        private void OnGroupExpanded(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Выделяет базу под курсором при правом клике в дереве,
+        /// чтобы команды контекстного меню применялись именно к этой базе.
+        /// </summary>
+        private void OnInfobaseTree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (sender is Expander expander && expander.DataContext is CollectionViewGroup group)
+            var treeView = sender as TreeView;
+            if (treeView is null)
             {
-                _viewModel.SetGroupCollapsed(group.Name?.ToString() ?? string.Empty, false);
+                return;
             }
-        }
 
-        private void OnGroupCollapsed(object sender, RoutedEventArgs e)
-        {
-            if (sender is Expander expander && expander.DataContext is CollectionViewGroup group)
+            // Если клик попал по строке базы, выделяем её.
+            var source = e.OriginalSource as DependencyObject;
+            var treeViewItem = source is null ? null : FindAncestor<TreeViewItem>(source);
+            if (treeViewItem?.DataContext is Infobase infobase)
             {
-                _viewModel.SetGroupCollapsed(group.Name?.ToString() ?? string.Empty, true);
+                treeViewItem.IsSelected = true;
+                _viewModel.SelectedInfobase = infobase;
             }
         }
 
         /// <summary>
-        /// Начинает перетаскивание группы при нажатии на ручку перетаскивания.
+        /// Выделяет базу под курсором при левом клике в дереве.
+        /// Сами устанавливаем выбор и помечаем событие обработанным, чтобы
+        /// собственная логика TreeView не сбросила выделение. Клики по
+        /// интерактивным элементам строки (кнопки, поле ввода) не
+        /// перехватываются, чтобы они продолжали работать.
         /// </summary>
-        private void OnGroupDragHandle_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void OnInfobaseTree_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (sender is not Button button)
+            var treeView = sender as TreeView;
+            if (treeView is null)
+            {
+                return;
+            }
+
+            var source = e.OriginalSource as DependencyObject;
+            if (source is null)
+            {
+                return;
+            }
+
+            var treeViewItem = FindAncestor<TreeViewItem>(source);
+            if (treeViewItem?.DataContext is not Infobase infobase)
+            {
+                return;
+            }
+
+            // Если клик пришёлся по интерактивному элементу (кнопка, поле ввода),
+            // не вмешиваемся, чтобы они продолжали работать.
+            if (FindAncestor<Button>(source) is not null ||
+                FindAncestor<TextBox>(source) is not null)
+            {
+                return;
+            }
+
+            ApplySelection(treeViewItem, infobase);
+
+            // Помечаем клик обработанным, чтобы TreeView не сбросил выбранный элемент.
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Прокручивает внешний ScrollViewer колесом мыши, когда курсор находится
+        /// над деревом баз. Собственный вложенный ScrollViewer дерева отключён,
+        /// поэтому событие колеса перехватывается здесь и передаётся внешнему
+        /// скроллбару, который синхронно прокручивает заголовки и содержимое.
+        /// </summary>
+        private void OnInfobaseTree_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            var treeView = sender as TreeView;
+            if (treeView is null)
                 return;
 
-            // Помечаем событие как обработанное ДО запуска перетаскивания,
-            // чтобы кнопка и Expander не реагировали на клик.
-            e.Handled = true;
-
-            var expander = FindAncestor<Expander>(button);
-            if (expander?.DataContext is CollectionViewGroup group)
-            {
-                var groupName = group.Name?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(groupName))
-                {
-                    _dragTargetGroup = null;
-                    DragDrop.DoDragDrop(button, groupName, DragDropEffects.Move);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Обрабатывает перетаскивание над списком: разрешает перемещение групп
-        /// и запоминает целевую группу под курсором.
-        /// </summary>
-        private void OnListBox_DragOver(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(typeof(string)))
-            {
-                e.Effects = DragDropEffects.Move;
-                _dragTargetGroup = GetGroupNameAtPosition(sender as ListBox, e.GetPosition(sender as IInputElement));
-            }
-            else
-            {
-                e.Effects = DragDropEffects.None;
-            }
-            e.Handled = true;
-        }
-
-        /// <summary>
-        /// Завершает перетаскивание группы: перемещает её на позицию целевой группы.
-        /// </summary>
-        private void OnListBox_Drop(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetData(typeof(string)) is not string sourceGroup)
+            var outerScroll = FindAncestor<ScrollViewer>(treeView);
+            if (outerScroll is null)
                 return;
 
-            var targetGroup = _dragTargetGroup;
-            if (string.IsNullOrEmpty(targetGroup))
-            {
-                // Если цель не была определена в DragOver, пробуем определить её по позиции.
-                targetGroup = GetGroupNameAtPosition(sender as ListBox, e.GetPosition(sender as IInputElement));
-            }
+            var delta = e.Delta;
 
-            _dragTargetGroup = null;
-            if (!string.IsNullOrEmpty(targetGroup))
-            {
-                _viewModel.MoveGroup(sourceGroup, targetGroup);
-            }
+            // Если внешний скроллбар достиг края, позволяем событию распространиться
+            // дальше (например, вверх по иерархии), иначе прокручиваем сами.
+            var canScrollDown = delta < 0 && outerScroll.VerticalOffset < outerScroll.ScrollableHeight;
+            var canScrollUp = delta > 0 && outerScroll.VerticalOffset > 0;
+            if (!canScrollDown && !canScrollUp)
+                return;
+
+            outerScroll.ScrollToVerticalOffset(outerScroll.VerticalOffset - delta);
+            e.Handled = true;
         }
 
         /// <summary>
-        /// Определяет имя группы, над которой находится курсор мыши,
-        /// по позиции относительно списка через hit-test.
+        /// Устанавливает выделение указанного элемента дерева и синхронизирует
+        /// выбранную базу в модели представления.
         /// </summary>
-        private static string? GetGroupNameAtPosition(ListBox? listBox, Point position)
+        private void ApplySelection(TreeViewItem item, Infobase infobase)
         {
-            if (listBox is null)
-                return null;
-
-            var hit = VisualTreeHelper.HitTest(listBox, position);
-            if (hit?.VisualHit is not DependencyObject element)
-                return null;
-
-            var expander = FindAncestor<Expander>(element);
-            if (expander?.DataContext is CollectionViewGroup group)
-            {
-                return group.Name?.ToString();
-            }
-            return null;
+            item.IsSelected = true;
+            item.Focus();
+            _viewModel.SelectedInfobase = infobase;
         }
 
         /// <summary>
@@ -251,9 +297,9 @@ namespace Configuration_Management
                 return;
 
             // InlineTagBox находится в том же StackPanel, что и кнопка «+ тег»,
-            // поэтому ищем его через общий предок ListBoxItem.
-            var listBoxItem = FindAncestor<ListBoxItem>(button);
-            var tagBox = listBoxItem is null ? null : FindVisualChild<TextBox>(listBoxItem);
+            // поэтому ищем его через общий предок TreeViewItem.
+            var treeViewItem = FindAncestor<TreeViewItem>(button);
+            var tagBox = treeViewItem is null ? null : FindVisualChild<TextBox>(treeViewItem);
             if (tagBox is null)
                 return;
 
@@ -273,9 +319,9 @@ namespace Configuration_Management
             if (sender is not Button button)
                 return;
 
-            // База определяется через общий предок ListBoxItem.
-            var listBoxItem = FindAncestor<ListBoxItem>(button);
-            if (listBoxItem?.DataContext is not Infobase infobase)
+            // База определяется через общий предок TreeViewItem.
+            var treeViewItem = FindAncestor<TreeViewItem>(button);
+            if (treeViewItem?.DataContext is not Infobase infobase)
                 return;
 
             // Тег — это DataContext кнопки (кнопка находится в ItemsControl.ItemTemplate тегов).
@@ -323,11 +369,11 @@ namespace Configuration_Management
             tagBox.Visibility = Visibility.Collapsed;
 
             // Кнопка «+ тег» находится рядом с полем ввода в одном StackPanel,
-            // поэтому ищем её через общего предка ListBoxItem.
-            var listBoxItem = FindAncestor<ListBoxItem>(tagBox);
-            var addButton = listBoxItem is null
+            // поэтому ищем её через общего предка TreeViewItem.
+            var treeViewItem = FindAncestor<TreeViewItem>(tagBox);
+            var addButton = treeViewItem is null
                 ? null
-                : FindVisualChildByName<Button>(listBoxItem, "AddTagButton");
+                : FindVisualChildByName<Button>(treeViewItem, "AddTagButton");
             if (addButton is not null)
             {
                 addButton.Visibility = Visibility.Visible;
@@ -376,6 +422,54 @@ namespace Configuration_Management
                     return result;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Применяет сохранённые ширины колонок списка баз.
+        /// </summary>
+        private void ApplySavedColumnWidths()
+        {
+            SetColumnWidth(NameColumn, _viewModel.NameColumnWidth);
+            SetColumnWidth(VersionColumn, _viewModel.VersionColumnWidth);
+            SetColumnWidth(LaunchModeColumn, _viewModel.LaunchModeColumnWidth);
+            SetColumnWidth(ServerColumn, _viewModel.ServerColumnWidth);
+            SetColumnWidth(LastLaunchColumn, _viewModel.LastLaunchColumnWidth);
+        }
+
+        /// <summary>
+        /// Устанавливает ширину колонки, если задано значение больше нуля.
+        /// </summary>
+        private static void SetColumnWidth(ColumnDefinition? column, double width)
+        {
+            if (column is null || width <= 0)
+                return;
+            column.Width = new GridLength(width);
+        }
+
+        /// <summary>
+        /// Синхронизирует ширины колонок строк списка при перетаскивании разделителя.
+        /// </summary>
+        private void OnColumnSplitter_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            _viewModel.UpdateColumnWidths(
+                NameColumn?.ActualWidth ?? 0,
+                VersionColumn?.ActualWidth ?? 0,
+                LaunchModeColumn?.ActualWidth ?? 0,
+                ServerColumn?.ActualWidth ?? 0,
+                LastLaunchColumn?.ActualWidth ?? 0);
+        }
+
+        /// <summary>
+        /// Сохраняет ширины колонок списка баз после изменения размера разделителем.
+        /// </summary>
+        private void OnColumnSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+        {
+            _viewModel.SaveColumnWidths(
+                NameColumn?.ActualWidth ?? 0,
+                VersionColumn?.ActualWidth ?? 0,
+                LaunchModeColumn?.ActualWidth ?? 0,
+                ServerColumn?.ActualWidth ?? 0,
+                LastLaunchColumn?.ActualWidth ?? 0);
         }
 
         private void UpdateThemeButton()

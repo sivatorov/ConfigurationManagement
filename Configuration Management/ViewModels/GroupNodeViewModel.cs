@@ -6,29 +6,38 @@ namespace Configuration_Management.ViewModels;
 /// <summary>
 /// Представляет узел дерева групп информационных баз.
 /// Содержит модель группы, коллекцию подгрупп и коллекцию баз, размещённых в этой группе.
+/// Также содержит единую коллекцию <see cref="Items"/>, объединяющую подгруппы и базы,
+/// для отображения дерева «группа в группе».
 /// </summary>
 public class GroupNodeViewModel : ViewModelBase
 {
     private bool _isExpanded = true;
+    private bool _isSelected;
 
     /// <summary>
     /// Создаёт узел дерева для указанной группы.
     /// </summary>
-    /// <param name="group">Модель группы. Может быть null для специального узла «Без группы».</param>
+    /// <param name="group">Модель группы. Может быть null для специального узла («Закреплённые», «Без группы»).</param>
     /// <param name="parent">Родительский узел. Null для корневого узла.</param>
-    public GroupNodeViewModel(Group? group, GroupNodeViewModel? parent = null)
+    /// <param name="displayName">Имя для отображения (для специальных узлов).</param>
+    public GroupNodeViewModel(Group? group, GroupNodeViewModel? parent = null, string? displayName = null)
     {
         Group = group;
         Parent = parent;
+        DisplayName = displayName ?? group?.Name ?? "Без группы";
         Children = new ObservableCollection<GroupNodeViewModel>();
         Infobases = new ObservableCollection<Infobase>();
+        Items = new ObservableCollection<object>();
     }
 
-    /// <summary>Модель группы. Null для специального узла «Без группы».</summary>
+    /// <summary>Модель группы. Null для специальных узлов («Закреплённые», «Без группы»).</summary>
     public Group? Group { get; }
 
     /// <summary>Родительский узел. Null для корневого узла.</summary>
     public GroupNodeViewModel? Parent { get; }
+
+    /// <summary>Имя группы для отображения (без пути).</summary>
+    public string DisplayName { get; }
 
     /// <summary>Полный путь группы в иерархии.</summary>
     public string FullPath
@@ -44,12 +53,9 @@ public class GroupNodeViewModel : ViewModelBase
                 parts.Add(node.Group.Name);
             }
             parts.Reverse();
-            return string.Join(" / ", parts);
+            return string.Join(GroupHierarchyHelper.PathSeparator, parts);
         }
     }
-
-    /// <summary>Имя группы для отображения (без пути).</summary>
-    public string DisplayName => Group?.Name ?? "Без группы";
 
     /// <summary>Цвет группы.</summary>
     public string Color => Group?.Color ?? "#2D6CDF";
@@ -60,11 +66,23 @@ public class GroupNodeViewModel : ViewModelBase
     /// <summary>Базы, размещённые непосредственно в этой группе.</summary>
     public ObservableCollection<Infobase> Infobases { get; }
 
+    /// <summary>
+    /// Единая коллекция для отображения в дереве: содержит подгруппы (с базами) и базы текущей группы.
+    /// Заполняется методом <see cref="PopulateItems"/>.
+    /// </summary>
+    public ObservableCollection<object> Items { get; }
+
     /// <summary>Признак наличия подгрупп.</summary>
     public bool HasChildren => Children.Count > 0;
 
     /// <summary>Признак наличия баз в группе.</summary>
     public bool HasInfobases => Infobases.Count > 0;
+
+    /// <summary>Признак наличия баз в группе или её подгруппах.</summary>
+    public bool ContainsInfobases => Infobases.Count > 0 || Children.Any(c => c.ContainsInfobases);
+
+    /// <summary>Общее количество баз в группе и всех её подгруппах.</summary>
+    public int TotalInfobaseCount => Infobases.Count + Children.Sum(c => c.TotalInfobaseCount);
 
     /// <summary>Состояние развёрнутости узла в дереве.</summary>
     public bool IsExpanded
@@ -73,8 +91,77 @@ public class GroupNodeViewModel : ViewModelBase
         set => SetProperty(ref _isExpanded, value);
     }
 
+    /// <summary>Состояние выделенности узла в дереве.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+
+    /// <summary>
+    /// Заполняет коллекцию <see cref="Items"/>: сначала подгруппы, содержащие базы (рекурсивно),
+    /// затем базы текущей группы. Пустые группы (без баз) в дерево не попадают.
+    /// </summary>
+    public void PopulateItems()
+    {
+        foreach (var child in Children)
+        {
+            child.PopulateItems();
+        }
+
+        Items.Clear();
+        foreach (var child in Children)
+        {
+            if (child.ContainsInfobases)
+            {
+                Items.Add(child);
+            }
+        }
+        foreach (var infobase in Infobases)
+        {
+            Items.Add(infobase);
+        }
+    }
+
     /// <summary>
     /// Возвращает строковое представление узла (полный путь группы).
     /// </summary>
     public override string ToString() => string.IsNullOrEmpty(FullPath) ? DisplayName : FullPath;
+
+    /// <summary>
+    /// Строит дерево групп из плоского списка с учётом свойства <see cref="Group.ParentId"/>.
+    /// Возвращает список корневых узлов. Группы с несуществующим родителем становятся корневыми.
+    /// </summary>
+    public static List<GroupNodeViewModel> BuildTree(IEnumerable<Group> groups)
+    {
+        var list = groups.ToList();
+        var nodes = new Dictionary<string, GroupNodeViewModel>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in list)
+        {
+            nodes[group.Id] = new GroupNodeViewModel(group);
+        }
+
+        var roots = new List<GroupNodeViewModel>();
+        foreach (var group in list)
+        {
+            if (string.IsNullOrEmpty(group.ParentId))
+            {
+                roots.Add(nodes[group.Id]);
+                continue;
+            }
+
+            if (nodes.TryGetValue(group.ParentId, out var parent))
+            {
+                parent.Children.Add(nodes[group.Id]);
+            }
+            else
+            {
+                // Родитель не найден — группа становится корневой.
+                roots.Add(nodes[group.Id]);
+            }
+        }
+
+        return roots;
+    }
 }

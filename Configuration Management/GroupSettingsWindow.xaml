@@ -3,12 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:Configuration_Management.ViewModels"
         mc:Ignorable="d"
         Title="Управление группами"
         Icon="{StaticResource AppIcon}"
-        Width="560"
-        MinWidth="480"
-        MinHeight="360"
+        Width="600"
+        MinWidth="520"
+        MinHeight="420"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
@@ -31,13 +32,18 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <ListBox x:Name="GroupsListBox"
-                         Grid.Column="0"
-                         Margin="0,0,12,0"
-                         MinHeight="220">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Margin="2,2">
+                <TreeView x:Name="GroupsTree"
+                          Grid.Column="0"
+                          Margin="0,0,12,0"
+                          MinHeight="260"
+                          BorderThickness="1"
+                          BorderBrush="{DynamicResource BorderBrushColor}"
+                          Background="Transparent"
+                          Foreground="{DynamicResource TextPrimaryBrush}">
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:GroupNodeViewModel}"
+                                                  ItemsSource="{Binding Children}">
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
                                 <Border Width="14" Height="14" CornerRadius="3" Margin="0,0,8,0"
                                         VerticalAlignment="Center">
                                     <Border.Background>
@@ -45,34 +51,41 @@
                                     </Border.Background>
                                 </Border>
                                 <StackPanel>
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
                                                Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                    <TextBlock Text="{Binding Description}" FontSize="11"
+                                    <TextBlock Text="{Binding Group.Description}" FontSize="11"
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
                             </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                        </HierarchicalDataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
 
                 <!-- ============ Кнопки управления ============ -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Top">
-                    <Button Style="{DynamicResource ModernButton}" Width="110"
-                            Margin="0,0,0,8" Click="OnAdd_Click">
+                    <Button Style="{DynamicResource ModernButton}" Width="120"
+                            Margin="0,0,0,8" Click="OnAddRoot_Click">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="➕" Margin="0,0,6,0" VerticalAlignment="Center"/>
                             <TextBlock Text="Добавить" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{DynamicResource SecondaryButton}" Width="110"
+                    <Button Style="{DynamicResource SecondaryButton}" Width="120"
+                            Margin="0,0,0,8" Click="OnAddSubgroup_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="➕" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Подгруппу" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{DynamicResource SecondaryButton}" Width="120"
                             Margin="0,0,0,8" Click="OnEdit_Click">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="✎" Margin="0,0,6,0" VerticalAlignment="Center"/>
                             <TextBlock Text="Изменить" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{DynamicResource SecondaryButton}" Width="110"
+                    <Button Style="{DynamicResource SecondaryButton}" Width="120"
                             Click="OnDelete_Click">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🗑" Margin="0,0,6,0" VerticalAlignment="Center"/>
