@@ -20,6 +20,12 @@ public class AppSettings
     /// <summary>Список установленных версий платформы 1С.</summary>
     public List<string> InstalledPlatformVersions { get; set; } = new();
 
+    /// <summary>Режим синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncMode IbasesSyncMode { get; set; } = IbasesSyncMode.None;
+
+    /// <summary>Путь к файлу ibases.v8i для синхронизации (пусто — стандартный путь).</summary>
+    public string IbasesSyncFilePath { get; set; } = string.Empty;
+
     /// <summary>Ширина колонки «Название» в списке баз (0 — по умолчанию).</summary>
     public double NameColumnWidth { get; set; }
 

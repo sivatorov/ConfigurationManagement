@@ -24,6 +24,56 @@
         <conv:MultiValueToArrayConverter x:Key="MultiValueToArrayConverter"/>
         <conv:GroupColorConverter x:Key="GroupColorConverter"/>
         <conv:GroupTextColorConverter x:Key="GroupTextColorConverter"/>
+
+        <!-- Шаблон ScrollViewer списка баз: уголок между скроллбарами окрашен в цвет карточки,
+             чтобы не оставался белый квадратик при появлении горизонтальной прокрутки -->
+        <Style x:Key="CardScrollViewer" TargetType="ScrollViewer">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                    Grid.Row="0" Grid.Column="0"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                    CanHorizontallyScroll="False"
+                                                    CanVerticallyScroll="False"
+                                                    Content="{TemplateBinding Content}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    Margin="{TemplateBinding Padding}"/>
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       Orientation="Vertical"
+                                       Grid.Row="0" Grid.Column="1"
+                                       Minimum="0"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                       Cursor="Arrow"/>
+                            <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                       Orientation="Horizontal"
+                                       Grid.Row="1" Grid.Column="0"
+                                       Minimum="0"
+                                       Maximum="{TemplateBinding ScrollableWidth}"
+                                       ViewportSize="{TemplateBinding ViewportWidth}"
+                                       Value="{TemplateBinding HorizontalOffset}"
+                                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                                       Cursor="Arrow"/>
+                            <Rectangle Grid.Row="1" Grid.Column="1"
+                                       Fill="{TemplateBinding Background}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -46,31 +96,6 @@
                                Foreground="{DynamicResource TextOnAccentBrush}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Command="{Binding ManageGroupsCommand}" Style="{DynamicResource SecondaryButton}" Margin="0,0,8,0">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📁" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="Группы" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="ExtraFunctionsButton" Content="⚙ Дополнительные функции"
-                            Style="{DynamicResource SecondaryButton}" Margin="0,0,8,0"
-                            ToolTip="Дополнительные функции: экспорт и загрузка списка баз"
-                            Click="OnExtraFunctions_Click">
-                        <Button.ContextMenu>
-                            <ContextMenu Style="{DynamicResource ModernContextMenu}">
-                                <MenuItem Header="📤 Экспорт списка баз в файл"
-                                          Command="{Binding ExportInfobasesCommand}"
-                                          Style="{DynamicResource ModernMenuItem}"/>
-                                <MenuItem Header="📥 Загрузка списка баз из файла"
-                                          Command="{Binding ImportInfobasesCommand}"
-                                          Style="{DynamicResource ModernMenuItem}"/>
-                                <Separator/>
-                                <MenuItem Header="🗑 Очистить весь список баз"
-                                          Command="{Binding ClearAllInfobasesCommand}"
-                                          Style="{DynamicResource ModernMenuItem}"/>
-                            </ContextMenu>
-                        </Button.ContextMenu>
-                    </Button>
                     <Button Command="{Binding OpenSettingsCommand}" Style="{DynamicResource SecondaryButton}"
                             Margin="0,0,8,0" ToolTip="Настройки приложения">
                         <StackPanel Orientation="Horizontal">
@@ -126,19 +151,19 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
                             <Button Command="{Binding CollapseAllGroupsCommand}"
-                                    Style="{DynamicResource SecondaryButton}" Padding="8,6"
+                                    Style="{DynamicResource SecondaryButton}" Padding="10,7"
                                     Margin="0,0,6,0" ToolTip="Свернуть все группы">
-                                <Path Width="20" Height="20" Stretch="Uniform"
+                                <Path Width="26" Height="26" Stretch="Uniform"
                                       Fill="{DynamicResource TextPrimaryBrush}"
-                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2"
+                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2.5"
                                       Data="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41ZM7.41,8.41L12,3.83L16.59,8.41L18,7L12,1L6,7L7.41,8.41Z"/>
                             </Button>
                             <Button Command="{Binding ExpandAllGroupsCommand}"
-                                    Style="{DynamicResource SecondaryButton}" Padding="8,6"
+                                    Style="{DynamicResource SecondaryButton}" Padding="10,7"
                                     ToolTip="Развернуть все группы">
-                                <Path Width="20" Height="20" Stretch="Uniform"
+                                <Path Width="26" Height="26" Stretch="Uniform"
                                       Fill="{DynamicResource TextPrimaryBrush}"
-                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2"
+                                      Stroke="{DynamicResource TextPrimaryBrush}" StrokeThickness="2.5"
                                       Data="M7.41,8.59L12,13.17L16.59,8.59L18,10L12,16L6,10L7.41,8.59ZM7.41,15.59L12,20.17L16.59,15.59L18,17L12,23L6,17L7.41,15.59Z"/>
                             </Button>
                         </StackPanel>
@@ -157,12 +182,22 @@
 
                     <!-- Область списка: общий горизонтальный ScrollViewer, чтобы заголовки колонок
                          прокручивались синхронно с содержимым дерева -->
+                    <!-- Внешний ScrollViewer управляет прокруткой по обеим осям. Прокрутка дерева
+                         вынесена сюда (а не на внутренний ScrollViewer TreeView), чтобы избежать
+                         циклической привязки высоты, из-за которой полоса прокрутки пропадала при
+                         сжатии окна. Контент (заголовки + дерево) прокручивается синхронно
+                         по горизонтали и вертикали. -->
                     <ScrollViewer x:Name="DbListScroll" Grid.Row="3" Grid.RowSpan="2" Margin="4,0,4,0"
+                                  Style="{DynamicResource CardScrollViewer}"
                                   HorizontalScrollBarVisibility="Auto"
-                                  VerticalScrollBarVisibility="Auto">
-                        <Grid MinWidth="{Binding ActualWidth, ElementName=DbListScroll}">
+                                  VerticalScrollBarVisibility="Auto"
+                                  PreviewMouseWheel="OnDbList_PreviewMouseWheel">
+                        <Grid MinWidth="{Binding ViewportWidth, ElementName=DbListScroll}">
                             <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="30"/>
+                            <!-- Первая колонка компенсирует сдвиг строк данных внутри TreeView,
+                                 чтобы заголовки колонок и границы разделителей совпадали с данными.
+                                 Значение подобрано по фактическому замеру сдвига (Delta=-20). -->
+                            <ColumnDefinition Width="70"/>
                             <ColumnDefinition Width="26"/>
                             <ColumnDefinition Width="26"/>
                             <ColumnDefinition x:Name="NameColumn" Width="250"/>
@@ -180,43 +215,47 @@
                         <TextBlock Grid.Column="3" Grid.Row="0" Text="Название" FontWeight="SemiBold" FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,4"/>
                         <TextBlock Grid.Column="4" Grid.Row="0" Text="Версия платформы" FontWeight="SemiBold" FontSize="12"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" Margin="6,0,6,4"/>
                         <TextBlock Grid.Column="5" Grid.Row="0" Text="Режим запуска" FontWeight="SemiBold" FontSize="12"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" Margin="6,0,6,4"/>
                         <TextBlock Grid.Column="6" Grid.Row="0" Text="Сервер/База" FontWeight="SemiBold" FontSize="12"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" Margin="6,0,6,4"/>
                         <TextBlock Grid.Column="7" Grid.Row="0" Text="Последний запуск" FontWeight="SemiBold" FontSize="12"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="10,0,8,4"/>
+                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" Margin="6,0,6,4"/>
 
                         <!-- Разделители для изменения ширины колонок на всю высоту списка -->
-                        <GridSplitter Grid.Column="4" Grid.Row="0" Grid.RowSpan="1" HorizontalAlignment="Left"
-                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
-                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
-                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
-                                      ToolTip="Изменить ширину колонки"
-                                      DragDelta="OnColumnSplitter_DragDelta"
-                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
-                        <GridSplitter Grid.Column="5" Grid.Row="0" Grid.RowSpan="1" HorizontalAlignment="Left"
-                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
-                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
-                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
-                                      ToolTip="Изменить ширину колонки"
-                                      DragDelta="OnColumnSplitter_DragDelta"
-                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
-                        <GridSplitter Grid.Column="6" Grid.Row="0" Grid.RowSpan="1" HorizontalAlignment="Left"
-                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
-                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
-                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
-                                      ToolTip="Изменить ширину колонки"
-                                      DragDelta="OnColumnSplitter_DragDelta"
-                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
-                        <GridSplitter Grid.Column="7" Grid.Row="0" Grid.RowSpan="1" HorizontalAlignment="Left"
-                                      VerticalAlignment="Stretch" Width="6" ResizeDirection="Columns"
-                                      ResizeBehavior="PreviousAndNext" Panel.ZIndex="1"
-                                      Background="{DynamicResource BorderBrushColor}" Cursor="SizeWE"
-                                      ToolTip="Изменить ширину колонки"
-                                      DragDelta="OnColumnSplitter_DragDelta"
-                                      DragCompleted="OnColumnSplitter_DragCompleted"/>
+                        <Rectangle x:Name="VersionSplitter" Grid.Column="4" Grid.Row="0" Grid.RowSpan="1"
+                                   HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6"
+                                   Panel.ZIndex="1" Fill="{DynamicResource BorderBrushColor}"
+                                   Cursor="SizeWE" ToolTip="Изменить ширину колонки"
+                                   MouseLeftButtonDown="OnColumnResize_MouseDown"
+                                   MouseMove="OnColumnResize_MouseMove"
+                                   MouseLeftButtonUp="OnColumnResize_MouseUp"/>
+                        <Rectangle x:Name="LaunchModeSplitter" Grid.Column="5" Grid.Row="0" Grid.RowSpan="1"
+                                   HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6"
+                                   Panel.ZIndex="1" Fill="{DynamicResource BorderBrushColor}"
+                                   Cursor="SizeWE" ToolTip="Изменить ширину колонки"
+                                   MouseLeftButtonDown="OnColumnResize_MouseDown"
+                                   MouseMove="OnColumnResize_MouseMove"
+                                   MouseLeftButtonUp="OnColumnResize_MouseUp"/>
+                        <Rectangle x:Name="ServerSplitter" Grid.Column="6" Grid.Row="0" Grid.RowSpan="1"
+                                   HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6"
+                                   Panel.ZIndex="1" Fill="{DynamicResource BorderBrushColor}"
+                                   Cursor="SizeWE" ToolTip="Изменить ширину колонки"
+                                   MouseLeftButtonDown="OnColumnResize_MouseDown"
+                                   MouseMove="OnColumnResize_MouseMove"
+                                   MouseLeftButtonUp="OnColumnResize_MouseUp"/>
+                        <Rectangle x:Name="LastLaunchSplitter" Grid.Column="7" Grid.Row="0" Grid.RowSpan="1"
+                                   HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="6"
+                                   Panel.ZIndex="1" Fill="{DynamicResource BorderBrushColor}"
+                                   Cursor="SizeWE" ToolTip="Изменить ширину колонки"
+                                   MouseLeftButtonDown="OnColumnResize_MouseDown"
+                                   MouseMove="OnColumnResize_MouseMove"
+                                   MouseLeftButtonUp="OnColumnResize_MouseUp"/>
 
                     <!-- Список баз в виде дерева «группа в группе» -->
                     <TreeView x:Name="MainTree"
@@ -230,8 +269,7 @@
                               SelectedItemChanged="OnMainTree_SelectedItemChanged"
                               PreviewMouseDoubleClick="OnInfobaseTree_PreviewMouseDoubleClick"
                               PreviewMouseRightButtonDown="OnInfobaseTree_PreviewMouseRightButtonDown"
-                              PreviewMouseLeftButtonDown="OnInfobaseTree_PreviewMouseLeftButtonDown"
-                              PreviewMouseWheel="OnInfobaseTree_PreviewMouseWheel">
+                              PreviewMouseLeftButtonDown="OnInfobaseTree_PreviewMouseLeftButtonDown">
 
                         <TreeView.Resources>
                             <!-- Узел группы: заголовок + вложенные подгруппы и базы -->
@@ -369,19 +407,19 @@
 
                                         <TextBlock Grid.Column="4" Text="{Binding PlatformVersion}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
-                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                                   HorizontalAlignment="Center" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"/>
 
                                         <TextBlock Grid.Column="5" Text="{Binding ParsedLaunchMode}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
-                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                                   HorizontalAlignment="Center" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"/>
 
                                         <TextBlock Grid.Column="6" Text="{Binding ServerDatabaseDisplay}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
-                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                                   HorizontalAlignment="Center" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"/>
 
                                         <TextBlock Grid.Column="7" Text="{Binding LastLaunchDisplay}" FontSize="12"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
-                                                   Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                                   HorizontalAlignment="Center" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"/>
 
                                         <!-- Теги базы -->
                                         <StackPanel Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="6"
@@ -433,48 +471,78 @@
                         </TreeView.Resources>
 
                         <TreeView.ItemContainerStyle>
-                            <!-- Шаблон без отступа вложенных уровней, чтобы колонки данных
-                                 совпадали с колонками заголовка -->
+                            <!-- Стиль элемента дерева: заголовок группы/базы и вложенные элементы.
+                                 Вложенные подгруппы сдвигаются вправо (Margin на ItemsPresenter),
+                                 формируя классический вид дерева «группа в группе». -->
                             <Style TargetType="TreeViewItem">
-                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+                                <!-- Выбором полностью управляет code-behind (OnInfobaseTree_PreviewMouseLeftButtonDown).
+                                     Двухсторонняя привязка IsSelected к модели здесь НЕ используется: она порождает
+                                     каскад событий SelectedItemChanged (база дублируется в «Закреплённых» и в своей
+                                     группе), что приводит к бесконечной рекурсии и StackOverflowException. -->
                                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="TreeViewItem">
                                             <StackPanel>
-                                                <Border x:Name="row" Background="Transparent">
-                                                    <Grid>
-                                                        <!-- Расширитель (+/−) накладывается поверх пустой левой колонки строки (30px),
-                                                             чтобы колонки данных оставались выровненными с колонками заголовка. -->
-                                                        <ToggleButton x:Name="Expander"
-                                                                      HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                                      IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
-                                                                      ClickMode="Press"
-                                                                      Width="16" Height="16" Margin="7,0,0,0"
-                                                                      Background="Transparent" BorderThickness="0">
-                                                            <ToggleButton.Template>
-                                                                <ControlTemplate TargetType="ToggleButton">
-                                                                    <TextBlock x:Name="ExpanderSymbol"
-                                                                               Text="+"
-                                                                               FontSize="12"
-                                                                               FontWeight="Bold"
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <!-- Отдельная левая колонка под кнопку свернуть/развернуть,
+                                                             вне панели самой группы. -->
+                                                        <ColumnDefinition Width="30"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <!-- Кнопка свернуть/развернуть группы (слева, отдельно от панели группы).
+                                                         Видна только для узлов с дочерними элементами (группы).
+                                                         Символ «−» когда развёрнута, «+» — когда свёрнута. -->
+                                                    <Button x:Name="Expander" Grid.Column="0"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                            Command="{Binding DataContext.ToggleGroupExpandedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"
+                                                            Width="24" Height="24"
+                                                            Background="Transparent" BorderThickness="0"
+                                                            ToolTip="Свернуть/развернуть группу">
+                                                        <Button.Template>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="ExpanderBorder"
+                                                                        Width="22" Height="22"
+                                                                        Background="{DynamicResource ItemHoverBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrushColor}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="11">
+                                                                    <TextBlock FontSize="15" FontWeight="Bold"
                                                                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                                    <ControlTemplate.Triggers>
-                                                                        <Trigger Property="IsChecked" Value="True">
-                                                                            <Setter TargetName="ExpanderSymbol" Property="Text" Value="−"/>
-                                                                        </Trigger>
-                                                                    </ControlTemplate.Triggers>
-                                                                </ControlTemplate>
-                                                            </ToggleButton.Template>
-                                                        </ToggleButton>
+                                                                               Foreground="{DynamicResource TextPrimaryBrush}">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Setter Property="Text" Value="−"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsExpanded}" Value="False">
+                                                                                        <Setter Property="Text" Value="+"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="ExpanderBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsPressed" Value="True">
+                                                                        <Setter TargetName="ExpanderBorder" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Button.Template>
+                                                    </Button>
+                                                    <Border x:Name="row" Grid.Column="1" Background="Transparent">
                                                         <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
-                                                    </Grid>
-                                                </Border>
-                                                <!-- Отступ вложенных уровней убран, чтобы колонки данных
-                                                     совпадали с колонками заголовка на любой глубине. -->
-                                                <ItemsPresenter x:Name="ItemsHost"/>
+                                                    </Border>
+                                                </Grid>
+                                                <!-- Вложенные уровни НЕ сдвигаются вправо, чтобы данные
+                                                     во всех базах (на любой глубине вложенности) совпадали
+                                                     с колонками заголовков таблицы. -->
+                                                <ItemsPresenter x:Name="ItemsHost" Margin="0"/>
                                             </StackPanel>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsExpanded" Value="False">
@@ -497,6 +565,14 @@
                                         </ControlTemplate>
                                     </Setter.Value>
                                 </Setter>
+                                <Style.Triggers>
+                                    <!-- Привязка IsExpanded выполняется для узлов, у которых есть дочерние элементы
+                                         (группы). Для баз (Infobase) дочерних элементов нет, поэтому свойство IsExpanded
+                                         не привязывается и ошибок привязки не возникает. -->
+                                    <DataTrigger Binding="{Binding HasItems, RelativeSource={RelativeSource Self}}" Value="True">
+                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </TreeView.ItemContainerStyle>
 
@@ -586,10 +662,6 @@
         <!-- ===================== Строка состояния ============ -->
         <Border Grid.Row="2" Background="{DynamicResource SidebarBrush}" Padding="16,6">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding SelectedInfobase.ConnectionStringDisplay}"
                            Foreground="{DynamicResource TextOnAccentBrush}" FontSize="12"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
@@ -602,12 +674,6 @@
                         </ContextMenu>
                     </TextBlock.ContextMenu>
                 </TextBlock>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="📥 Импорт из ibases.v8i" Command="{Binding ImportFromIbasesV8iCommand}"
-                            Style="{DynamicResource SecondaryButton}" Padding="10,4" FontSize="12"
-                            Margin="0,0,12,0"
-                            ToolTip="Считать список баз из файла ibases.v8i и добавить/обновить базы"/>
-                </StackPanel>
             </Grid>
         </Border>
     </Grid>

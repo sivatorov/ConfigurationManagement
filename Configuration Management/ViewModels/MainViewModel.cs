@@ -35,6 +35,8 @@ public class MainViewModel : ViewModelBase
     private double _windowLeft;
     private double _windowTop;
     private string _windowState = string.Empty;
+    private IbasesSyncMode _ibasesSyncMode = IbasesSyncMode.None;
+    private string _ibasesSyncFilePath = string.Empty;
 
     /// <summary>
     /// Внутренний набор узлов дерева групп, перестраиваемый при изменении данных.
@@ -62,6 +64,8 @@ public class MainViewModel : ViewModelBase
         _windowLeft = settings.WindowLeft;
         _windowTop = settings.WindowTop;
         _windowState = settings.WindowState;
+        _ibasesSyncMode = settings.IbasesSyncMode;
+        _ibasesSyncFilePath = settings.IbasesSyncFilePath;
         foreach (var groupName in settings.CollapsedGroups)
         {
             _collapsedGroups.Add(groupName);
@@ -98,7 +102,6 @@ public class MainViewModel : ViewModelBase
         LaunchEnterpriseThickCommand = new RelayCommand(LaunchEnterpriseThick, _ => SelectedInfobase != null);
         LaunchEnterpriseThin64Command = new RelayCommand(LaunchEnterpriseThin64, _ => SelectedInfobase != null);
         LaunchEnterpriseThick64Command = new RelayCommand(LaunchEnterpriseThick64, _ => SelectedInfobase != null);
-        ManageGroupsCommand = new RelayCommand(ManageGroups);
         ImportFromIbasesV8iCommand = new RelayCommand(ImportFromIbasesV8i);
         ExportInfobasesCommand = new RelayCommand(ExportInfobases);
         ImportInfobasesCommand = new RelayCommand(ImportInfobases);
@@ -114,6 +117,7 @@ public class MainViewModel : ViewModelBase
         ClearSearchCommand = new RelayCommand(ClearSearch);
         CollapseAllGroupsCommand = new RelayCommand(CollapseAllGroups);
         ExpandAllGroupsCommand = new RelayCommand(ExpandAllGroups);
+        ToggleGroupExpandedCommand = new RelayCommand(ToggleGroupExpanded);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
 
         // Если список баз пуст — предлагаем загрузить базы из файла ibases.v8i.
@@ -198,6 +202,157 @@ public class MainViewModel : ViewModelBase
 
     /// <summary>Название сохранённой темы оформления (пусто, если тема не сохранялась).</summary>
     public string SavedTheme => _savedTheme;
+
+    /// <summary>Список установленных версий платформы 1С.</summary>
+    public List<string> InstalledPlatformVersions => _installedPlatformVersions;
+
+    /// <summary>
+    /// Сохраняет список установленных версий платформы 1С.
+    /// </summary>
+    public void SetInstalledPlatformVersions(IEnumerable<string> versions)
+    {
+        _installedPlatformVersions = new List<string>(versions);
+        SaveSettings();
+    }
+
+    /// <summary>Режим синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncMode IbasesSyncMode => _ibasesSyncMode;
+
+    /// <summary>Путь к файлу ibases.v8i для синхронизации.</summary>
+    public string IbasesSyncFilePath => _ibasesSyncFilePath;
+
+    /// <summary>
+    /// Применяет настройки синхронизации с файлом ibases.v8i, заданные в окне настроек.
+    /// </summary>
+    public void ApplyIbasesSyncSettings(IbasesSyncMode mode, string filePath)
+    {
+        _ibasesSyncMode = mode;
+        _ibasesSyncFilePath = filePath ?? string.Empty;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Выполняет синхронизацию с файлом ibases.v8i в соответствии с заданным режимом.
+    /// В режимах с импортом загружает новые базы из файла, в режимах с экспортом —
+    /// выгружает базы приложения в файл.
+    /// </summary>
+    /// <returns>True, если была выполнена хотя бы одна операция синхронизации.</returns>
+    public bool SynchronizeWithIbases()
+    {
+        if (_ibasesSyncMode == IbasesSyncMode.None)
+            return false;
+
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return false;
+
+        var importPerformed = _ibasesSyncMode is IbasesSyncMode.Import or IbasesSyncMode.Both;
+        var exportPerformed = _ibasesSyncMode is IbasesSyncMode.Export or IbasesSyncMode.Both;
+
+        if (importPerformed && File.Exists(filePath))
+        {
+            try
+            {
+                IbasesV8iImporter.Import(filePath, Infobases, Groups);
+                InfobasesView.Refresh();
+                Save();
+                SaveGroups();
+                RebuildGroupTree();
+            }
+            catch
+            {
+                // Игнорируем ошибки импорта при автоматической синхронизации,
+                // чтобы не прерывать работу пользователя.
+            }
+        }
+
+        if (exportPerformed)
+        {
+            try
+            {
+                IbasesV8iExporter.Export(filePath, Infobases, Groups);
+            }
+            catch
+            {
+                // Игнорируем ошибки экспорта при автоматической синхронизации.
+            }
+        }
+
+        return importPerformed || exportPerformed;
+    }
+
+    /// <summary>
+    /// Выполняет экспорт текущего списка баз и групп в файл ibases.v8i
+    /// (используется для ручного экспорта из окна настроек).
+    /// </summary>
+    public bool ExportToIbases()
+    {
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return false;
+
+        try
+        {
+            IbasesV8iExporter.Export(filePath, Infobases, Groups);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Выполняет импорт баз из файла ibases.v8i в приложение
+    /// (используется для ручного импорта из окна настроек).
+    /// </summary>
+    public bool ImportFromIbases()
+    {
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null || !File.Exists(filePath))
+            return false;
+
+        try
+        {
+            IbasesV8iImporter.Import(filePath, Infobases, Groups);
+            InfobasesView.Refresh();
+            Save();
+            SaveGroups();
+            RebuildGroupTree();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Определяет путь к файлу ibases.v8i: пользовательский путь из настроек,
+    /// либо стандартный путь 1С, если пользовательский не задан.
+    /// </summary>
+    private string? ResolveIbasesFilePath()
+    {
+        if (!string.IsNullOrWhiteSpace(_ibasesSyncFilePath))
+            return _ibasesSyncFilePath;
+
+        return IbasesV8iImporter.FindDefaultPath();
+    }
+
+    /// <summary>
+    /// Применяет изменения списка групп, внесённые в окне настроек.
+    /// </summary>
+    public void ApplyGroupChanges(IEnumerable<Group> groups)
+    {
+        Groups.Clear();
+        foreach (var group in groups)
+        {
+            Groups.Add(group);
+        }
+        SaveGroups();
+        InfobasesView.Refresh();
+        RebuildGroupTree();
+    }
 
     /// <summary>Ширина колонки «Название» (0 — по умолчанию).</summary>
     public double NameColumnWidth
@@ -297,9 +452,6 @@ public class MainViewModel : ViewModelBase
         SaveSettings();
     }
 
-    /// <summary>Команда управления группами.</summary>
-    public ICommand ManageGroupsCommand { get; }
-
     /// <summary>Команда импорта баз из файла ibases.v8i.</summary>
     public ICommand ImportFromIbasesV8iCommand { get; }
 
@@ -344,6 +496,9 @@ public class MainViewModel : ViewModelBase
 
     /// <summary>Команда разворачивания всех групп.</summary>
     public ICommand ExpandAllGroupsCommand { get; }
+
+    /// <summary>Команда сворачивания/разворачивания отдельной группы с сохранением состояния.</summary>
+    public ICommand ToggleGroupExpandedCommand { get; }
 
     /// <summary>Команда открытия окна настроек приложения.</summary>
     public ICommand OpenSettingsCommand { get; }
@@ -419,6 +574,7 @@ public class MainViewModel : ViewModelBase
             SelectedInfobase = dialog.Result;
             Save();
             RebuildGroupTree();
+            SynchronizeWithIbases();
         }
     }
 
@@ -455,6 +611,7 @@ public class MainViewModel : ViewModelBase
             InfobasesView.Refresh();
             Save();
             RebuildGroupTree();
+            SynchronizeWithIbases();
         }
     }
 
@@ -475,6 +632,7 @@ public class MainViewModel : ViewModelBase
             SelectedInfobase = null;
             Save();
             RebuildGroupTree();
+            SynchronizeWithIbases();
         }
     }
 
@@ -630,7 +788,9 @@ public class MainViewModel : ViewModelBase
             WindowHeight = _windowHeight,
             WindowLeft = _windowLeft,
             WindowTop = _windowTop,
-            WindowState = _windowState
+            WindowState = _windowState,
+            IbasesSyncMode = _ibasesSyncMode,
+            IbasesSyncFilePath = _ibasesSyncFilePath
         });
     }
 
@@ -694,11 +854,33 @@ public class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Сворачивает/разворачивает группу по кнопке «свернуть»/«развернуть» на узле дерева.
+    /// Принимает узел <see cref="GroupNodeViewModel"/> в качестве параметра команды.
+    /// Явно переключает состояние развёрнутости узла и сохраняет результат в настройках,
+    /// чтобы не зависеть от порядка срабатывания двухсторонней привязки.
+    /// </summary>
+    private void ToggleGroupExpanded(object? parameter)
+    {
+        if (parameter is not GroupNodeViewModel node)
+            return;
+
+        node.IsExpanded = !node.IsExpanded;
+        // Для реальных групп ключом служит полный путь, для служебных узлов
+        // («Закреплённые», «Без группы») — отображаемое имя, т.к. пути у них нет.
+        var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+        SetGroupCollapsed(key, !node.IsExpanded);
+    }
+
+    /// <summary>
     /// Сворачивает все группы в дереве баз.
     /// </summary>
     private void CollapseAllGroups(object? parameter)
     {
         CollapseAllNodes(_groupNodes, collapse: true);
+        // Синхронизируем набор свёрнутых групп, чтобы состояние сохранилось
+        // после перестроения дерева (поиск, фильтр, перезапуск).
+        _collapsedGroups.Clear();
+        CollectGroupPaths(_groupNodes, _collapsedGroups);
         SaveSettings();
     }
 
@@ -721,6 +903,21 @@ public class MainViewModel : ViewModelBase
         {
             node.IsExpanded = !collapse;
             CollapseAllNodes(node.Children, collapse);
+        }
+    }
+
+    /// <summary>
+    /// Рекурсивно собирает полные пути всех реальных групп в указанный набор.
+    /// </summary>
+    private static void CollectGroupPaths(IEnumerable<GroupNodeViewModel> nodes, HashSet<string> target)
+    {
+        foreach (var node in nodes)
+        {
+            // Для реальных групп ключом служит полный путь, для служебных узлов
+            // («Закреплённые», «Без группы») — отображаемое имя (единый формат с ToggleGroupExpanded).
+            var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+            target.Add(key);
+            CollectGroupPaths(node.Children, target);
         }
     }
 
@@ -780,10 +977,11 @@ public class MainViewModel : ViewModelBase
         // Используем уже отфильтрованное представление (по избранным и тексту поиска).
         foreach (var infobase in InfobasesView.Cast<Infobase>())
         {
+            // Закреплённая база попадает в узел «Закреплённые»,
+            // но при этом не пропадает из своей группы (или «Без группы»).
             if (infobase.IsPinned)
             {
                 pinnedNode.Infobases.Add(infobase);
-                continue;
             }
 
             var groupPath = infobase.Group?.Trim() ?? string.Empty;
@@ -808,16 +1006,22 @@ public class MainViewModel : ViewModelBase
         pinnedNode.PopulateItems();
         noGroupNode.PopulateItems();
 
-        // Блок «Закреплённые» показываем в начале дерева, только если в нём есть базы.
-        _groupNodes = roots;
+        // Формируем общий список отображаемых узлов (используется и для перестроения,
+        // и для операций «свернуть/развернуть все», чтобы они затрагивали в т.ч.
+        // служебные узлы «Закреплённые» и «Без группы»).
+        _groupNodes = new List<GroupNodeViewModel>();
         GroupNodes.Clear();
+
+        // Блок «Закреплённые» показываем в начале дерева, только если в нём есть базы.
         if (pinnedNode.ContainsInfobases)
         {
             GroupNodes.Add(pinnedNode);
+            _groupNodes.Add(pinnedNode);
         }
         if (noGroupNode.ContainsInfobases)
         {
             GroupNodes.Add(noGroupNode);
+            _groupNodes.Add(noGroupNode);
         }
         foreach (var root in roots)
         {
@@ -826,6 +1030,7 @@ public class MainViewModel : ViewModelBase
             if (root.ContainsInfobases)
             {
                 GroupNodes.Add(root);
+                _groupNodes.Add(root);
             }
         }
 
@@ -842,10 +1047,10 @@ public class MainViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
-            if (node.Group is not null)
-            {
-                node.IsExpanded = !IsGroupCollapsed(node.FullPath);
-            }
+            // Для реальных групп ключом служит полный путь, для служебных узлов
+            // («Закреплённые», «Без группы») — отображаемое имя (единый формат).
+            var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+            node.IsExpanded = !IsGroupCollapsed(key);
             ApplyExpandedState(node.Children);
         }
     }
@@ -913,40 +1118,16 @@ public class MainViewModel : ViewModelBase
         RebuildGroupTree();
     }
 
-    private void ManageGroups(object? parameter)
-    {
-        var dialog = new GroupSettingsWindow(Groups)
-        {
-            Owner = Application.Current.MainWindow
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            // Обновляем список групп из результата диалога.
-            Groups.Clear();
-            foreach (var group in dialog.Result)
-            {
-                Groups.Add(group);
-            }
-            SaveGroups();
-            InfobasesView.Refresh();
-            RebuildGroupTree();
-        }
-    }
-
     /// <summary>
-    /// Открывает окно настроек приложения (установленные версии платформы 1С).
+    /// Открывает окно настроек приложения (платформы, группы, дополнительные функции).
     /// </summary>
     private void OpenSettings(object? parameter)
     {
-        var dialog = new SettingsWindow(_installedPlatformVersions)
+        var dialog = new SettingsWindow(this)
         {
             Owner = Application.Current.MainWindow
         };
-        if (dialog.ShowDialog() == true)
-        {
-            _installedPlatformVersions = new List<string>(dialog.Result);
-            SaveSettings();
-        }
+        dialog.ShowDialog();
     }
 
     /// <summary>

@@ -131,35 +131,56 @@ public class GroupNodeViewModel : ViewModelBase
     /// <summary>
     /// Строит дерево групп из плоского списка с учётом свойства <see cref="Group.ParentId"/>.
     /// Возвращает список корневых узлов. Группы с несуществующим родителем становятся корневыми.
+    /// Группы, участвующие в циклической ссылке родителя (A→B→A), делаются корневыми,
+    /// чтобы в дереве не образовывалась бесконечная вложенность (иначе рекурсивный обход
+    /// дерева приводит к StackOverflowException).
     /// </summary>
     public static List<GroupNodeViewModel> BuildTree(IEnumerable<Group> groups)
     {
         var list = groups.ToList();
         var nodes = new Dictionary<string, GroupNodeViewModel>(StringComparer.OrdinalIgnoreCase);
-
         foreach (var group in list)
         {
             nodes[group.Id] = new GroupNodeViewModel(group);
         }
 
+        // Определяем группы, участвующие в цикле родительских ссылок.
+        var inCycle = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in list)
+        {
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var current = group;
+            while (current is not null && !string.IsNullOrEmpty(current.ParentId))
+            {
+                // Встретили уже посещённый узел — цепочка замкнулась в цикл.
+                if (!visited.Add(current.Id))
+                {
+                    inCycle.Add(current.Id);
+                    foreach (var id in visited)
+                        inCycle.Add(id);
+                    break;
+                }
+
+                if (!nodes.TryGetValue(current.ParentId, out var parentNode))
+                    break; // Родитель не найден — достигли корня.
+
+                current = parentNode.Group;
+            }
+        }
+
         var roots = new List<GroupNodeViewModel>();
         foreach (var group in list)
         {
-            if (string.IsNullOrEmpty(group.ParentId))
+            // Группа с циклом, без родителя или с несуществующим родителем — корневая.
+            if (inCycle.Contains(group.Id) ||
+                string.IsNullOrEmpty(group.ParentId) ||
+                !nodes.ContainsKey(group.ParentId))
             {
                 roots.Add(nodes[group.Id]);
                 continue;
             }
 
-            if (nodes.TryGetValue(group.ParentId, out var parent))
-            {
-                parent.Children.Add(nodes[group.Id]);
-            }
-            else
-            {
-                // Родитель не найден — группа становится корневой.
-                roots.Add(nodes[group.Id]);
-            }
+            nodes[group.ParentId].Children.Add(nodes[group.Id]);
         }
 
         return roots;

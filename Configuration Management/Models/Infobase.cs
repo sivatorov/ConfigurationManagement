@@ -65,8 +65,20 @@ public class Infobase : INotifyPropertyChanged
     /// <summary>Дата и время последнего запуска базы.</summary>
     public DateTime? LastLaunchDate { get; set; }
 
-    /// <summary>Настройки подключения к базе.</summary>
-    public ConnectionSettings Connection { get; set; } = new();
+    private ConnectionSettings _connection = new();
+
+    /// <summary>
+    /// Настройки подключения к базе. Никогда не равен null:
+    /// при десериализации (в том числе, когда в JSON свойство задано как null)
+    /// значение гарантированно подменяется пустыми настройками, чтобы вычисляемые
+    /// свойства (<see cref="ConnectionStringDisplay"/>, <see cref="ServerDatabaseDisplay"/>)
+    /// не вызывали NullReferenceException при выборе базы.
+    /// </summary>
+    public ConnectionSettings Connection
+    {
+        get => _connection;
+        set => _connection = value ?? new ConnectionSettings();
+    }
 
     /// <summary>Версия платформы 1С.</summary>
     public string PlatformVersion { get; set; } = string.Empty;

@@ -165,7 +165,9 @@ public static class IbasesV8iImporter
                 existing = new Group
                 {
                     Name = segment,
-                    Id = groupEntry?.Id ?? Guid.NewGuid().ToString(),
+                    // ID группы-секции из файла, либо новый GUID. Учитываем и null, и пустую строку:
+                    // при пустом Id связь родитель-потомок по ParentId теряется, иерархия групп ломается.
+                    Id = !string.IsNullOrWhiteSpace(groupEntry?.Id) ? groupEntry.Id : Guid.NewGuid().ToString(),
                     ParentId = parentId ?? string.Empty
                 };
                 groups.Add(existing);

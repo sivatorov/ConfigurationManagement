@@ -109,18 +109,18 @@ namespace Configuration_Management
         /// </summary>
         private void OnMainTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            // Сбрасываем признак выделения у предыдущей базы, чтобы она визуально не оставалась залитой.
-            if (e.OldValue is Infobase oldInfobase)
-            {
-                oldInfobase.IsSelected = false;
-            }
-
+            // Выбором базы управляет code-behind через обработчики кликов
+            // (OnInfobaseTree_PreviewMouseLeftButtonDown), которые явно устанавливают
+            // TreeViewItem.IsSelected и SelectedInfobase. Здесь лишь фиксируем результат
+            // изменения выбранного элемента, не трогая свойство Infobase.IsSelected.
+            // Ранее двухсторонняя привязка IsSelected к модели порождала каскад событий
+            // SelectedItemChanged (база дублируется в «Закреплённых» и в своей группе),
+            // что приводило к бесконечной рекурсии и StackOverflowException.
             if (e.NewValue is Infobase infobase)
             {
-                infobase.IsSelected = true;
                 _viewModel.SelectedInfobase = infobase;
             }
-            else
+            else if (e.NewValue is null)
             {
                 _viewModel.SelectedInfobase = null;
             }
@@ -139,24 +139,6 @@ namespace Configuration_Management
             button.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
 
             // Открываем меню отложенно, чтобы клик по кнопке не закрыл его сразу.
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                button.ContextMenu.IsOpen = true;
-            }), System.Windows.Threading.DispatcherPriority.Input);
-        }
-
-        /// <summary>
-        /// Открывает выпадающее меню дополнительных функций
-        /// (экспорт и загрузка списка баз).
-        /// </summary>
-        private void OnExtraFunctions_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is not Button button || button.ContextMenu is null)
-                return;
-
-            button.ContextMenu.PlacementTarget = button;
-            button.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 button.ContextMenu.IsOpen = true;
@@ -231,35 +213,6 @@ namespace Configuration_Management
             ApplySelection(treeViewItem, infobase);
 
             // Помечаем клик обработанным, чтобы TreeView не сбросил выбранный элемент.
-            e.Handled = true;
-        }
-
-        /// <summary>
-        /// Прокручивает внешний ScrollViewer колесом мыши, когда курсор находится
-        /// над деревом баз. Собственный вложенный ScrollViewer дерева отключён,
-        /// поэтому событие колеса перехватывается здесь и передаётся внешнему
-        /// скроллбару, который синхронно прокручивает заголовки и содержимое.
-        /// </summary>
-        private void OnInfobaseTree_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            var treeView = sender as TreeView;
-            if (treeView is null)
-                return;
-
-            var outerScroll = FindAncestor<ScrollViewer>(treeView);
-            if (outerScroll is null)
-                return;
-
-            var delta = e.Delta;
-
-            // Если внешний скроллбар достиг края, позволяем событию распространиться
-            // дальше (например, вверх по иерархии), иначе прокручиваем сами.
-            var canScrollDown = delta < 0 && outerScroll.VerticalOffset < outerScroll.ScrollableHeight;
-            var canScrollUp = delta > 0 && outerScroll.VerticalOffset > 0;
-            if (!canScrollDown && !canScrollUp)
-                return;
-
-            outerScroll.ScrollToVerticalOffset(outerScroll.VerticalOffset - delta);
             e.Handled = true;
         }
 
@@ -446,11 +399,65 @@ namespace Configuration_Management
             column.Width = new GridLength(width);
         }
 
+        // Поля для ручного перетаскивания разделителя колонок.
+        private ColumnDefinition? _resizeColumn;
+        private double _resizeStartWidth;
+        private Point _resizeStartMouse;
+
         /// <summary>
-        /// Синхронизирует ширины колонок строк списка при перетаскивании разделителя.
+        /// Определяет колонку, ширину которой меняет данный разделитель.
+        /// Разделитель в Grid.Column=N расположен слева от колонки N, поэтому он меняет колонку N-1.
         /// </summary>
-        private void OnColumnSplitter_DragDelta(object sender, DragDeltaEventArgs e)
+        private ColumnDefinition? GetSplitterTargetColumn(object sender)
         {
+            if (ReferenceEquals(sender, VersionSplitter))
+                return NameColumn;
+            if (ReferenceEquals(sender, LaunchModeSplitter))
+                return VersionColumn;
+            if (ReferenceEquals(sender, ServerSplitter))
+                return LaunchModeColumn;
+            if (ReferenceEquals(sender, LastLaunchSplitter))
+                return ServerColumn;
+            return null;
+        }
+
+        /// <summary>
+        /// Начинает перетаскивание разделителя: захватывает мышь и запоминает стартовые значения.
+        /// </summary>
+        private void OnColumnResize_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            var column = GetSplitterTargetColumn(sender);
+            if (column is null)
+                return;
+
+            _resizeColumn = column;
+            _resizeStartWidth = column.ActualWidth;
+            _resizeStartMouse = e.GetPosition(this);
+
+            if (sender is UIElement element)
+                element.CaptureMouse();
+
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Меняет ширину только целевой колонки при движении мыши.
+        /// Соседние колонки не затрагиваются: разность впитывает последняя гибкая колонка (*).
+        /// </summary>
+        private void OnColumnResize_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_resizeColumn is null || sender is not UIElement element || !element.IsMouseCaptured)
+                return;
+
+            var current = e.GetPosition(this);
+            var delta = current.X - _resizeStartMouse.X;
+
+            var newWidth = _resizeStartWidth + delta;
+            if (newWidth < 40)
+                newWidth = 40;
+
+            _resizeColumn.Width = new GridLength(newWidth);
+
             _viewModel.UpdateColumnWidths(
                 NameColumn?.ActualWidth ?? 0,
                 VersionColumn?.ActualWidth ?? 0,
@@ -460,16 +467,25 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Сохраняет ширины колонок списка баз после изменения размера разделителем.
+        /// Завершает перетаскивание разделителя и сохраняет ширины колонок.
         /// </summary>
-        private void OnColumnSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+        private void OnColumnResize_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            _viewModel.SaveColumnWidths(
-                NameColumn?.ActualWidth ?? 0,
-                VersionColumn?.ActualWidth ?? 0,
-                LaunchModeColumn?.ActualWidth ?? 0,
-                ServerColumn?.ActualWidth ?? 0,
-                LastLaunchColumn?.ActualWidth ?? 0);
+            if (sender is UIElement element)
+                element.ReleaseMouseCapture();
+
+            if (_resizeColumn is not null)
+            {
+                _viewModel.SaveColumnWidths(
+                    NameColumn?.ActualWidth ?? 0,
+                    VersionColumn?.ActualWidth ?? 0,
+                    LaunchModeColumn?.ActualWidth ?? 0,
+                    ServerColumn?.ActualWidth ?? 0,
+                    LastLaunchColumn?.ActualWidth ?? 0);
+            }
+
+            _resizeColumn = null;
+            e.Handled = true;
         }
 
         private void UpdateThemeButton()
@@ -480,6 +496,30 @@ namespace Configuration_Management
             ThemeToggleButton.Content = ThemeManager.CurrentTheme == ThemeManager.DarkThemeName
                 ? "☀️ Светлая"
                 : "🌙 Тёмная";
+        }
+
+        /// <summary>
+        /// Прокручивает список баз колесом мыши.
+        /// Внутренний ScrollViewer дерева выключен, поэтому колесо мыши нужно
+        /// обрабатывать на внешнем контейнере, иначе событие перехватывается
+        /// вложенными элементами и прокрутка не срабатывает.
+        /// </summary>
+        private void OnDbList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            var scrollViewer = sender as ScrollViewer;
+            if (scrollViewer is null)
+                return;
+
+            // Если содержимое не превышает размер контейнера — прокручивать нечего.
+            if (scrollViewer.ScrollableHeight <= 0)
+                return;
+
+            var delta = e.Delta > 0 ? -1 : 1;
+            // Умножаем, чтобы прокрутка была плавной (значение сравнимой с обычной прокруткой).
+            scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset + delta * 48);
+
+            // Не даём вложенным ScrollViewer (например, внутри TreeView) перехватить событие.
+            e.Handled = true;
         }
     }
 }

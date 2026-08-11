@@ -1,25 +1,191 @@
+using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
+using Configuration_Management.ViewModels;
+using Microsoft.Win32;
 
 namespace Configuration_Management
 {
     /// <summary>
-    /// Диалог настроек приложения.
+    /// Диалог настроек приложения с горизонтальными вкладками:
+    /// «Платформы», «Группы» и «Дополнительные функции».
     /// </summary>
     public partial class SettingsWindow : Window
     {
+        private readonly MainViewModel _viewModel;
+        private readonly ObservableCollection<Group> _groups;
         private List<string> _installedPlatformVersions;
+        private IbasesSyncMode _syncMode;
+        private string _syncFilePath = string.Empty;
 
         /// <summary>
         /// Создаёт диалог настроек приложения.
         /// </summary>
-        /// <param name="installedPlatformVersions">Текущий список установленных версий платформы.</param>
-        public SettingsWindow(IEnumerable<string>? installedPlatformVersions = null)
+        /// <param name="viewModel">Главная модель представления приложения.</param>
+        public SettingsWindow(MainViewModel viewModel)
         {
             InitializeComponent();
-            _installedPlatformVersions = new List<string>(installedPlatformVersions ?? new List<string>());
+            _viewModel = viewModel;
+            _installedPlatformVersions = new List<string>(viewModel.InstalledPlatformVersions);
+            _groups = new ObservableCollection<Group>(viewModel.Groups);
+            RebuildTree();
             UpdatePlatformsDisplay();
+            InitializeSyncSettings();
+        }
+
+        /// <summary>
+        /// Инициализирует блок синхронизации с файлом ibases.v8i: заполняет список
+        /// режимов, подставляет сохранённый путь и обновляет состояние элементов управления.
+        /// </summary>
+        private void InitializeSyncSettings()
+        {
+            _syncMode = _viewModel.IbasesSyncMode;
+            _syncFilePath = _viewModel.IbasesSyncFilePath;
+
+            SyncModeComboBox.Items.Add("Отключена");
+            SyncModeComboBox.Items.Add("Только загрузка (из файла в приложение)");
+            SyncModeComboBox.Items.Add("Только выгрузка (из приложения в файл)");
+            SyncModeComboBox.Items.Add("Двусторонняя (загрузка и выгрузка)");
+            SyncModeComboBox.SelectedIndex = (int)_syncMode;
+
+            SyncFilePathTextBox.Text = _syncFilePath;
+
+            UpdateSyncControls();
+        }
+
+        /// <summary>
+        /// Обновляет видимость/доступность элементов управления блока синхронизации
+        /// в зависимости от выбранного режима и пути к файлу.
+        /// </summary>
+        private void UpdateSyncControls()
+        {
+            var enabled = _syncMode != IbasesSyncMode.None;
+            SyncFilePathTextBox.IsEnabled = enabled;
+            BrowseSyncFileButton.IsEnabled = enabled;
+
+            // Кнопка «Загрузить» доступна в режимах с импортом, «Выгрузить» — с экспортом.
+            SyncImportButton.IsEnabled = enabled &&
+                (_syncMode == IbasesSyncMode.Import || _syncMode == IbasesSyncMode.Both);
+            SyncExportButton.IsEnabled = enabled &&
+                (_syncMode == IbasesSyncMode.Export || _syncMode == IbasesSyncMode.Both);
+
+            // Текстовый статус.
+            var path = ResolveDisplayPath();
+            if (!enabled)
+            {
+                SyncStatusText.Text = "Синхронизация отключена.";
+            }
+            else if (string.IsNullOrWhiteSpace(path))
+            {
+                SyncStatusText.Text = "Файл ibases.v8i не найден. Укажите путь вручную.";
+            }
+            else
+            {
+                var modeText = _syncMode switch
+                {
+                    IbasesSyncMode.Import => "только загрузка",
+                    IbasesSyncMode.Export => "только выгрузка",
+                    _ => "двусторонняя"
+                };
+                SyncStatusText.Text = $"Файл: {path}\nРежим: {modeText}.";
+            }
+        }
+
+        /// <summary>
+        /// Возвращает путь к файлу ibases.v8i для отображения: пользовательский путь
+        /// или стандартный путь 1С, если пользовательский не задан.
+        /// </summary>
+        private string? ResolveDisplayPath()
+        {
+            if (!string.IsNullOrWhiteSpace(_syncFilePath))
+                return _syncFilePath;
+
+            return IbasesV8iImporter.FindDefaultPath();
+        }
+
+        private void OnSyncMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (SyncModeComboBox.SelectedIndex < 0)
+                return;
+
+            _syncMode = (IbasesSyncMode)SyncModeComboBox.SelectedIndex;
+            UpdateSyncControls();
+        }
+
+        private void OnBrowseSyncFile_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Выберите файл списка баз 1С (ibases.v8i)",
+                Filter = "Файл списка баз 1С (*.v8i)|*.v8i|Все файлы (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                _syncFilePath = dialog.FileName;
+                SyncFilePathTextBox.Text = _syncFilePath;
+                UpdateSyncControls();
+            }
+        }
+
+        private void OnSyncImport_Click(object sender, RoutedEventArgs e)
+        {
+            var filePath = ResolveDisplayPath();
+            if (filePath is null || !System.IO.File.Exists(filePath))
+            {
+                MessageBox.Show(
+                    "Файл ibases.v8i не найден. Укажите путь к файлу вручную.",
+                    "Импорт из ibases.v8i",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            // Используем готовый метод ViewModel, который выполняет импорт,
+            // обновляет представление и сохраняет данные.
+            var ok = _viewModel.ImportFromIbases();
+            if (ok)
+            {
+                MessageBox.Show("Импорт из файла ibases.v8i выполнен успешно.",
+                    "Импорт из ibases.v8i", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show("Не удалось выполнить импорт. Проверьте, что файл ibases.v8i существует и доступен.",
+                    "Ошибка импорта", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+
+            RefreshGroupsAfterDataChange();
+        }
+
+        private void OnSyncExport_Click(object sender, RoutedEventArgs e)
+        {
+            var filePath = ResolveDisplayPath();
+            if (filePath is null)
+            {
+                MessageBox.Show(
+                    "Не удалось определить путь к файлу ibases.v8i. Укажите путь вручную.",
+                    "Экспорт в ibases.v8i",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                IbasesV8iExporter.Export(filePath, _viewModel.Infobases, _viewModel.Groups);
+                MessageBox.Show("Экспорт в файл ibases.v8i выполнен успешно.",
+                    "Экспорт в ibases.v8i", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Не удалось выполнить экспорт.\n{ex.Message}",
+                    "Ошибка экспорта", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>
@@ -33,6 +199,7 @@ namespace Configuration_Management
         private void OnRefreshPlatforms_Click(object sender, RoutedEventArgs e)
         {
             _installedPlatformVersions = PlatformVersionService.FindInstalledVersions();
+            _viewModel.SetInstalledPlatformVersions(_installedPlatformVersions);
             UpdatePlatformsDisplay();
         }
 
@@ -81,8 +248,277 @@ namespace Configuration_Management
                 : version;
         }
 
+        /// <summary>
+        /// Перестраивает дерево групп из плоского списка.
+        /// </summary>
+        private void RebuildTree()
+        {
+            GroupsTree.ItemsSource = GroupNodeViewModel.BuildTree(_groups);
+        }
+
+        /// <summary>
+        /// Возвращает выбранный узел дерева групп.
+        /// </summary>
+        private GroupNodeViewModel? SelectedNode =>
+            GroupsTree.SelectedItem as GroupNodeViewModel;
+
+        private void OnAddRoot_Click(object sender, RoutedEventArgs e)
+        {
+            // Новая корневая группа.
+            var dialog = new GroupEditWindow(_groups, parent: null)
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                _groups.Add(dialog.Result);
+                RebuildTree();
+                SelectGroup(dialog.Result);
+            }
+        }
+
+        private void OnAddSubgroup_Click(object sender, RoutedEventArgs e)
+        {
+            // Новая подгруппа внутри выбранной группы.
+            var parent = SelectedNode?.Group;
+            if (parent is null)
+            {
+                MessageBox.Show(
+                    "Выберите группу, внутри которой нужно создать подгруппу.",
+                    "Внимание",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new GroupEditWindow(_groups, parent)
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                _groups.Add(dialog.Result);
+                RebuildTree();
+                SelectGroup(dialog.Result);
+            }
+        }
+
+        private void OnEditGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedNode?.Group is not Group group)
+                return;
+
+            var dialog = new GroupEditWindow(_groups, group.ParentId, group)
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                // Обновляем группу в коллекции, сохраняя ссылку на объект,
+                // чтобы не потерять ParentId у дочерних групп.
+                var index = _groups.IndexOf(group);
+                if (index >= 0)
+                {
+                    _groups[index] = dialog.Result;
+                }
+
+                RebuildTree();
+                SelectGroup(dialog.Result);
+            }
+        }
+
+        private void OnDeleteGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (SelectedNode?.Group is not Group group)
+                return;
+
+            var subgroupCount = _groups.Count(g =>
+                string.Equals(g.ParentId, group.Id, StringComparison.OrdinalIgnoreCase));
+
+            var message = $"Удалить группу «{group.Name}»?";
+            if (subgroupCount > 0)
+            {
+                message += $"\n\nВнутри группы находится подгрупп: {subgroupCount}.\n" +
+                           "Они также будут удалены.";
+            }
+
+            var result = MessageBox.Show(
+                message,
+                "Подтверждение удаления",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            // Собираем все удаляемые группы (саму группу и всех потомков).
+            var toRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { group.Id };
+            CollectDescendants(group.Id, toRemove);
+
+            for (var i = _groups.Count - 1; i >= 0; i--)
+            {
+                if (toRemove.Contains(_groups[i].Id))
+                {
+                    _groups.RemoveAt(i);
+                }
+            }
+            RebuildTree();
+        }
+
+        /// <summary>
+        /// Собирает идентификаторы всех групп-потомков указанной группы.
+        /// </summary>
+        private void CollectDescendants(string parentId, ISet<string> result)
+        {
+            var children = _groups
+                .Where(g => string.Equals(g.ParentId, parentId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var child in children)
+            {
+                if (result.Add(child.Id))
+                {
+                    CollectDescendants(child.Id, result);
+                }
+            }
+        }
+
+        private void OnCollapseAll_Click(object sender, RoutedEventArgs e)
+        {
+            SetAllExpanded(collapse: true);
+        }
+
+        private void OnExpandAll_Click(object sender, RoutedEventArgs e)
+        {
+            SetAllExpanded(collapse: false);
+        }
+
+        /// <summary>
+        /// Сворачивает или разворачивает все узлы дерева групп.
+        /// </summary>
+        private void SetAllExpanded(bool collapse)
+        {
+            SetExpandedRecursive(GroupsTree.Items.OfType<GroupNodeViewModel>(), collapse);
+        }
+
+        private static void SetExpandedRecursive(IEnumerable<GroupNodeViewModel> nodes, bool collapse)
+        {
+            foreach (var node in nodes)
+            {
+                node.IsExpanded = !collapse;
+                SetExpandedRecursive(node.Children, collapse);
+            }
+        }
+
+        /// <summary>
+        /// Выбирает узел с указанной группой в дереве (разворачивая предков).
+        /// </summary>
+        private void SelectGroup(Group group)
+        {
+            foreach (var root in GroupsTree.Items.OfType<GroupNodeViewModel>())
+            {
+                if (SelectInContainer(GroupsTree, root, group))
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// Рекурсивно находит и выбирает узел с указанной группой.
+        /// </summary>
+        private static bool SelectInContainer(ItemsControl container, GroupNodeViewModel node, Group target)
+        {
+            // Разворачиваем узел, чтобы его потомки стали доступны.
+            node.IsExpanded = true;
+
+            if (node.Group is not null &&
+                string.Equals(node.Group.Id, target.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                var item = container.ItemContainerGenerator.ContainerFromItem(node) as TreeViewItem;
+                if (item is not null)
+                {
+                    item.IsSelected = true;
+                    item.BringIntoView();
+                }
+                return true;
+            }
+
+            foreach (var child in node.Children)
+            {
+                // Получаем контейнер текущего узла для доступа к его ItemsControl.
+                var childContainer = container.ItemContainerGenerator.ContainerFromItem(node) as ItemsControl;
+                if (childContainer is not null && SelectInContainer(childContainer, child, target))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void OnExportInfobases_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ExportInfobasesCommand.Execute(null);
+        }
+
+        private void OnImportInfobases_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ImportInfobasesCommand.Execute(null);
+            RefreshGroupsAfterDataChange();
+        }
+
+        private void OnImportIbasesV8i_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ImportFromIbasesV8iCommand.Execute(null);
+            RefreshGroupsAfterDataChange();
+        }
+
+        private void OnClearAllInfobases_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ClearAllInfobasesCommand.Execute(null);
+            RefreshGroupsAfterDataChange();
+        }
+
+        /// <summary>
+        /// Обновляет локальную копию списка групп после изменения данных
+        /// командами дополнительных функций.
+        /// </summary>
+        private void RefreshGroupsAfterDataChange()
+        {
+            _groups.Clear();
+            foreach (var group in _viewModel.Groups)
+            {
+                _groups.Add(group);
+            }
+            RebuildTree();
+        }
+
+        /// <summary>
+        /// Сохраняет только настройки синхронизации с файлом ibases.v8i,
+        /// не закрывая окно настроек.
+        /// </summary>
+        private void OnSaveIbasesSync_Click(object sender, RoutedEventArgs e)
+        {
+            var filePath = SyncFilePathTextBox.Text?.Trim() ?? string.Empty;
+            _viewModel.ApplyIbasesSyncSettings(_syncMode, filePath);
+            UpdateSyncControls();
+
+            MessageBox.Show(
+                "Настройки синхронизации с файлом ibases.v8i сохранены.",
+                "Сохранено",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
         private void OnSave_Click(object sender, RoutedEventArgs e)
         {
+            // Сохраняем изменения групп и версий платформы в модели представления.
+            _viewModel.ApplyGroupChanges(_groups);
+            _viewModel.SetInstalledPlatformVersions(_installedPlatformVersions);
+
+            // Сохраняем настройки синхронизации с файлом ibases.v8i.
+            var filePath = SyncFilePathTextBox.Text?.Trim() ?? string.Empty;
+            _viewModel.ApplyIbasesSyncSettings(_syncMode, filePath);
+
             DialogResult = true;
         }
 
