@@ -89,6 +89,8 @@ namespace Configuration_Management
 
         /// <summary>
         /// Открывает окно выбора версии платформы 1С со сгруппированными версиями.
+        /// Выбранный вариант вида «8.3.25.1234 (64)» разбирается на чистую версию
+        /// и разрядность, которые сохраняются в соответствующие свойства.
         /// </summary>
         private void OnPlatformSettings_Click(object sender, RoutedEventArgs e)
         {
@@ -98,7 +100,9 @@ namespace Configuration_Management
             };
             if (dialog.ShowDialog() == true)
             {
-                _viewModel.PlatformVersion = dialog.Result;
+                PlatformVersionService.ParseVariant(dialog.Result, out var version, out var architecture);
+                _viewModel.PlatformVersion = version;
+                _viewModel.Architecture = architecture;
             }
         }
     }

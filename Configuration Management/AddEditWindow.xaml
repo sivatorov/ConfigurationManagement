@@ -1,0 +1,123 @@
+<Window x:Class="Configuration_Management.AddEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Добавление в список"
+        Icon="{StaticResource AppIcon}"
+        Width="480"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+
+        <!-- Стиль варианта выбора (радиокнопка с иконкой и описанием) -->
+        <Style x:Key="OptionRadioButton" TargetType="RadioButton">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="OptionBorder"
+                                Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrushColor}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="12,10"
+                                Margin="0,0,0,10"
+                                Cursor="Hand">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="OptionBorder" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="OptionBorder" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Заголовок -->
+        <TextBlock Grid.Row="0" Text="Что добавить в список?"
+                   FontSize="15" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+        <!-- Варианты выбора -->
+        <StackPanel Grid.Row="1">
+            <RadioButton x:Name="InfobaseOption" Style="{StaticResource OptionRadioButton}"
+                         IsChecked="True" GroupName="AddType"
+                         Tag="Infobase" Checked="OnOption_Checked">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="36"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="💾" FontSize="24" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AccentBrush}"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Информационная база" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock Text="Создать новую информационную базу 1С (файловую или клиент-серверную)."
+                                   TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </RadioButton>
+
+            <RadioButton x:Name="GroupOption" Style="{StaticResource OptionRadioButton}"
+                         GroupName="AddType"
+                         Tag="Group" Checked="OnOption_Checked">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="36"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="📁" FontSize="24" VerticalAlignment="Center"
+                               Foreground="{DynamicResource AccentBrush}"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Группа" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock Text="Создать группу для объединения информационных баз по категориям."
+                                   TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </RadioButton>
+        </StackPanel>
+
+        <!-- Кнопки -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Width="120" Height="34" Style="{DynamicResource ModernButton}"
+                    Margin="0,0,10,0" IsDefault="True" Click="OnNext_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="➡" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Далее" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button Width="120" Height="34" Style="{DynamicResource SecondaryButton}" IsCancel="True">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✖" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Отмена" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

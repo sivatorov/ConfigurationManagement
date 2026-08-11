@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
@@ -25,6 +26,31 @@ public class MainViewModel : ViewModelBase
     private string _savedTheme = string.Empty;
     private readonly HashSet<string> _collapsedGroups = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _installedPlatformVersions = new();
+    private double _nameColumnWidth;
+    private double _versionColumnWidth;
+    private double _launchModeColumnWidth;
+    private double _serverColumnWidth;
+    private double _lastLaunchColumnWidth;
+    private double _windowWidth;
+    private double _windowHeight;
+    private double _windowLeft;
+    private double _windowTop;
+    private string _windowState = string.Empty;
+    private IbasesSyncMode _ibasesSyncMode = IbasesSyncMode.None;
+    private string _ibasesSyncFilePath = string.Empty;
+    private IbasesSyncTrigger _ibasesSyncTrigger = IbasesSyncTrigger.OnStartup;
+    private int _ibasesSyncIntervalMinutes = 30;
+    private string _ibasesSyncScheduleTime = "09:00";
+    private string _syncMessage = string.Empty;
+    private DispatcherTimer? _syncTimer;
+    private DateTime? _nextScheduleRun;
+    private bool _syncTimerRunning;
+
+    /// <summary>
+    /// Внутренний набор узлов дерева групп, перестраиваемый при изменении данных.
+    /// Заполняется в методе <see cref="RebuildGroupTree"/>.
+    /// </summary>
+    private List<GroupNodeViewModel> _groupNodes = new();
 
     public MainViewModel()
     {
@@ -36,6 +62,21 @@ public class MainViewModel : ViewModelBase
         _groupByGroup = settings.GroupByGroup;
         _savedTheme = settings.Theme;
         _installedPlatformVersions = new List<string>(settings.InstalledPlatformVersions);
+        _nameColumnWidth = settings.NameColumnWidth;
+        _versionColumnWidth = settings.VersionColumnWidth;
+        _launchModeColumnWidth = settings.LaunchModeColumnWidth;
+        _serverColumnWidth = settings.ServerColumnWidth;
+        _lastLaunchColumnWidth = settings.LastLaunchColumnWidth;
+        _windowWidth = settings.WindowWidth;
+        _windowHeight = settings.WindowHeight;
+        _windowLeft = settings.WindowLeft;
+        _windowTop = settings.WindowTop;
+        _windowState = settings.WindowState;
+        _ibasesSyncMode = settings.IbasesSyncMode;
+        _ibasesSyncFilePath = settings.IbasesSyncFilePath;
+        _ibasesSyncTrigger = settings.IbasesSyncTrigger;
+        _ibasesSyncIntervalMinutes = settings.IbasesSyncIntervalMinutes;
+        _ibasesSyncScheduleTime = settings.IbasesSyncScheduleTime;
         foreach (var groupName in settings.CollapsedGroups)
         {
             _collapsedGroups.Add(groupName);
@@ -49,21 +90,23 @@ public class MainViewModel : ViewModelBase
         var loadedGroups = _repository.LoadGroups();
         Groups = new ObservableCollection<Group>(loadedGroups);
 
-        // Коллекция закреплённых баз для отображения вверху списка.
-        PinnedInfobases = new ObservableCollection<Infobase>(Infobases.Where(i => i.IsPinned));
-
         InfobasesView = CollectionViewSource.GetDefaultView(Infobases);
         InfobasesView.Filter = FilterInfobase;
-        if (_groupByGroup)
-        {
-            InfobasesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Infobase.GroupDisplay)));
-        }
+        // Сортировка: закреплённые базы идут первыми, затем по названию базы.
+        InfobasesView.SortDescriptions.Add(new SortDescription(nameof(Infobase.GroupSortOrder), ListSortDirection.Ascending));
+        InfobasesView.SortDescriptions.Add(new SortDescription(nameof(Infobase.Name), ListSortDirection.Ascending));
+
+        // Дерево групп (отображается в виде «группа в группе»).
+        GroupNodes = new ObservableCollection<GroupNodeViewModel>();
+        RebuildGroupTree();
 
         SelectInfobaseCommand = new RelayCommand(SelectInfobase);
         RefreshCommand = new RelayCommand(Refresh);
         AddInfobaseCommand = new RelayCommand(AddInfobase);
-        EditInfobaseCommand = new RelayCommand(EditInfobase, _ => SelectedInfobase != null);
-        DeleteInfobaseCommand = new RelayCommand(DeleteInfobase, _ => SelectedInfobase != null);
+        EditInfobaseCommand = new RelayCommand(EditInfobase,
+            _ => SelectedInfobase != null || SelectedGroupNode?.Group != null);
+        DeleteInfobaseCommand = new RelayCommand(DeleteInfobase,
+            _ => SelectedInfobase != null || SelectedGroupNode?.Group != null);
         ToggleFavoriteCommand = new RelayCommand(ToggleFavorite, _ => SelectedInfobase != null);
         ToggleFavoriteForCommand = new RelayCommand(ToggleFavoriteFor);
         LaunchEnterpriseCommand = new RelayCommand(LaunchEnterprise, _ => SelectedInfobase != null);
@@ -72,7 +115,6 @@ public class MainViewModel : ViewModelBase
         LaunchEnterpriseThickCommand = new RelayCommand(LaunchEnterpriseThick, _ => SelectedInfobase != null);
         LaunchEnterpriseThin64Command = new RelayCommand(LaunchEnterpriseThin64, _ => SelectedInfobase != null);
         LaunchEnterpriseThick64Command = new RelayCommand(LaunchEnterpriseThick64, _ => SelectedInfobase != null);
-        ManageGroupsCommand = new RelayCommand(ManageGroups);
         ImportFromIbasesV8iCommand = new RelayCommand(ImportFromIbasesV8i);
         ExportInfobasesCommand = new RelayCommand(ExportInfobases);
         ImportInfobasesCommand = new RelayCommand(ImportInfobases);
@@ -88,6 +130,7 @@ public class MainViewModel : ViewModelBase
         ClearSearchCommand = new RelayCommand(ClearSearch);
         CollapseAllGroupsCommand = new RelayCommand(CollapseAllGroups);
         ExpandAllGroupsCommand = new RelayCommand(ExpandAllGroups);
+        ToggleGroupExpandedCommand = new RelayCommand(ToggleGroupExpanded);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
 
         // Если список баз пуст — предлагаем загрузить базы из файла ibases.v8i.
@@ -100,14 +143,11 @@ public class MainViewModel : ViewModelBase
     /// <summary>Список информационных баз.</summary>
     public ObservableCollection<Infobase> Infobases { get; }
 
-    /// <summary>Коллекция закреплённых баз для отображения вверху списка без группы.</summary>
-    public ObservableCollection<Infobase> PinnedInfobases { get; private set; }
-
-    /// <summary>Признак наличия закреплённых баз (для отображения секции «Закреплённые»).</summary>
-    public bool HasPinnedInfobases => PinnedInfobases.Count > 0;
-
     /// <summary>Представление списка баз с группировкой и фильтрацией.</summary>
     public ICollectionView InfobasesView { get; }
+
+    /// <summary>Узлы дерева групп информационных баз для отображения «группа в группе».</summary>
+    public ObservableCollection<GroupNodeViewModel> GroupNodes { get; }
 
     /// <summary>Выбранная информационная база.</summary>
     public Infobase? SelectedInfobase
@@ -122,6 +162,29 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private GroupNodeViewModel? _selectedGroupNode;
+
+    /// <summary>Выбранный узел группы в дереве (null, если выбрана база или ничего).</summary>
+    public GroupNodeViewModel? SelectedGroupNode
+    {
+        get => _selectedGroupNode;
+        set
+        {
+            var previous = _selectedGroupNode;
+            if (SetProperty(ref _selectedGroupNode, value))
+            {
+                // Сбрасываем подсветку ранее выбранной группы и подсвечиваем новую,
+                // чтобы выделение было видно поверх цвета группы в дереве.
+                if (previous is not null)
+                    previous.IsSelected = false;
+                if (_selectedGroupNode is not null)
+                    _selectedGroupNode.IsSelected = true;
+
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
     /// <summary>Текст поиска по информационным базам.</summary>
     public string SearchText
     {
@@ -131,6 +194,7 @@ public class MainViewModel : ViewModelBase
             if (SetProperty(ref _searchText, value))
             {
                 InfobasesView.Refresh();
+                RebuildGroupTree();
             }
         }
     }
@@ -144,6 +208,7 @@ public class MainViewModel : ViewModelBase
             if (SetProperty(ref _showFavoritesOnly, value))
             {
                 InfobasesView.Refresh();
+                RebuildGroupTree();
                 SaveSettings();
             }
         }
@@ -157,16 +222,16 @@ public class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _groupByGroup, value))
             {
-                InfobasesView.GroupDescriptions.Clear();
-                if (value)
-                {
-                    InfobasesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Infobase.GroupDisplay)));
-                }
                 InfobasesView.Refresh();
+                RebuildGroupTree();
                 SaveSettings();
+                OnPropertyChanged(nameof(GroupByGroupText));
             }
         }
     }
+
+    /// <summary>Текст кнопки переключения отображения групп.</summary>
+    public string GroupByGroupText => _groupByGroup ? "📁 Скрыть группы" : "📁 Показывать группы";
 
     /// <summary>Список групп информационных баз.</summary>
     public ObservableCollection<Group> Groups { get; }
@@ -174,8 +239,458 @@ public class MainViewModel : ViewModelBase
     /// <summary>Название сохранённой темы оформления (пусто, если тема не сохранялась).</summary>
     public string SavedTheme => _savedTheme;
 
-    /// <summary>Команда управления группами.</summary>
-    public ICommand ManageGroupsCommand { get; }
+    /// <summary>Список установленных версий платформы 1С.</summary>
+    public List<string> InstalledPlatformVersions => _installedPlatformVersions;
+
+    /// <summary>
+    /// Сохраняет список установленных версий платформы 1С.
+    /// </summary>
+    public void SetInstalledPlatformVersions(IEnumerable<string> versions)
+    {
+        _installedPlatformVersions = new List<string>(versions);
+        SaveSettings();
+    }
+
+    /// <summary>Режим синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncMode IbasesSyncMode => _ibasesSyncMode;
+
+    /// <summary>Путь к файлу ibases.v8i для синхронизации.</summary>
+    public string IbasesSyncFilePath => _ibasesSyncFilePath;
+
+    /// <summary>Момент запуска автоматической синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncTrigger IbasesSyncTrigger => _ibasesSyncTrigger;
+
+    /// <summary>Интервал автоматической синхронизации в минутах.</summary>
+    public int IbasesSyncIntervalMinutes => _ibasesSyncIntervalMinutes;
+
+    /// <summary>Время автоматической синхронизации по расписанию (HH:mm).</summary>
+    public string IbasesSyncScheduleTime => _ibasesSyncScheduleTime;
+
+    /// <summary>
+    /// Текст сообщения о последней выполненной синхронизации с файлом ibases.v8i
+    /// (что было обновлено и в какое время). Выводится в строку состояния главного окна.
+    /// </summary>
+    public string SyncMessage
+    {
+        get => _syncMessage;
+        private set => SetProperty(ref _syncMessage, value);
+    }
+
+    /// <summary>Признак того, что автоматическая синхронизация запущена по интервалу/расписанию.</summary>
+    public bool IsAutoSyncRunning => _syncTimerRunning;
+
+    /// <summary>
+    /// Применяет настройки синхронизации с файлом ibases.v8i, заданные в окне настроек.
+    /// </summary>
+    public void ApplyIbasesSyncSettings(IbasesSyncMode mode, string filePath,
+        IbasesSyncTrigger trigger, int intervalMinutes, string scheduleTime)
+    {
+        _ibasesSyncMode = mode;
+        _ibasesSyncFilePath = filePath ?? string.Empty;
+        _ibasesSyncTrigger = trigger;
+        _ibasesSyncIntervalMinutes = intervalMinutes;
+        _ibasesSyncScheduleTime = scheduleTime ?? string.Empty;
+        SaveSettings();
+        RestartAutoSync();
+    }
+
+    /// <summary>
+    /// Выполняет синхронизацию с файлом ibases.v8i в соответствии с заданным режимом.
+    /// В режимах с импортом загружает новые базы из файла, в режимах с экспортом —
+    /// выгружает базы приложения в файл. При наличии изменений формирует сообщение
+    /// о том, что было обновлено и в какое время, и выводит его в строку состояния.
+    /// </summary>
+    /// <returns>True, если была выполнена хотя бы одна операция синхронизации.</returns>
+    public bool SynchronizeWithIbases()
+    {
+        if (_ibasesSyncMode == IbasesSyncMode.None)
+            return false;
+
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return false;
+
+        var importPerformed = _ibasesSyncMode is IbasesSyncMode.Import or IbasesSyncMode.Both;
+        var exportPerformed = _ibasesSyncMode is IbasesSyncMode.Export or IbasesSyncMode.Both;
+
+        var message = string.Empty;
+
+        if (importPerformed && File.Exists(filePath))
+        {
+            try
+            {
+                var result = IbasesV8iImporter.Import(filePath, Infobases, Groups);
+                InfobasesView.Refresh();
+                Save();
+                SaveGroups();
+                RebuildGroupTree();
+                message = BuildSyncMessage("Загружено из файла", result);
+            }
+            catch
+            {
+                // Игнорируем ошибки импорта при автоматической синхронизации,
+                // чтобы не прерывать работу пользователя.
+            }
+        }
+
+        if (exportPerformed)
+        {
+            try
+            {
+                var result = IbasesV8iExporter.Export(filePath, Infobases, Groups);
+                var exportText = BuildSyncMessage("Выгружено в файл", result);
+                if (!string.IsNullOrEmpty(exportText))
+                {
+                    message = string.IsNullOrEmpty(message)
+                        ? exportText
+                        : message + "; " + exportText;
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки экспорта при автоматической синхронизации.
+            }
+        }
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            SyncMessage = $"{DateTime.Now:HH:mm:ss} — {message}";
+        }
+
+        return importPerformed || exportPerformed;
+    }
+
+    /// <summary>
+    /// Формирует текстовое описание изменений по результату импорта/экспорта.
+    /// Возвращает пустую строку, если изменений не было.
+    /// </summary>
+    private static string BuildSyncMessage(string prefix, object result)
+    {
+        var parts = new List<string>();
+
+        if (result is IbasesImportResult import)
+        {
+            if (import.Added > 0) parts.Add($"добавлено баз: {import.Added}");
+            if (import.Updated > 0) parts.Add($"обновлено баз: {import.Updated}");
+            if (import.Skipped > 0) parts.Add($"пропущено: {import.Skipped}");
+            if (import.GroupsCreated > 0) parts.Add($"создано групп: {import.GroupsCreated}");
+        }
+        else if (result is IbasesExportResult export)
+        {
+            if (export.Added > 0) parts.Add($"добавлено баз: {export.Added}");
+            if (export.Updated > 0) parts.Add($"обновлено баз: {export.Updated}");
+            if (export.GroupsCreated > 0) parts.Add($"создано групп: {export.GroupsCreated}");
+        }
+
+        return parts.Count == 0 ? string.Empty : $"{prefix}: {string.Join(", ", parts)}";
+    }
+
+    /// <summary>
+    /// Запускает автоматическую синхронизацию в соответствии с настройками:
+    /// по интервалу или по расписанию. При старте также выполняет синхронизацию
+    /// (если выбран режим OnStartup или Interval/Schedule).
+    /// </summary>
+    public void StartAutoSync()
+    {
+        // При запуске приложения синхронизируемся всегда, если режим включён,
+        // независимо от выбранного триггера (OnStartup — сразу, Interval/Schedule — сразу и далее).
+        SynchronizeWithIbases();
+
+        RestartAutoSync();
+    }
+
+    /// <summary>
+    /// Останавливает автоматическую синхронизацию по таймеру.
+    /// </summary>
+    public void StopAutoSync()
+    {
+        if (_syncTimer is not null)
+        {
+            _syncTimer.Stop();
+            _syncTimer.Tick -= OnSyncTimerTick;
+            _syncTimer = null;
+        }
+        _nextScheduleRun = null;
+        SetAutoSyncRunning(false);
+    }
+
+    /// <summary>
+    /// Перезапускает таймер автоматической синхронизации в соответствии с
+    /// текущими настройками. Для режима Interval таймер тикает раз в минуту и
+    /// выполняет синхронизацию через заданный интервал; для режима Schedule —
+    /// проверяет наступление заданного времени.
+    /// </summary>
+    public void RestartAutoSync()
+    {
+        StopAutoSync();
+
+        if (_ibasesSyncMode == IbasesSyncMode.None ||
+            _ibasesSyncTrigger is IbasesSyncTrigger.OnStartup)
+        {
+            return;
+        }
+
+        if (!ComputeNextRunTime(out var nextRun))
+            return;
+
+        _nextScheduleRun = nextRun;
+
+        _syncTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMinutes(1)
+        };
+        _syncTimer.Tick += OnSyncTimerTick;
+        _syncTimer.Start();
+        SetAutoSyncRunning(true);
+    }
+
+    /// <summary>
+    /// Обработчик тика таймера автоматической синхронизации.
+    /// </summary>
+    private void OnSyncTimerTick(object? sender, EventArgs e)
+    {
+        if (_ibasesSyncMode == IbasesSyncMode.None)
+        {
+            RestartAutoSync();
+            return;
+        }
+
+        if (_nextScheduleRun is null)
+        {
+            if (ComputeNextRunTime(out var nextRun))
+                _nextScheduleRun = nextRun;
+            return;
+        }
+
+        if (DateTime.Now >= _nextScheduleRun.Value)
+        {
+            SynchronizeWithIbases();
+            // Планируем следующий запуск.
+            if (ComputeNextRunTime(out var nextRun))
+                _nextScheduleRun = nextRun;
+        }
+    }
+
+    /// <summary>
+    /// Вычисляет время следующего запуска синхронизации для выбранного режима.
+    /// Для интервала — текущее время плюс интервал; для расписания — ближайшее
+    /// заданное время (завтра, если время уже прошло сегодня).
+    /// </summary>
+    private bool ComputeNextRunTime(out DateTime nextRun)
+    {
+        nextRun = default;
+
+        if (_ibasesSyncTrigger == IbasesSyncTrigger.Interval)
+        {
+            var intervalMinutes = Math.Max(1, _ibasesSyncIntervalMinutes);
+            nextRun = DateTime.Now.AddMinutes(intervalMinutes);
+            return true;
+        }
+
+        if (_ibasesSyncTrigger == IbasesSyncTrigger.Schedule)
+        {
+            if (string.IsNullOrWhiteSpace(_ibasesSyncScheduleTime) ||
+                !TimeSpan.TryParse(_ibasesSyncScheduleTime, out var time))
+            {
+                return false;
+            }
+
+            var now = DateTime.Now;
+            var today = now.Date + time;
+            if (today <= now)
+            {
+                today = today.AddDays(1);
+            }
+
+            nextRun = today;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Устанавливает признак запущенной автоматической синхронизации и уведомляет подписчиков.
+    /// </summary>
+    private void SetAutoSyncRunning(bool running)
+    {
+        if (_syncTimerRunning != running)
+        {
+            _syncTimerRunning = running;
+            OnPropertyChanged(nameof(IsAutoSyncRunning));
+        }
+    }
+
+    /// <summary>
+    /// Выполняет экспорт текущего списка баз и групп в файл ibases.v8i
+    /// (используется для ручного экспорта из окна настроек).
+    /// </summary>
+    public bool ExportToIbases()
+    {
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return false;
+
+        try
+        {
+            IbasesV8iExporter.Export(filePath, Infobases, Groups);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Выполняет импорт баз из файла ibases.v8i в приложение
+    /// (используется для ручного импорта из окна настроек).
+    /// </summary>
+    public bool ImportFromIbases()
+    {
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null || !File.Exists(filePath))
+            return false;
+
+        try
+        {
+            IbasesV8iImporter.Import(filePath, Infobases, Groups);
+            InfobasesView.Refresh();
+            Save();
+            SaveGroups();
+            RebuildGroupTree();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Определяет путь к файлу ibases.v8i: пользовательский путь из настроек,
+    /// либо стандартный путь 1С, если пользовательский не задан.
+    /// </summary>
+    private string? ResolveIbasesFilePath()
+    {
+        if (!string.IsNullOrWhiteSpace(_ibasesSyncFilePath))
+            return _ibasesSyncFilePath;
+
+        return IbasesV8iImporter.FindDefaultPath();
+    }
+
+    /// <summary>
+    /// Применяет изменения списка групп, внесённые в окне настроек.
+    /// </summary>
+    public void ApplyGroupChanges(IEnumerable<Group> groups)
+    {
+        Groups.Clear();
+        foreach (var group in groups)
+        {
+            Groups.Add(group);
+        }
+        SaveGroups();
+        InfobasesView.Refresh();
+        RebuildGroupTree();
+    }
+
+    /// <summary>Ширина колонки «Название» (0 — по умолчанию).</summary>
+    public double NameColumnWidth
+    {
+        get => _nameColumnWidth;
+        private set
+        {
+            if (_nameColumnWidth != value)
+            {
+                _nameColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Версия платформы» (0 — по умолчанию).</summary>
+    public double VersionColumnWidth
+    {
+        get => _versionColumnWidth;
+        private set
+        {
+            if (_versionColumnWidth != value)
+            {
+                _versionColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Режим запуска» (0 — по умолчанию).</summary>
+    public double LaunchModeColumnWidth
+    {
+        get => _launchModeColumnWidth;
+        private set
+        {
+            if (_launchModeColumnWidth != value)
+            {
+                _launchModeColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Сервер/База» (0 — по умолчанию).</summary>
+    public double ServerColumnWidth
+    {
+        get => _serverColumnWidth;
+        private set
+        {
+            if (_serverColumnWidth != value)
+            {
+                _serverColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Ширина колонки «Последний запуск» (0 — по умолчанию).</summary>
+    public double LastLaunchColumnWidth
+    {
+        get => _lastLaunchColumnWidth;
+        private set
+        {
+            if (_lastLaunchColumnWidth != value)
+            {
+                _lastLaunchColumnWidth = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Сохранённая ширина окна приложения (0 — по умолчанию).</summary>
+    public double SavedWindowWidth => _windowWidth;
+
+    /// <summary>Сохранённая высота окна приложения (0 — по умолчанию).</summary>
+    public double SavedWindowHeight => _windowHeight;
+
+    /// <summary>Сохранённая позиция окна по горизонтали (0 — по центру).</summary>
+    public double SavedWindowLeft => _windowLeft;
+
+    /// <summary>Сохранённая позиция окна по вертикали (0 — по центру).</summary>
+    public double SavedWindowTop => _windowTop;
+
+    /// <summary>Сохранённое состояние окна (пусто — обычное).</summary>
+    public string SavedWindowState => _windowState;
+
+    /// <summary>
+    /// Сохраняет размер, позицию и состояние окна приложения.
+    /// </summary>
+    public void SaveWindowLayout(double width, double height, double left, double top, string state)
+    {
+        _windowWidth = width;
+        _windowHeight = height;
+        _windowLeft = left;
+        _windowTop = top;
+        _windowState = state;
+        SaveSettings();
+    }
 
     /// <summary>Команда импорта баз из файла ibases.v8i.</summary>
     public ICommand ImportFromIbasesV8iCommand { get; }
@@ -221,6 +736,9 @@ public class MainViewModel : ViewModelBase
 
     /// <summary>Команда разворачивания всех групп.</summary>
     public ICommand ExpandAllGroupsCommand { get; }
+
+    /// <summary>Команда сворачивания/разворачивания отдельной группы с сохранением состояния.</summary>
+    public ICommand ToggleGroupExpandedCommand { get; }
 
     /// <summary>Команда открытия окна настроек приложения.</summary>
     public ICommand OpenSettingsCommand { get; }
@@ -281,24 +799,75 @@ public class MainViewModel : ViewModelBase
         }
         SelectedInfobase = null;
         Save();
+        RebuildGroupTree();
     }
 
+    /// <summary>
+    /// Открывает мастер добавления (выбор типа: информационная база или группа).
+    /// </summary>
     private void AddInfobase(object? parameter)
     {
-        var dialog = new ConnectionSettingsWindow(null, Groups, _installedPlatformVersions)
+        var addDialog = new AddEditWindow
+        {
+            Owner = Application.Current.MainWindow
+        };
+        if (addDialog.ShowDialog() != true)
+            return;
+
+        // В зависимости от выбранного типа открываем соответствующее окно добавления.
+        if (addDialog.SelectedType == "Group")
+        {
+            AddGroup();
+        }
+        else
+        {
+            var dialog = new ConnectionSettingsWindow(null, Groups, _installedPlatformVersions)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                Infobases.Add(dialog.Result);
+                SelectedInfobase = dialog.Result;
+                Save();
+                RebuildGroupTree();
+                SynchronizeWithIbases();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Открывает диалог создания новой группы. Если выбрана группа — создаётся подгруппа внутри неё.
+    /// </summary>
+    private void AddGroup()
+    {
+        // Новая группа создаётся внутри выбранной группы, либо как корневая, если группа не выбрана.
+        var parent = SelectedGroupNode?.Group;
+        var dialog = new GroupEditWindow(Groups, parent)
         {
             Owner = Application.Current.MainWindow
         };
         if (dialog.ShowDialog() == true)
         {
-            Infobases.Add(dialog.Result);
-            SelectedInfobase = dialog.Result;
-            Save();
+            Groups.Add(dialog.Result);
+            SaveGroups();
+            RebuildGroupTree();
         }
     }
 
+    /// <summary>
+    /// Редактирует выбранный элемент: базу — через окно подключения, группу — через окно группы.
+    /// Тип элемента при редактировании изменить нельзя (база не станет группой и наоборот).
+    /// </summary>
     private void EditInfobase(object? parameter)
     {
+        // Если выбран узел группы — редактируем группу.
+        if (SelectedGroupNode?.Group is Group group)
+        {
+            EditGroup(group);
+            return;
+        }
+
         if (SelectedInfobase is null)
             return;
 
@@ -309,15 +878,14 @@ public class MainViewModel : ViewModelBase
         if (dialog.ShowDialog() == true)
         {
             // Применяем изменения к существующему объекту, а не заменяем его новым.
-            // Это важно, потому что на один и тот же объект могут ссылаться и основной список,
-            // и коллекция закреплённых баз (PinnedInfobases). Замена объекта привела бы к тому,
-            // что закреплённая база продолжала бы показывать старые параметры подключения.
+            // Это важно, потому что на объект могут ссылаться и основной список, и представление.
             var target = SelectedInfobase;
             target.Id = dialog.Result.Id;
             target.Name = dialog.Result.Name;
             target.Group = dialog.Result.Group;
             target.Description = dialog.Result.Description;
             target.PlatformVersion = dialog.Result.PlatformVersion;
+            target.Architecture = dialog.Result.Architecture;
             target.LaunchMode = dialog.Result.LaunchMode;
             target.LaunchParameters = dialog.Result.LaunchParameters;
             target.ClientType = dialog.Result.ClientType;
@@ -328,15 +896,50 @@ public class MainViewModel : ViewModelBase
             target.MetadataRoot = dialog.Result.MetadataRoot;
             target.Connection = dialog.Result.Connection;
 
-            // Обновляем отображаемые данные.
-            UpdatePinnedInfobases();
+            // Обновляем отображаемые данные (перегруппировка с учётом изменения закрепления).
             InfobasesView.Refresh();
             Save();
+            RebuildGroupTree();
+            SynchronizeWithIbases();
         }
     }
 
+    /// <summary>
+    /// Открывает диалог редактирования выбранной группы.
+    /// </summary>
+    private void EditGroup(Group group)
+    {
+        var dialog = new GroupEditWindow(Groups, group.ParentId, group)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            // Обновляем группу в коллекции, сохраняя ссылку на объект,
+            // чтобы не потерять ParentId у дочерних групп.
+            var index = Groups.IndexOf(group);
+            if (index >= 0)
+            {
+                Groups[index] = dialog.Result;
+            }
+
+            SaveGroups();
+            RebuildGroupTree();
+        }
+    }
+
+    /// <summary>
+    /// Удаляет выбранный элемент: базу или группу (с учётом потомков).
+    /// </summary>
     private void DeleteInfobase(object? parameter)
     {
+        // Если выбран узел группы — удаляем группу и её подгруппы.
+        if (SelectedGroupNode?.Group is Group group)
+        {
+            DeleteGroup(group);
+            return;
+        }
+
         if (SelectedInfobase is null)
             return;
 
@@ -351,6 +954,99 @@ public class MainViewModel : ViewModelBase
             Infobases.Remove(SelectedInfobase);
             SelectedInfobase = null;
             Save();
+            RebuildGroupTree();
+            SynchronizeWithIbases();
+        }
+    }
+
+    /// <summary>
+    /// Удаляет группу. Если внутри группы есть дочерние группы или информационные базы,
+    /// удаление запрещается: сначала нужно очистить содержимое группы.
+    /// </summary>
+    private void DeleteGroup(Group group)
+    {
+        // Проверяем наличие дочерних групп.
+        var subgroupCount = Groups.Count(g =>
+            string.Equals(g.ParentId, group.Id, StringComparison.OrdinalIgnoreCase));
+
+        // Проверяем наличие баз в группе и всех её подгруппах (по полному пути группы).
+        var groupPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectGroupPaths(group.Id, groupPaths);
+        var infobaseCount = Infobases.Count(ib =>
+            !string.IsNullOrWhiteSpace(ib.Group) &&
+            groupPaths.Contains(ib.Group.Trim()));
+
+        // Удаление группы, содержащей подгруппы или базы, запрещено.
+        if (subgroupCount > 0 || infobaseCount > 0)
+        {
+            var reasons = new List<string>();
+            if (subgroupCount > 0)
+                reasons.Add($"подгрупп: {subgroupCount}");
+            if (infobaseCount > 0)
+                reasons.Add($"информационных баз: {infobaseCount}");
+
+            MessageBox.Show(
+                $"Невозможно удалить группу «{group.Name}».\n\n" +
+                "Внутри группы (включая вложенные подгруппы) находится:\n" +
+                string.Join("\n", reasons.Select(r => $"• {r}")) + ".\n\n" +
+                "Сначала удалите или переместите содержимое группы, затем удалите её.",
+                "Удаление невозможно",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Удалить группу «{group.Name}»?",
+            "Подтверждение удаления",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        Groups.Remove(group);
+
+        SelectedGroupNode = null;
+        SaveGroups();
+        RebuildGroupTree();
+    }
+
+    /// <summary>
+    /// Собирает полные пути указанной группы и всех её потомков в иерархии.
+    /// Используется для проверки наличия баз внутри группы перед её удалением.
+    /// </summary>
+    private void CollectGroupPaths(string groupId, ISet<string> result)
+    {
+        var descendants = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { groupId };
+        CollectGroupDescendants(groupId, descendants);
+
+        foreach (var id in descendants)
+        {
+            var g = Groups.FirstOrDefault(x =>
+                string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (g is not null)
+            {
+                result.Add(GroupHierarchyHelper.GetFullPath(g, Groups));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Собирает идентификаторы всех групп-потомков указанной группы.
+    /// </summary>
+    private void CollectGroupDescendants(string parentId, ISet<string> result)
+    {
+        var children = Groups
+            .Where(g => string.Equals(g.ParentId, parentId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var child in children)
+        {
+            if (result.Add(child.Id))
+            {
+                CollectGroupDescendants(child.Id, result);
+            }
         }
     }
 
@@ -366,6 +1062,9 @@ public class MainViewModel : ViewModelBase
         {
             InfobasesView.Refresh();
         }
+        // Перестраиваем дерево групп, чтобы пустые группы скрывались/показывались
+        // в зависимости от состояния избранного.
+        RebuildGroupTree();
         Save();
     }
 
@@ -381,6 +1080,9 @@ public class MainViewModel : ViewModelBase
         {
             InfobasesView.Refresh();
         }
+        // Перестраиваем дерево групп, чтобы пустые группы скрывались/показывались
+        // в зависимости от состояния избранного.
+        RebuildGroupTree();
         Save();
     }
 
@@ -390,8 +1092,9 @@ public class MainViewModel : ViewModelBase
             return;
 
         SelectedInfobase.IsPinned = !SelectedInfobase.IsPinned;
-        UpdatePinnedInfobases();
+        InfobasesView.Refresh();
         Save();
+        RebuildGroupTree();
     }
 
     private void TogglePinFor(object? parameter)
@@ -400,30 +1103,9 @@ public class MainViewModel : ViewModelBase
             return;
 
         infobase.IsPinned = !infobase.IsPinned;
-        UpdatePinnedInfobases();
+        InfobasesView.Refresh();
         Save();
-    }
-
-    /// <summary>
-    /// Обновляет коллекцию закреплённых баз в соответствии с признаком IsPinned.
-    /// </summary>
-    private void UpdatePinnedInfobases()
-    {
-        // Точечно добавляем/удаляем изменившуюся базу, чтобы не пересоздавать всю коллекцию.
-        var pinned = PinnedInfobases.ToList();
-        foreach (var infobase in Infobases)
-        {
-            var isInPinned = pinned.Contains(infobase);
-            if (infobase.IsPinned && !isInPinned)
-            {
-                PinnedInfobases.Add(infobase);
-            }
-            else if (!infobase.IsPinned && isInPinned)
-            {
-                PinnedInfobases.Remove(infobase);
-            }
-        }
-        OnPropertyChanged(nameof(HasPinnedInfobases));
+        RebuildGroupTree();
     }
 
     private void LaunchEnterprise(object? parameter)
@@ -510,8 +1192,49 @@ public class MainViewModel : ViewModelBase
             GroupByGroup = _groupByGroup,
             Theme = _savedTheme,
             CollapsedGroups = _collapsedGroups.ToList(),
-            InstalledPlatformVersions = _installedPlatformVersions
+            InstalledPlatformVersions = _installedPlatformVersions,
+            NameColumnWidth = _nameColumnWidth,
+            VersionColumnWidth = _versionColumnWidth,
+            LaunchModeColumnWidth = _launchModeColumnWidth,
+            ServerColumnWidth = _serverColumnWidth,
+            LastLaunchColumnWidth = _lastLaunchColumnWidth,
+            WindowWidth = _windowWidth,
+            WindowHeight = _windowHeight,
+            WindowLeft = _windowLeft,
+            WindowTop = _windowTop,
+            WindowState = _windowState,
+            IbasesSyncMode = _ibasesSyncMode,
+            IbasesSyncFilePath = _ibasesSyncFilePath,
+            IbasesSyncTrigger = _ibasesSyncTrigger,
+            IbasesSyncIntervalMinutes = _ibasesSyncIntervalMinutes,
+            IbasesSyncScheduleTime = _ibasesSyncScheduleTime
         });
+    }
+
+    /// <summary>
+    /// Сохраняет ширины колонок списка баз в настройках.
+    /// </summary>
+    public void SaveColumnWidths(double nameWidth, double versionWidth, double launchModeWidth, double serverWidth, double lastLaunchWidth)
+    {
+        NameColumnWidth = nameWidth;
+        VersionColumnWidth = versionWidth;
+        LaunchModeColumnWidth = launchModeWidth;
+        ServerColumnWidth = serverWidth;
+        LastLaunchColumnWidth = lastLaunchWidth;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Обновляет ширины колонок в памяти (без сохранения в файл).
+    /// Используется для синхронизации колонок строк во время перетаскивания разделителя.
+    /// </summary>
+    public void UpdateColumnWidths(double nameWidth, double versionWidth, double launchModeWidth, double serverWidth, double lastLaunchWidth)
+    {
+        NameColumnWidth = nameWidth;
+        VersionColumnWidth = versionWidth;
+        LaunchModeColumnWidth = launchModeWidth;
+        ServerColumnWidth = serverWidth;
+        LastLaunchColumnWidth = lastLaunchWidth;
     }
 
     /// <summary>
@@ -548,29 +1271,225 @@ public class MainViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Сворачивает все группы в списке баз.
+    /// Сворачивает/разворачивает группу по кнопке «свернуть»/«развернуть» на узле дерева.
+    /// Принимает узел <see cref="GroupNodeViewModel"/> в качестве параметра команды.
+    /// Явно переключает состояние развёрнутости узла и сохраняет результат в настройках,
+    /// чтобы не зависеть от порядка срабатывания двухсторонней привязки.
     /// </summary>
-    private void CollapseAllGroups(object? parameter)
+    private void ToggleGroupExpanded(object? parameter)
     {
-        foreach (var group in InfobasesView.Groups)
-        {
-            if (group is CollectionViewGroup cvg && cvg.Name is string name)
-            {
-                _collapsedGroups.Add(name);
-            }
-        }
-        SaveSettings();
-        InfobasesView.Refresh();
+        if (parameter is not GroupNodeViewModel node)
+            return;
+
+        node.IsExpanded = !node.IsExpanded;
+        // Для реальных групп ключом служит полный путь, для служебных узлов
+        // («Закреплённые», «Без группы») — отображаемое имя, т.к. пути у них нет.
+        var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+        SetGroupCollapsed(key, !node.IsExpanded);
     }
 
     /// <summary>
-    /// Разворачивает все группы в списке баз.
+    /// Сворачивает все группы в дереве баз.
+    /// </summary>
+    private void CollapseAllGroups(object? parameter)
+    {
+        CollapseAllNodes(_groupNodes, collapse: true);
+        // Синхронизируем набор свёрнутых групп, чтобы состояние сохранилось
+        // после перестроения дерева (поиск, фильтр, перезапуск).
+        _collapsedGroups.Clear();
+        CollectGroupPaths(_groupNodes, _collapsedGroups);
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Разворачивает все группы в дереве баз.
     /// </summary>
     private void ExpandAllGroups(object? parameter)
     {
+        CollapseAllNodes(_groupNodes, collapse: false);
         _collapsedGroups.Clear();
         SaveSettings();
-        InfobasesView.Refresh();
+    }
+
+    /// <summary>
+    /// Рекурсивно устанавливает состояние развёрнутости всех узлов дерева групп.
+    /// </summary>
+    private static void CollapseAllNodes(IEnumerable<GroupNodeViewModel> nodes, bool collapse)
+    {
+        foreach (var node in nodes)
+        {
+            node.IsExpanded = !collapse;
+            CollapseAllNodes(node.Children, collapse);
+        }
+    }
+
+    /// <summary>
+    /// Рекурсивно собирает полные пути всех реальных групп в указанный набор.
+    /// </summary>
+    private static void CollectGroupPaths(IEnumerable<GroupNodeViewModel> nodes, HashSet<string> target)
+    {
+        foreach (var node in nodes)
+        {
+            // Для реальных групп ключом служит полный путь, для служебных узлов
+            // («Закреплённые», «Без группы») — отображаемое имя (единый формат с ToggleGroupExpanded).
+            var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+            target.Add(key);
+            CollectGroupPaths(node.Children, target);
+        }
+    }
+
+    /// <summary>
+    /// Перестраивает дерево групп на основе текущего списка групп и баз.
+    /// Закреплённые базы попадают в корневой узел «Закреплённые», базы без группы — в «Без группы».
+    /// Группы и подгруппы, не содержащие баз (в том числе при активном фильтре «Только избранные»),
+    /// в дерево не попадают.
+    /// </summary>
+    public void RebuildGroupTree()
+    {
+        // Когда группировка отключена — показываем плоский список всех баз в одном узле.
+        if (!_groupByGroup)
+        {
+            var flatNode = new GroupNodeViewModel(null, displayName: "Все базы");
+            foreach (var infobase in InfobasesView.Cast<Infobase>())
+            {
+                flatNode.Infobases.Add(infobase);
+            }
+
+            flatNode.PopulateItems();
+            _groupNodes = new List<GroupNodeViewModel> { flatNode };
+            GroupNodes.Clear();
+            GroupNodes.Add(flatNode);
+            ApplyExpandedState(_groupNodes);
+            OnPropertyChanged(nameof(GroupNodes));
+            return;
+        }
+
+        var roots = GroupNodeViewModel.BuildTree(Groups);
+
+        // Корневой узел «Закреплённые» для закреплённых баз.
+        var pinnedNode = new GroupNodeViewModel(null, displayName: "Закреплённые");
+
+        // Корневой узел «Без группы» для баз, не входящих ни в одну группу.
+        var noGroupNode = new GroupNodeViewModel(null, displayName: "Без группы");
+
+        // Определяем, какая группа реально соответствует каждой базе (по полному пути).
+        var pathToNode = new Dictionary<string, GroupNodeViewModel>(StringComparer.OrdinalIgnoreCase);
+        void IndexNode(GroupNodeViewModel node)
+        {
+            if (node.Group is not null)
+            {
+                pathToNode[GroupHierarchyHelper.GetFullPath(node.Group, Groups)] = node;
+            }
+            foreach (var child in node.Children)
+            {
+                IndexNode(child);
+            }
+        }
+        foreach (var root in roots)
+        {
+            IndexNode(root);
+        }
+
+        // Распределяем базы по узлам и в «Закреплённые».
+        // Используем уже отфильтрованное представление (по избранным и тексту поиска).
+        foreach (var infobase in InfobasesView.Cast<Infobase>())
+        {
+            // Закреплённая база попадает в узел «Закреплённые»,
+            // но при этом не пропадает из своей группы (или «Без группы»).
+            if (infobase.IsPinned)
+            {
+                pinnedNode.Infobases.Add(infobase);
+            }
+
+            var groupPath = infobase.Group?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(groupPath))
+            {
+                // База без группы — добавляем в отдельный узел «Без группы».
+                noGroupNode.Infobases.Add(infobase);
+                continue;
+            }
+
+            if (pathToNode.TryGetValue(groupPath, out var node))
+            {
+                node.Infobases.Add(infobase);
+            }
+        }
+
+        // Заполняем единые коллекции Items (подгруппы + базы) для вложенного отображения.
+        foreach (var root in roots)
+        {
+            root.PopulateItems();
+        }
+        pinnedNode.PopulateItems();
+        noGroupNode.PopulateItems();
+
+        // Формируем общий список отображаемых узлов (используется и для перестроения,
+        // и для операций «свернуть/развернуть все», чтобы они затрагивали в т.ч.
+        // служебные узлы «Закреплённые» и «Без группы»).
+        _groupNodes = new List<GroupNodeViewModel>();
+        GroupNodes.Clear();
+
+        // Блок «Закреплённые» показываем в начале дерева, только если в нём есть базы.
+        if (pinnedNode.ContainsInfobases)
+        {
+            GroupNodes.Add(pinnedNode);
+            _groupNodes.Add(pinnedNode);
+        }
+        if (noGroupNode.ContainsInfobases)
+        {
+            GroupNodes.Add(noGroupNode);
+            _groupNodes.Add(noGroupNode);
+        }
+        foreach (var root in roots)
+        {
+            // Пустые группы (не содержащие баз в текущем фильтре, например при активном
+            // режиме «Только избранные») в дерево не добавляются.
+            if (root.ContainsInfobases)
+            {
+                GroupNodes.Add(root);
+                _groupNodes.Add(root);
+            }
+        }
+
+        // Применяем сохранённое состояние развёрнутости.
+        ApplyExpandedState(_groupNodes);
+
+        OnPropertyChanged(nameof(GroupNodes));
+    }
+
+    /// <summary>
+    /// Применяет сохранённое состояние развёрнутости к узлам дерева.
+    /// </summary>
+    private void ApplyExpandedState(IEnumerable<GroupNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            // Для реальных групп ключом служит полный путь, для служебных узлов
+            // («Закреплённые», «Без группы») — отображаемое имя (единый формат).
+            var key = string.IsNullOrEmpty(node.FullPath) ? node.DisplayName : node.FullPath;
+            node.IsExpanded = !IsGroupCollapsed(key);
+            ApplyExpandedState(node.Children);
+        }
+    }
+
+    /// <summary>
+    /// Рекурсивно ищет узел дерева групп по идентификатору группы.
+    /// </summary>
+    private GroupNodeViewModel? FindGroupNode(GroupNodeViewModel node, string groupId)
+    {
+        if (node.Group is not null && string.Equals(node.Group.Id, groupId, StringComparison.OrdinalIgnoreCase))
+        {
+            return node;
+        }
+        foreach (var child in node.Children)
+        {
+            var found = FindGroupNode(child, groupId);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -613,41 +1532,19 @@ public class MainViewModel : ViewModelBase
 
         InfobasesView.Refresh();
         Save();
-    }
-
-    private void ManageGroups(object? parameter)
-    {
-        var dialog = new GroupSettingsWindow(Groups)
-        {
-            Owner = Application.Current.MainWindow
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            // Обновляем список групп из результата диалога.
-            Groups.Clear();
-            foreach (var group in dialog.Result)
-            {
-                Groups.Add(group);
-            }
-            SaveGroups();
-            InfobasesView.Refresh();
-        }
+        RebuildGroupTree();
     }
 
     /// <summary>
-    /// Открывает окно настроек приложения (установленные версии платформы 1С).
+    /// Открывает окно настроек приложения (платформы, группы, дополнительные функции).
     /// </summary>
     private void OpenSettings(object? parameter)
     {
-        var dialog = new SettingsWindow(_installedPlatformVersions)
+        var dialog = new SettingsWindow(this)
         {
             Owner = Application.Current.MainWindow
         };
-        if (dialog.ShowDialog() == true)
-        {
-            _installedPlatformVersions = new List<string>(dialog.Result);
-            SaveSettings();
-        }
+        dialog.ShowDialog();
     }
 
     /// <summary>
@@ -693,6 +1590,7 @@ public class MainViewModel : ViewModelBase
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Импорт завершён.\n\n" +
@@ -743,6 +1641,7 @@ public class MainViewModel : ViewModelBase
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Импорт завершён.\n\n" +
@@ -910,11 +1809,11 @@ public class MainViewModel : ViewModelBase
                 Groups.Add(group);
             }
 
-            UpdatePinnedInfobases();
             SelectedInfobase = null;
             InfobasesView.Refresh();
             Save();
             SaveGroups();
+            RebuildGroupTree();
 
             MessageBox.Show(
                 $"Список информационных баз успешно загружен.\n\n" +
@@ -963,14 +1862,11 @@ public class MainViewModel : ViewModelBase
 
         Infobases.Clear();
         Groups.Clear();
-        // Очищаем коллекцию закреплённых баз, иначе она сохранит ссылки на удалённые базы,
-        // так как UpdatePinnedInfobases() синхронизирует её только по текущему списку Infobases.
-        PinnedInfobases.Clear();
-        UpdatePinnedInfobases();
         SelectedInfobase = null;
         InfobasesView.Refresh();
         Save();
         SaveGroups();
+        RebuildGroupTree();
 
         MessageBox.Show(
             "Список информационных баз очищен.",
@@ -1074,7 +1970,7 @@ public class MainViewModel : ViewModelBase
         {
             infobase.Tags.Add(tag);
             Save();
-            InfobasesView.Refresh();
+            RebuildGroupTree();
         }
     }
 
@@ -1098,7 +1994,7 @@ public class MainViewModel : ViewModelBase
         {
             infobase.Tags.Add(tag);
             Save();
-            InfobasesView.Refresh();
+            RebuildGroupTree();
         }
     }
 
@@ -1116,7 +2012,7 @@ public class MainViewModel : ViewModelBase
 
         infobase.Tags.RemoveAll(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
         Save();
-        InfobasesView.Refresh();
+        RebuildGroupTree();
     }
 
     /// <summary>

@@ -19,4 +19,49 @@ public class AppSettings
 
     /// <summary>Список установленных версий платформы 1С.</summary>
     public List<string> InstalledPlatformVersions { get; set; } = new();
+
+    /// <summary>Режим синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncMode IbasesSyncMode { get; set; } = IbasesSyncMode.None;
+
+    /// <summary>Путь к файлу ibases.v8i для синхронизации (пусто — стандартный путь).</summary>
+    public string IbasesSyncFilePath { get; set; } = string.Empty;
+
+    /// <summary>Момент запуска автоматической синхронизации (по умолчанию — при запуске).</summary>
+    public IbasesSyncTrigger IbasesSyncTrigger { get; set; } = IbasesSyncTrigger.OnStartup;
+
+    /// <summary>Интервал автоматической синхронизации в минутах (для режима Interval).</summary>
+    public int IbasesSyncIntervalMinutes { get; set; } = 30;
+
+    /// <summary>Время автоматической синхронизации по расписанию в формате "HH:mm" (для режима Schedule).</summary>
+    public string IbasesSyncScheduleTime { get; set; } = "09:00";
+
+    /// <summary>Ширина колонки «Название» в списке баз (0 — по умолчанию).</summary>
+    public double NameColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Версия платформы» в списке баз (0 — по умолчанию).</summary>
+    public double VersionColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Режим запуска» в списке баз (0 — по умолчанию).</summary>
+    public double LaunchModeColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Сервер/База» в списке баз (0 — по умолчанию).</summary>
+    public double ServerColumnWidth { get; set; }
+
+    /// <summary>Ширина колонки «Последний запуск» в списке баз (0 — по умолчанию).</summary>
+    public double LastLaunchColumnWidth { get; set; }
+
+    /// <summary>Сохранённая ширина окна приложения (0 — по умолчанию).</summary>
+    public double WindowWidth { get; set; }
+
+    /// <summary>Сохранённая высота окна приложения (0 — по умолчанию).</summary>
+    public double WindowHeight { get; set; }
+
+    /// <summary>Сохранённая позиция окна по горизонтали (0 — по центру экрана).</summary>
+    public double WindowLeft { get; set; }
+
+    /// <summary>Сохранённая позиция окна по вертикали (0 — по центру экрана).</summary>
+    public double WindowTop { get; set; }
+
+    /// <summary>Состояние окна приложения (Normal, Maximized, Minimized).</summary>
+    public string WindowState { get; set; } = string.Empty;
 }

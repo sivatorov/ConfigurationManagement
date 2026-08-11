@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:models="clr-namespace:Configuration_Management.Models"
+        xmlns:conv="clr-namespace:Configuration_Management.Converters"
         mc:Ignorable="d"
         Title="Настройки подключения"
         Icon="{StaticResource AppIcon}"
@@ -19,6 +20,7 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:GroupFullPathConverter x:Key="GroupFullPathConverter"/>
 
         <!-- Implicit-стили для корректного отображения в тёмной теме -->
         <Style TargetType="TextBlock">
@@ -56,6 +58,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Наименование:" VerticalAlignment="Center" Margin="0,4"/>
@@ -64,8 +67,21 @@
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Группа:" VerticalAlignment="Center" Margin="0,4"/>
                 <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,4" Padding="4,3"
                           ItemsSource="{Binding Groups}"
-                          SelectedItem="{Binding SelectedGroup, UpdateSourceTrigger=PropertyChanged}"
-                          DisplayMemberPath="Name"/>
+                          SelectedItem="{Binding SelectedGroup, UpdateSourceTrigger=PropertyChanged}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock>
+                                <TextBlock.Text>
+                                    <MultiBinding Converter="{StaticResource GroupFullPathConverter}">
+                                        <Binding Path="."/>
+                                        <Binding Path="DataContext.Groups"
+                                                 RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Описание:" VerticalAlignment="Center" Margin="0,4"/>
                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" Margin="0,4" Padding="4,3"/>
@@ -76,11 +92,9 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <ComboBox Grid.Column="0" IsEditable="True"
-                              ItemsSource="{Binding InstalledPlatformVersions}"
-                              Text="{Binding PlatformVersion, UpdateSourceTrigger=PropertyChanged}"
-                              Padding="4,3"
-                              ToolTip="Выберите установленную версию платформы или введите вручную"/>
+                    <TextBox Grid.Column="0" Text="{Binding PlatformVersion, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="4,3" VerticalContentAlignment="Center"
+                             ToolTip="Введите версию платформы вручную (например, 8.3.24.1774)"/>
                     <Button Grid.Column="1" Content="📋" Margin="6,0,0,0" Padding="8,3"
                             Style="{DynamicResource SecondaryButton}" Click="OnPlatformSettings_Click"
                             ToolTip="Выбрать версию платформы из установленных"/>
@@ -94,8 +108,14 @@
                     <RadioButton Content="Веб-клиент" IsChecked="{Binding IsWebClient, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
                 </StackPanel>
 
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="Параметры запуска:" VerticalAlignment="Center" Margin="0,4"/>
-                <Grid Grid.Row="5" Grid.Column="1" Margin="0,4">
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Разрядность платформы:" VerticalAlignment="Top" Margin="0,6"/>
+                <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,2">
+                    <RadioButton Content="32-битная (1cv8.exe)" IsChecked="{Binding IsArchitecture32, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
+                    <RadioButton Content="64-битная (1cv8x64.exe)" IsChecked="{Binding IsArchitecture64, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
+                </StackPanel>
+
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Параметры запуска:" VerticalAlignment="Center" Margin="0,4"/>
+                <Grid Grid.Row="6" Grid.Column="1" Margin="0,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -107,8 +127,8 @@
                             Style="{DynamicResource SecondaryButton}" Click="OnLaunchParameters_Click"/>
                 </Grid>
 
-                <TextBlock Grid.Row="6" Grid.Column="0" Text="ID базы:" VerticalAlignment="Center" Margin="0,4"/>
-                <Grid Grid.Row="6" Grid.Column="1" Margin="0,4">
+                <TextBlock Grid.Row="7" Grid.Column="0" Text="ID базы:" VerticalAlignment="Center" Margin="0,4"/>
+                <Grid Grid.Row="7" Grid.Column="1" Margin="0,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -139,12 +159,13 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Тип подключения:" VerticalAlignment="Center" Margin="0,4"/>
-                <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,4" Padding="4,3"
-                          SelectedIndex="{Binding ConnectionTypeIndex, UpdateSourceTrigger=PropertyChanged}">
-                    <ComboBoxItem Content="Клиент-серверный" Style="{StaticResource ModernComboBoxItem}"/>
-                    <ComboBoxItem Content="Файловый" Style="{StaticResource ModernComboBoxItem}"/>
-                </ComboBox>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Тип подключения:" VerticalAlignment="Top" Margin="0,6"/>
+                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,2">
+                    <RadioButton Content="На сервере 1С:Предприятия" Margin="0,2"
+                                 IsChecked="{Binding IsClientServer, UpdateSourceTrigger=PropertyChanged}"/>
+                    <RadioButton Content="В файловой информационной базе" Margin="0,2"
+                                 IsChecked="{Binding IsFile, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
 
                 <!-- Клиент-серверные поля -->
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Сервер:" VerticalAlignment="Center" Margin="0,4"

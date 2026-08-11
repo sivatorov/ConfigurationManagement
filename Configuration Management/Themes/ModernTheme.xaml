@@ -355,54 +355,45 @@
                                 Margin="0,1">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <ToggleButton x:Name="Expander"
                                               Grid.Column="0"
                                               IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
                                               ClickMode="Press"
-                                              Width="16" Height="16"
-                                              Background="Transparent" BorderThickness="0">
+                                              Width="26" Height="26"
+                                              Background="Transparent" BorderThickness="0"
+                                              Cursor="Hand"
+                                              Margin="0,0,4,0"
+                                              VerticalAlignment="Center">
                                     <ToggleButton.Template>
                                         <ControlTemplate TargetType="ToggleButton">
-                                            <Path x:Name="Chevron"
-                                                  Width="10" Height="10"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                  Data="M 0,0 L 4,4 L 0,8"
-                                                  Stroke="{StaticResource TextSecondaryBrush}"
-                                                  StrokeThickness="2"
-                                                  StrokeStartLineCap="Round"
-                                                  StrokeEndLineCap="Round"
-                                                  StrokeLineJoin="Round"
-                                                  RenderTransformOrigin="0.5,0.5">
-                                                <Path.RenderTransform>
-                                                    <RotateTransform Angle="0"/>
-                                                </Path.RenderTransform>
-                                            </Path>
+                                            <Border x:Name="expanderBorder"
+                                                    Background="{StaticResource AccentBrush}"
+                                                    CornerRadius="6"
+                                                    BorderThickness="1"
+                                                    BorderBrush="#D9B700"
+                                                    Width="26" Height="26">
+                                                <TextBlock x:Name="ExpanderSymbol"
+                                                           Text="＋"
+                                                           FontSize="18"
+                                                           FontWeight="Bold"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource ButtonTextBrush}"/>
+                                            </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Chevron" Property="Opacity" Value="0.6"/>
+                                                    <Setter TargetName="expanderBorder" Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsPressed" Value="True">
+                                                    <Setter TargetName="expanderBorder" Property="Background" Value="{StaticResource AccentPressedBrush}"/>
                                                 </Trigger>
                                                 <Trigger Property="IsChecked" Value="True">
-                                                    <Trigger.EnterActions>
-                                                        <BeginStoryboard>
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Chevron"
-                                                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                 To="90" Duration="0:0:0.15"/>
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </Trigger.EnterActions>
-                                                    <Trigger.ExitActions>
-                                                        <BeginStoryboard>
-                                                            <Storyboard>
-                                                                <DoubleAnimation Storyboard.TargetName="Chevron"
-                                                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                                                 To="0" Duration="0:0:0.15"/>
-                                                            </Storyboard>
-                                                        </BeginStoryboard>
-                                                    </Trigger.ExitActions>
+                                                    <Setter TargetName="expanderBorder" Property="Background" Value="#E2E8F0"/>
+                                                    <Setter TargetName="expanderBorder" Property="BorderBrush" Value="#CBD5E1"/>
+                                                    <Setter TargetName="ExpanderSymbol" Property="Text" Value="－"/>
+                                                    <Setter TargetName="ExpanderSymbol" Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -423,9 +414,13 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="header" Property="Background" Value="#F1F5F9"/>
                         </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
+                                <Condition Binding="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}}" Value="False"/>
+                            </MultiDataTrigger.Conditions>
                             <Setter TargetName="header" Property="Background" Value="#E0E7FF"/>
-                        </Trigger>
+                        </MultiDataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -529,23 +524,17 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <!-- Chevron-стрелка -->
-                                        <Path x:Name="Chevron"
+                                        <!-- Символ «+» / «−» -->
+                                        <TextBlock x:Name="ToggleSymbol"
                                               Grid.Column="0"
-                                              Width="12" Height="12"
+                                              Width="14" Height="14"
                                               Margin="0,0,8,0"
                                               VerticalAlignment="Center"
-                                              Data="M 0,0 L 4,4 L 0,8"
-                                              Stroke="{StaticResource TextSecondaryBrush}"
-                                              StrokeThickness="2.2"
-                                              StrokeStartLineCap="Round"
-                                              StrokeEndLineCap="Round"
-                                              StrokeLineJoin="Round"
-                                              RenderTransformOrigin="0.5,0.5">
-                                            <Path.RenderTransform>
-                                                <RotateTransform Angle="0"/>
-                                            </Path.RenderTransform>
-                                        </Path>
+                                              TextAlignment="Center"
+                                              Text="+"
+                                              FontSize="14"
+                                              FontWeight="Bold"
+                                              Foreground="{StaticResource TextSecondaryBrush}"/>
                                         <ContentPresenter Grid.Column="1"
                                                           Content="{Binding Header, RelativeSource={RelativeSource AncestorType=Expander}}"
                                                           VerticalAlignment="Center"
@@ -553,14 +542,10 @@
                                     </Grid>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Chevron" Property="Opacity" Value="0.7"/>
+                                            <Setter TargetName="ToggleSymbol" Property="Opacity" Value="0.7"/>
                                         </Trigger>
                                         <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Chevron" Property="RenderTransform">
-                                                <Setter.Value>
-                                                    <RotateTransform Angle="90"/>
-                                                </Setter.Value>
-                                            </Setter>
+                                            <Setter TargetName="ToggleSymbol" Property="Text" Value="−"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>

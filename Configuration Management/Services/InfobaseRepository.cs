@@ -66,6 +66,8 @@ public class InfobaseRepository
 
     /// <summary>
     /// Загружает список групп из файла. Если файл отсутствует — возвращает пустой список.
+    /// Повреждённые данные групп (пустые или дублирующиеся идентификаторы) автоматически
+    /// восстанавливаются, чтобы иерархия «группа в группе» не терялась.
     /// </summary>
     public List<Group> LoadGroups()
     {
@@ -74,12 +76,67 @@ public class InfobaseRepository
         try
         {
             var json = File.ReadAllText(_groupsFilePath);
-            return JsonSerializer.Deserialize<List<Group>>(json, JsonOptions) ?? new List<Group>();
+            var groups = JsonSerializer.Deserialize<List<Group>>(json, JsonOptions) ?? new List<Group>();
+            var hadInvalidIds = groups.Any(g => string.IsNullOrWhiteSpace(g.Id));
+            var hadDuplicateIds = groups.GroupBy(g => g.Id, StringComparer.OrdinalIgnoreCase)
+                .Any(g => g.Count() > 1);
+            NormalizeGroups(groups);
+            // Если при загрузке были исправлены идентификаторы — сразу сохраняем,
+            // чтобы иерархия групп гарантированно восстановилась на диске.
+            if (hadInvalidIds || hadDuplicateIds)
+            {
+                SaveGroups(groups);
+            }
+            return groups;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Ошибка загрузки групп: {ex.Message}");
             return new List<Group>();
+        }
+    }
+
+    /// <summary>
+    /// Восстанавливает корректность списка групп: генерирует недостающие идентификаторы
+    /// и устраняет дубликаты, сохраняя корректные ссылки на родителя.
+    /// </summary>
+    private static void NormalizeGroups(List<Group> groups)
+    {
+        // Идентификаторы, которые уже корректно используются группами.
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Первый проход: присваиваем идентификаторы группам с пустым Id.
+        foreach (var group in groups)
+        {
+            if (string.IsNullOrWhiteSpace(group.Id))
+            {
+                group.Id = Guid.NewGuid().ToString();
+            }
+        }
+
+        // Второй проход: устраняем дубликаты идентификаторов.
+        foreach (var group in groups)
+        {
+            if (usedIds.Contains(group.Id))
+            {
+                // Обнаружен дубликат Id — назначаем новый уникальный идентификатор
+                // и переносим на него ссылки детей.
+                var oldId = group.Id;
+                var newId = Guid.NewGuid().ToString();
+                while (usedIds.Contains(newId))
+                {
+                    newId = Guid.NewGuid().ToString();
+                }
+                group.Id = newId;
+                foreach (var child in groups)
+                {
+                    if (string.Equals(child.ParentId, oldId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        child.ParentId = newId;
+                    }
+                }
+            }
+            usedIds.Add(group.Id);
         }
     }
 

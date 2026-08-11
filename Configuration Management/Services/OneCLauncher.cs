@@ -49,6 +49,7 @@ public static class OneCLauncher
     /// Запускает платформу 1С для указанной информационной базы в заданном режиме.
     /// Тип клиента определяется из режима запуска базы (LaunchMode):
     /// «Автоматический», «Тонкий клиент», «Толстый клиент» или «Веб-клиент».
+    /// Разрядность берётся из настройки базы (Architecture), версия — из PlatformVersion.
     /// </summary>
     /// <param name="infobase">Информационная база.</param>
     /// <param name="mode">Режим запуска (Предприятие или Конфигуратор).</param>
@@ -57,7 +58,7 @@ public static class OneCLauncher
     {
         // В режиме «Конфигуратор» тип клиента не применяется.
         if (mode == OneCLaunchMode.Configurator)
-            return Launch(infobase, mode, OneCClientType.Thin, OneCArchitecture.x86);
+            return Launch(infobase, mode, OneCClientType.Thin, GetArchitecture(infobase));
 
         // Веб-клиент запускается через браузер.
         if (string.Equals(infobase.LaunchMode, "Веб-клиент", StringComparison.OrdinalIgnoreCase))
@@ -65,15 +66,24 @@ public static class OneCLauncher
 
         // Автоматический режим — платформа сама выбирает клиент (без /RunMode).
         if (string.Equals(infobase.LaunchMode, "Автоматический", StringComparison.OrdinalIgnoreCase))
-            return Launch(infobase, mode, null, OneCArchitecture.x86);
+            return Launch(infobase, mode, null, GetArchitecture(infobase));
 
         // Толстый клиент.
         if (string.Equals(infobase.LaunchMode, "Толстый клиент", StringComparison.OrdinalIgnoreCase))
-            return Launch(infobase, mode, OneCClientType.Thick, OneCArchitecture.x86);
+            return Launch(infobase, mode, OneCClientType.Thick, GetArchitecture(infobase));
 
         // По умолчанию — тонкий клиент.
-        return Launch(infobase, mode, OneCClientType.Thin, OneCArchitecture.x86);
+        return Launch(infobase, mode, OneCClientType.Thin, GetArchitecture(infobase));
     }
+
+    /// <summary>
+    /// Возвращает разрядность запуска из настройки базы. «64» — 64-битная платформа,
+    /// любое другое значение (в т.ч. пустое) — 32-битная.
+    /// </summary>
+    private static OneCArchitecture GetArchitecture(Infobase infobase)
+        => string.Equals(infobase.Architecture, "64", StringComparison.OrdinalIgnoreCase)
+            ? OneCArchitecture.x64
+            : OneCArchitecture.x86;
 
     /// <summary>
     /// Запускает платформу 1С для указанной информационной базы с заданным
@@ -86,7 +96,7 @@ public static class OneCLauncher
     /// <returns>true, если запуск успешно инициирован.</returns>
     public static bool Launch(Infobase infobase, OneCLaunchMode mode, OneCClientType? clientType, OneCArchitecture architecture)
     {
-        var exePath = FindExecutable(architecture);
+        var exePath = FindExecutable(infobase.PlatformVersion, architecture);
         if (string.IsNullOrEmpty(exePath))
         {
             System.Windows.MessageBox.Show(
@@ -213,22 +223,54 @@ public static class OneCLauncher
 
     /// <summary>
     /// Ищет исполняемый файл платформы 1С нужной разрядности.
-    /// Сначала ищет стандартный лаунчер 1CEStart.exe (общий для всех версий),
-    /// который автоматически подбирает версию платформы. Если лаунчер не найден —
-    /// ищет 1cv8.exe / 1cv8x64.exe в каталогах установленных версий.
+    /// Если задана конкретная версия (PlatformVersion) — ищет 1cv8.exe / 1cv8x64.exe
+    /// в каталоге именно этой версии. Если версия не задана — ищет сначала стандартный
+    /// лаунчер 1CEStart.exe, а затем любой подходящий exe нужной разрядности.
     /// </summary>
-    private static string? FindExecutable(OneCArchitecture architecture)
+    private static string? FindExecutable(string version, OneCArchitecture architecture)
     {
+        // Разрядность определяет каталог установки: 64-битные платформы ставятся
+        // в Program Files, 32-битные — в Program Files (x86).
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
         var searchRoots = new List<string>();
-        if (!string.IsNullOrEmpty(programFiles))
-            searchRoots.Add(programFiles);
-        if (!string.IsNullOrEmpty(programFilesX86) && programFilesX86 != programFiles)
-            searchRoots.Add(programFilesX86);
+        if (architecture == OneCArchitecture.x64)
+        {
+            if (!string.IsNullOrEmpty(programFiles))
+                searchRoots.Add(programFiles);
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(programFilesX86))
+                searchRoots.Add(programFilesX86);
+            // Если x86-каталога нет (одноразрядная система) — используем Program Files.
+            if (searchRoots.Count == 0 && !string.IsNullOrEmpty(programFiles))
+                searchRoots.Add(programFiles);
+        }
 
-        // 1. Ищем стандартный лаунчер 1CEStart.exe в каталоге common.
+        // В современных версиях (8.3.22+ и 8.5.x) исполняемый файл единый «1cv8.exe»
+        // для обеих разрядностей. В более старых 64-битных версиях используется
+        // «1cv8x64.exe». Проверяем оба имени.
+        var exeNames = architecture == OneCArchitecture.x64
+            ? new[] { "1cv8x64.exe", "1cv8.exe" }
+            : new[] { "1cv8.exe" };
+
+        // 1. Если задана конкретная версия — ищем exe в её каталоге нужной разрядности.
+        if (!string.IsNullOrWhiteSpace(version))
+        {
+            foreach (var root in searchRoots)
+            {
+                foreach (var exeName in exeNames)
+                {
+                    var candidate = Path.Combine(root, "1cv8", version, "bin", exeName);
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+        }
+
+        // 2. Иначе пробуем стандартный лаунчер 1CEStart.exe (общий для всех версий).
         //    Лаунчер подбирает версию автоматически, но не позволяет выбрать разрядность.
         foreach (var root in searchRoots)
         {
@@ -237,8 +279,7 @@ public static class OneCLauncher
                 return launcherPath;
         }
 
-        // 2. Если лаунчер не найден — ищем конкретный exe нужной разрядности.
-        var exeName = architecture == OneCArchitecture.x64 ? "1cv8x64.exe" : "1cv8.exe";
+        // 3. Если лаунчер не найден — ищем любой exe нужной разрядности.
         var candidates = new List<string>();
         foreach (var root in searchRoots)
         {
@@ -248,7 +289,10 @@ public static class OneCLauncher
 
             foreach (var dir in Directory.GetDirectories(baseDir))
             {
-                candidates.Add(Path.Combine(dir, "bin", exeName));
+                foreach (var exeName in exeNames)
+                {
+                    candidates.Add(Path.Combine(dir, "bin", exeName));
+                }
             }
         }
 

@@ -76,7 +76,7 @@ public static class IbasesV8iImporter
                 var imported = entry.ToInfobase();
                 existing.Connection = imported.Connection;
                 if (!string.IsNullOrWhiteSpace(entry.Group))
-                    existing.Group = NormalizeGroupName(entry.Group);
+                    existing.Group = NormalizeGroupPath(entry.Group);
                 if (!string.IsNullOrWhiteSpace(entry.Id))
                     existing.Id = entry.Id;
                 if (!string.IsNullOrWhiteSpace(imported.PlatformVersion))
@@ -105,8 +105,8 @@ public static class IbasesV8iImporter
             .Where(e => e.IsGroup && e.Enabled)
             .ToList();
 
-        // Собираем имена групп: из секций-групп (по Name) и из ссылок баз (по Folder).
-        var groupNames = new List<string>();
+        // Собираем полные пути групп: из секций-групп (по Name и Folder) и из ссылок баз (по Folder).
+        var groupPaths = new List<string>();
         foreach (var entry in entries)
         {
             if (!entry.Enabled)
@@ -114,40 +114,96 @@ public static class IbasesV8iImporter
 
             if (entry.IsGroup)
             {
-                // Имя группы-секции.
+                // Полный путь группы-секции: вложенность задаётся ключом Folder
+                // (путь «Родитель\Дочерняя»), имя секции — одиночное имя.
+                var groupPath = NormalizeGroupPath(entry.Group);
                 var groupName = NormalizeGroupName(entry.Name);
                 if (!string.IsNullOrWhiteSpace(groupName))
-                    groupNames.Add(groupName);
+                {
+                    groupPath = string.IsNullOrWhiteSpace(groupPath)
+                        ? groupName
+                        : groupPath + GroupHierarchyHelper.PathSeparator + groupName;
+                }
+                if (!string.IsNullOrWhiteSpace(groupPath))
+                    groupPaths.Add(groupPath);
             }
             else
             {
-                // Группа, на которую ссылается база через Folder.
-                var groupName = NormalizeGroupName(entry.Group);
-                if (!string.IsNullOrWhiteSpace(groupName))
-                    groupNames.Add(groupName);
+                // Группа, на которую ссылается база через Folder (путь «Родитель\Дочерняя»).
+                var groupPath = NormalizeGroupPath(entry.Group);
+                if (!string.IsNullOrWhiteSpace(groupPath))
+                    groupPaths.Add(groupPath);
             }
         }
 
-        foreach (var groupName in groupNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        // Создаём группы для каждого уникального пути, выстраивая иерархию.
+        foreach (var groupPath in groupPaths.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var exists = groups.Any(g =>
-                string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
+            CreateGroupWithParents(groupPath, groupEntries, groups, result);
+        }
+    }
 
-            if (!exists)
+    /// <summary>
+    /// Создаёт группу по полному пути (например, «Учёт\Бухгалтерия»),
+    /// автоматически создавая недостающие родительские группы и выставляя ParentId.
+    /// </summary>
+    private static void CreateGroupWithParents(
+        string groupPath,
+        List<IbaseEntry> groupEntries,
+        IList<Group> groups,
+        IbasesImportResult result)
+    {
+        var segments = SplitGroupPath(groupPath);
+        if (segments.Count == 0)
+            return;
+
+        string? parentId = null;
+        foreach (var segment in segments)
+        {
+            var existing = groups.FirstOrDefault(g =>
+                string.Equals(g.Name, segment, StringComparison.OrdinalIgnoreCase)
+                && IsParent(g, parentId));
+
+            if (existing is null)
             {
-                // Ищем ID группы в записях-группах из файла.
+                // Ищем ID группы-секции из файла, соответствующей текущему сегменту.
                 var groupEntry = groupEntries.FirstOrDefault(e =>
-                    string.Equals(NormalizeGroupName(e.Name), groupName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(NormalizeGroupName(e.Group), groupName, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(NormalizeGroupName(e.Name), segment, StringComparison.OrdinalIgnoreCase));
 
-                groups.Add(new Group
+                existing = new Group
                 {
-                    Name = groupName,
-                    Id = groupEntry?.Id ?? string.Empty
-                });
+                    Name = segment,
+                    // ID группы-секции из файла, либо новый GUID. Учитываем и null, и пустую строку:
+                    // при пустом Id связь родитель-потомок по ParentId теряется, иерархия групп ломается.
+                    Id = !string.IsNullOrWhiteSpace(groupEntry?.Id) ? groupEntry.Id : Guid.NewGuid().ToString(),
+                    ParentId = parentId ?? string.Empty
+                };
+                groups.Add(existing);
                 result.GroupsCreated++;
             }
+
+            parentId = existing.Id;
         }
+    }
+
+    /// <summary>
+    /// Проверяет, что группа <paramref name="group"/> имеет указанного родителя.
+    /// </summary>
+    private static bool IsParent(Group group, string? parentId)
+    {
+        return string.Equals(group.ParentId ?? string.Empty, parentId ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Разбивает путь группы на сегменты по разделителям "/" и "\".
+    /// </summary>
+    private static List<string> SplitGroupPath(string path)
+    {
+        return path
+            .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .ToList();
     }
 
     /// <summary>
@@ -318,11 +374,23 @@ public static class IbasesV8iImporter
     }
 
     /// <summary>
-    /// Нормализует имя группы: убирает разделители пути "/" и "\".
+    /// Нормализует путь группы: обрезает пробелы вокруг разделителей "/" и "\",
+    /// но сохраняет иерархию пути.
     /// </summary>
-    private static string NormalizeGroupName(string group)
+    private static string NormalizeGroupPath(string group)
     {
-        return group.Replace("/", " ").Replace("\\", " ").Trim();
+        var segments = SplitGroupPath(group);
+        return string.Join(GroupHierarchyHelper.PathSeparator, segments);
+    }
+
+    /// <summary>
+    /// Нормализует одиночное имя группы (без учёта пути): убирает разделители.
+    /// Используется для сопоставления имён секций-групп.
+    /// </summary>
+    private static string NormalizeGroupName(string name)
+    {
+        var segments = SplitGroupPath(name);
+        return segments.Count > 0 ? segments[^1] : string.Empty;
     }
 
     /// <summary>
@@ -373,7 +441,7 @@ public static class IbasesV8iImporter
             return new Infobase
             {
                 Name = Name,
-                Group = NormalizeGroupName(Group),
+                Group = NormalizeGroupPath(Group),
                 Connection = connection,
                 PlatformVersion = Version,
                 LaunchMode = MapLaunchMode(App, DefaultApp),
