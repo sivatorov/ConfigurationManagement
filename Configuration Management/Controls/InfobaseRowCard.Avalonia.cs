@@ -22,7 +22,10 @@ namespace Configuration_Management.Controls
     {
         private TreeViewItem? _container;
         private IDisposable? _selectedSubscription;
-        private readonly List<IDisposable> _brushSubscriptions = new();
+
+        private readonly List<Func<IDisposable?>> _contentFactories = new();
+        private readonly List<IDisposable> _contentSubscriptions = new();
+        private bool _attached;
 
         // Актуальные кисти темы, обновляются при смене схемы/ресурсов.
         private IBrush _cardBrush = Brushes.Transparent;
@@ -50,15 +53,53 @@ namespace Configuration_Management.Controls
             PointerEntered += OnPointerEntered;
             PointerExited += OnPointerExited;
 
-            SubscribeBrush("CardBackgroundBrush", value => _cardBrush = value);
-            SubscribeBrush("ItemHoverBrush", value => _hoverBrush = value);
-            SubscribeBrush("ItemSelectedBrush", value => _selectedBrush = value);
-            SubscribeBrush("BorderColorBrush", value => _borderBrush = value);
-            SubscribeBrush("AccentBrush", value => _accentBrush = value);
+            // Кисти карточки подписываются тем же способом, что и содержимое:
+            // при отсоединении подписки освобождаются, при присоединении
+            // создаются заново. Иначе каждая пересборка списка оставляла бы
+            // по пять живых наблюдателей на выброшенную строку.
+            AddSubscription(() => SubscribeBrush("CardBackgroundBrush", value => _cardBrush = value));
+            AddSubscription(() => SubscribeBrush("ItemHoverBrush", value => _hoverBrush = value));
+            AddSubscription(() => SubscribeBrush("ItemSelectedBrush", value => _selectedBrush = value));
+            AddSubscription(() => SubscribeBrush("BorderColorBrush", value => _borderBrush = value));
+            AddSubscription(() => SubscribeBrush("AccentBrush", value => _accentBrush = value));
+        }
+
+        /// <summary>
+        /// Регистрирует подписку содержимого строки: кисти темы у иконок и подписей,
+        /// уведомления самой базы. Подписка создаётся при присоединении карточки
+        /// к дереву и освобождается при отсоединении: иначе наблюдатели держали бы
+        /// уже выброшенное визуальное дерево. Хранится не сама подписка, а способ
+        /// её создать, поэтому повторное присоединение восстанавливает и цвета,
+        /// и слежение за моделью.
+        /// </summary>
+        public void AddSubscription(Func<IDisposable?> factory)
+        {
+            _contentFactories.Add(factory);
+            if (!_attached)
+                return;
+
+            var subscription = factory();
+            if (subscription is not null)
+                _contentSubscriptions.Add(subscription);
+        }
+
+        /// <summary>Создаёт подписки содержимого по зарегистрированным способам.</summary>
+        private void SubscribeContent()
+        {
+            foreach (var factory in _contentFactories)
+            {
+                var subscription = factory();
+                if (subscription is not null)
+                    _contentSubscriptions.Add(subscription);
+            }
         }
 
         private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
         {
+            _attached = true;
+            if (_contentSubscriptions.Count == 0)
+                SubscribeContent();
+
             _container = this.FindAncestorOfType<TreeViewItem>();
             if (_container is not null)
                 _selectedSubscription = _container
@@ -69,9 +110,14 @@ namespace Configuration_Management.Controls
 
         private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
         {
+            _attached = false;
             _selectedSubscription?.Dispose();
             _selectedSubscription = null;
             _container = null;
+
+            foreach (var subscription in _contentSubscriptions)
+                subscription.Dispose();
+            _contentSubscriptions.Clear();
         }
 
         private void OnPointerEntered(object? sender, PointerEventArgs e)
@@ -87,14 +133,14 @@ namespace Configuration_Management.Controls
         }
 
         /// <summary>Подписывает слот-поле на ресурс-кисть темы и вызывает перерисовку при обновлении.</summary>
-        private void SubscribeBrush(string brushKey, Action<IBrush> setter)
+        private IDisposable? SubscribeBrush(string brushKey, Action<IBrush> setter)
         {
             if (Application.Current is not { } app)
-                return;
+                return null;
             // После обновления кисти переприменяем состояние, чтобы фон/граница
             // корректно перекрашивались при смене схемы даже в состоянии hover/выделение.
             var slot = new BrushSlot(setter, ApplyState);
-            _brushSubscriptions.Add(app.GetResourceObservable(brushKey).Subscribe(slot));
+            return app.GetResourceObservable(brushKey).Subscribe(slot);
         }
 
         /// <summary>Применяет состояние к фону и границе в порядке приоритета: выделено > hover > обычное.</summary>

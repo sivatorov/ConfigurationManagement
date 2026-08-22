@@ -21,7 +21,7 @@ namespace Configuration_Management.Services
         /// <summary>
         /// Открывает каталог файловой базы в файловом менеджере. Если путь указывает
         /// на файл 1Cv8.1CD (или каталог базы содержит его) — файл выделяется
-        /// (nautilus --select / dolphin --select / gio open). Иначе каталог открывается
+        /// (менеджером, родным для текущего окружения, иначе gio open). Иначе каталог открывается
         /// через xdg-open.
         /// </summary>
         public static bool OpenInfobaseFolder(Infobase ib)
@@ -63,9 +63,10 @@ namespace Configuration_Management.Services
         }
 
         /// <summary>
-        /// Выделяет файл в файловом менеджере. Приоритет: nautilus --select,
-        /// dolphin --select (поддерживают выделение), затем gio open (открывает каталог),
-        /// и в самом крайнем случае — xdg-open каталога файла.
+        /// Показывает файл в файловом менеджере. Порядок задаёт окружение рабочего
+        /// стола: родной менеджер первым, остальные запасными. Способ показа
+        /// у менеджеров разный, см. <see cref="LinuxDesktopEnvironment.FileManagers"/>.
+        /// Если ни один не подошёл, пробуется gio open, затем xdg-open каталога.
         /// </summary>
         private static bool SelectFileInManager(string filePath)
         {
@@ -73,22 +74,40 @@ namespace Configuration_Management.Services
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
                 return OpenDirectory(dir);
 
-            foreach (var manager in new[] { "nautilus", "dolphin" })
+            // Порядок задаёт текущее окружение рабочего стола: родной менеджер идёт
+            // первым, чтобы на KDE не открывался файловый менеджер GNOME и наоборот.
+            // Список уже отфильтрован по наличию в PATH, поэтому запуск не выбирает
+            // первый попавшийся установленный менеджер вслепую.
+            foreach (var (manager, argument, passFile) in LinuxDesktopEnvironment.FileManagers())
             {
                 try
                 {
-                    Process.Start(new ProcessStartInfo
+                    var startInfo = new ProcessStartInfo
                     {
                         FileName = manager,
                         UseShellExecute = false,
-                        CreateNoWindow = true,
-                        ArgumentList = { "--select", filePath }
-                    });
+                        CreateNoWindow = true
+                    };
+                    if (!string.IsNullOrEmpty(argument))
+                        startInfo.ArgumentList.Add(argument);
+                    // Менеджеру, который не умеет выделять файл, даём каталог:
+                    // от пути к файлу он открыл бы сам файл приложением по умолчанию.
+                    startInfo.ArgumentList.Add(passFile ? filePath : dir);
+
+                    using var process = Process.Start(startInfo);
+                    if (process is null)
+                        continue;
+
+                    // Менеджер остаётся работать, поэтому ждём недолго: интересует
+                    // только случай, когда он завершился сразу с ошибкой.
+                    if (process.WaitForExit(700) && process.ExitCode != 0)
+                        continue;
+
                     return true;
                 }
                 catch
                 {
-                    // менеджер не установлен / нет в PATH — пробуем следующий
+                    // менеджер не запустился — пробуем следующий
                 }
             }
 
@@ -268,9 +287,16 @@ namespace Configuration_Management.Services
             {
                 if (string.IsNullOrEmpty(binDir))
                     continue;
-                var common = Path.Combine(Path.GetDirectoryName(binDir) ?? binDir, "common", "1cestart");
-                if (File.Exists(common))
-                    return common;
+                // binDir это либо <версия>/bin, либо сам каталог версии: раскладка
+                // зависит от дистрибутива, поэтому проверяются оба варианта.
+                foreach (var baseDir in new[] { binDir, Path.GetDirectoryName(binDir) })
+                {
+                    if (string.IsNullOrEmpty(baseDir))
+                        continue;
+                    var common = Path.Combine(baseDir, "common", "1cestart");
+                    if (File.Exists(common))
+                        return common;
+                }
             }
 
             // 2. Известные системные и пользовательские пути.

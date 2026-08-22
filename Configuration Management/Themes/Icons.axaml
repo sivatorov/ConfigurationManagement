@@ -179,4 +179,17 @@
     <StreamGeometry x:Key="IconCompare">M19,3H14V5H19V18L14,12V21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M10,18H5L10,12M10,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H10V23H12V1H10V3Z</StreamGeometry>
 
     <!-- Объединение / Merge -->
+
+    <!-- Развернуть все / Expand all -->
+    <StreamGeometry x:Key="IconExpandAll">M7.41,5.59L12,10.17L16.59,5.59L18,7L12,13L6,7L7.41,5.59ZM7.41,11.59L12,16.17L16.59,11.59L18,13L12,19L6,13L7.41,11.59Z</StreamGeometry>
+
+    <!-- Свернуть все / Collapse all -->
+    <StreamGeometry x:Key="IconCollapseAll">M7.41,18.41L12,13.83L16.59,18.41L18,17L12,11L6,17L7.41,18.41ZM7.41,12.41L12,7.83L16.59,12.41L18,11L12,5L6,11L7.41,12.41Z</StreamGeometry>
+
+    <!-- Сортировка по возрастанию / Sort ascending -->
+    <StreamGeometry x:Key="IconSortAscending">M19,17H22L18,21L14,17H17V3H19M2,17H12V19H2M6,5V7H2V5M2,11H9V13H2V11Z</StreamGeometry>
+
+    <!-- Сортировка по убыванию / Sort descending -->
+    <StreamGeometry x:Key="IconSortDescending">M19,7H22L18,3L14,7H17V21H19M2,17H12V19H2M6,5V7H2V5M2,11H9V13H2V11Z</StreamGeometry>
+
 </ResourceDictionary>

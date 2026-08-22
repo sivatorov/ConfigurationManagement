@@ -328,11 +328,13 @@ public static class IbasesV8iImporter
         var candidates = new List<string>();
 
 #if LINUX
-        // Linux: платформа 1С хранит список баз в ~/.1cv8/1CEStart/ibases.v8i,
-        // а также (в зависимости от версии/дистрибутива) в ~/.local/share/1cv8/1CEStart/.
+        // Linux: платформа 1С хранит список баз в ~/.1C/1cestart/ibases.v8i
+        // (проверено на 8.3.27). Прочие каталоги оставлены как запасные варианты
+        // на случай других версий и дистрибутивов.
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!string.IsNullOrEmpty(home))
         {
+            candidates.Add(Path.Combine(home, ".1C", "1cestart", "ibases.v8i"));
             candidates.Add(Path.Combine(home, ".1cv8", "1CEStart", "ibases.v8i"));
             candidates.Add(Path.Combine(home, ".local", "share", "1cv8", "1CEStart", "ibases.v8i"));
             candidates.Add(Path.Combine(home, ".local", "share", "1C", "1CEStart", "ibases.v8i"));

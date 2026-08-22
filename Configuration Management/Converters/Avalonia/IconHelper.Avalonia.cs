@@ -1,4 +1,5 @@
 #if LINUX
+using System.Collections.Generic;
 using System;
 using Avalonia;
 using Avalonia.Controls;
@@ -37,7 +38,13 @@ namespace Configuration_Management
         /// <paramref name="brushKey"/> (например "TextPrimaryColorBrush"), поэтому цвет
         /// следует теме. По умолчанию используется кисть основного текста.
         /// </summary>
-        public static Avalonia.Controls.Shapes.Path MakeIcon(string key, double size = 16, string brushKey = "TextPrimaryColorBrush")
+        /// <param name="subscriptions">
+        /// Необязательный приёмник подписки на ресурс-кисть. Нужен там, где иконка
+        /// живёт меньше приложения и пересоздаётся: без освобождения подписки
+        /// накапливались бы на каждую пересборку.
+        /// </param>
+        public static Avalonia.Controls.Shapes.Path MakeIcon(string key, double size = 16,
+            string brushKey = "TextPrimaryColorBrush", ICollection<IDisposable>? subscriptions = null)
         {
             var path = new Avalonia.Controls.Shapes.Path
             {
@@ -50,9 +57,14 @@ namespace Configuration_Management
             };
 
             if (Application.Current is { } app)
-                app.GetResourceObservable(brushKey).Subscribe(new ResourceBrushObserver(path));
+            {
+                var sub = app.GetResourceObservable(brushKey).Subscribe(new ResourceBrushObserver(path));
+                subscriptions?.Add(sub);
+            }
             else
+            {
                 path.Fill = Brushes.Black;
+            }
 
             return path;
         }

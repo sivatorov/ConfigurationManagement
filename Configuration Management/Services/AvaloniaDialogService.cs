@@ -19,7 +19,7 @@ namespace Configuration_Management.Services
     /// Avalonia-версия диалогов (Linux). Реализует <see cref="IDialogService"/> через
     /// собственное модальное окно сообщения (Avalonia не имеет MessageBox из коробки).
     /// Методы интерфейса синхронные, поэтому модальный показ выполняется с помощью
-    /// вложенного цикла обработки <see cref="Dispatcher.UIThread.RunJobs"/>.
+    /// вложенного цикла сообщений <see cref="Dispatcher.PushFrame"/>.
     /// </summary>
     public sealed class AvaloniaDialogService : IDialogService
     {
@@ -161,10 +161,12 @@ namespace Configuration_Management.Services
         private static T RunSync<T>(Func<Task<T>> taskFactory)
         {
             var task = taskFactory();
-            while (!task.IsCompleted)
+            if (!task.IsCompleted)
             {
-                Dispatcher.UIThread.RunJobs();
-                Thread.Sleep(10);
+                var frame = new DispatcherFrame();
+                task.ContinueWith(_ => frame.Continue = false,
+                    TaskScheduler.FromCurrentSynchronizationContext());
+                Dispatcher.UIThread.PushFrame(frame);
             }
             return task.GetAwaiter().GetResult();
         }
@@ -179,26 +181,26 @@ namespace Configuration_Management.Services
         private static bool ShowModalSync(Window window)
         {
             var owner = CurrentOwner();
+            bool result = true;
+            var frame = new DispatcherFrame();
+            window.Closed += (_, _) =>
+            {
+                result = window is MessageWindow mw ? mw.Result : true;
+                frame.Continue = false;
+            };
+
             if (owner is not null)
             {
                 window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                window.Owner = owner;
+                _ = window.ShowDialog(owner);
             }
             else
             {
                 window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                window.Show();
             }
 
-            bool result = true;
-            window.Closed += (_, _) => result = window is MessageWindow mw ? mw.Result : true;
-
-            window.Show();
-
-            while (window.IsVisible)
-            {
-                Dispatcher.UIThread.RunJobs();
-                Thread.Sleep(10);
-            }
+            Dispatcher.UIThread.PushFrame(frame);
 
             return result;
         }
@@ -276,7 +278,7 @@ namespace Configuration_Management.Services
             var content = new StackPanel
             {
                 Spacing = 16,
-                Padding = new Thickness(16),
+                Margin = new Thickness(16),
                 Children = { body, buttonsPanel }
             };
             Content = content;

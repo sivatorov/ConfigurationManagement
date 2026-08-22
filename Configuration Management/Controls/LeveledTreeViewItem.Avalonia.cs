@@ -1,4 +1,5 @@
 #if LINUX
+using System;
 using Avalonia.Controls;
 
 namespace Configuration_Management.Controls
@@ -11,7 +12,13 @@ namespace Configuration_Management.Controls
     /// </summary>
     public class LeveledTreeViewItem : TreeViewItem
     {
-        protected override Control? GetContainerForItemOverride() => new LeveledTreeViewItem();
+        /// <summary>
+        /// Тема оформления ищется по типу контрола, а для наследника её в Fluent нет:
+        /// без этого шаблон не находится и контрол не отрисовывается вовсе.
+        /// </summary>
+        protected override Type StyleKeyOverride => typeof(TreeViewItem);
+
+        protected override Control CreateContainerForItemOverride(object? item, int index, object? recycleKey) => new LeveledTreeViewItem();
     }
 }
 #endif

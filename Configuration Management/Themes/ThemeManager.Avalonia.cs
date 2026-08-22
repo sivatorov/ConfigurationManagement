@@ -5,8 +5,12 @@ using System.Linq;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Documents;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Themes;
+using Avalonia.VisualTree;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 
@@ -92,12 +96,12 @@ namespace Configuration_Management.Themes
             {
                 var family = string.IsNullOrWhiteSpace(fontFamily) ? DefaultFontFamily : fontFamily;
                 var size = fontSize > 0 ? fontSize : DefaultFontSize;
-                target.FontFamily = new FontFamily(family);
-                target.FontSize = size;
-                target.FontWeight = string.Equals(fontWeight, "Bold", StringComparison.OrdinalIgnoreCase)
-                    ? FontWeight.Bold : FontWeight.Normal;
-                target.FontStyle = string.Equals(fontStyle, "Italic", StringComparison.OrdinalIgnoreCase)
-                    ? FontStyle.Italic : FontStyle.Normal;
+                TextElement.SetFontFamily(target, new FontFamily(family));
+                TextElement.SetFontSize(target, size);
+                TextElement.SetFontWeight(target, string.Equals(fontWeight, "Bold", StringComparison.OrdinalIgnoreCase)
+                    ? FontWeight.Bold : FontWeight.Normal);
+                TextElement.SetFontStyle(target, string.Equals(fontStyle, "Italic", StringComparison.OrdinalIgnoreCase)
+                    ? FontStyle.Italic : FontStyle.Normal);
             }
             catch
             {
@@ -111,9 +115,9 @@ namespace Configuration_Management.Themes
         public static void ApplyFontToAllWindows(
             string fontFamily, double fontSize, string fontWeight, string fontStyle)
         {
-            if (Application.Current is null)
+            if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
                 return;
-            foreach (Window window in Application.Current.Windows)
+            foreach (Window window in desktop.Windows)
                 ApplyFont(window, fontFamily, fontSize, fontWeight, fontStyle);
         }
 
@@ -221,6 +225,52 @@ namespace Configuration_Management.Themes
                     app.Resources[kvp.Key + "Brush"] = new SolidColorBrush(color);
                 }
             }
+
+            ApplyFluentAccent(app, scheme);
+        }
+
+        /// <summary>
+        /// Отдаёт акцент схемы стандартным контролам Fluent (переключатели,
+        /// флажки, ползунки): свой цвет они берут из SystemAccentColor, и без
+        /// этого в янтарном интерфейсе они оставались синими. Светлые и тёмные
+        /// оттенки Fluent использует для состояний, поэтому считаются, а не
+        /// подменяются одним цветом.
+        /// </summary>
+        private static void ApplyFluentAccent(Application app, ColorScheme scheme)
+        {
+            var accent = ResolveAccent(scheme);
+
+            app.Resources["SystemAccentColor"] = accent;
+            app.Resources["SystemAccentColorLight1"] = Shade(accent, 0.10);
+            app.Resources["SystemAccentColorLight2"] = Shade(accent, 0.20);
+            app.Resources["SystemAccentColorLight3"] = Shade(accent, 0.30);
+            app.Resources["SystemAccentColorDark1"] = Shade(accent, -0.10);
+            app.Resources["SystemAccentColorDark2"] = Shade(accent, -0.20);
+            app.Resources["SystemAccentColorDark3"] = Shade(accent, -0.30);
+        }
+
+        /// <summary>
+        /// Акцент схемы, а если его в ней нет, то акцент встроенной светлой:
+        /// без запасного значения у стандартных контролов остался бы акцент
+        /// предыдущей схемы.
+        /// </summary>
+        private static Color ResolveAccent(ColorScheme scheme)
+        {
+            if (scheme.Colors.TryGetValue("AccentColor", out var hex) && TryParseColor(hex, out var accent))
+                return accent;
+
+            return ColorScheme.CreateLight().Colors.TryGetValue("AccentColor", out var fallbackHex)
+                   && TryParseColor(fallbackHex, out var fallback)
+                ? fallback
+                : Colors.DodgerBlue;
+        }
+
+        /// <summary>Осветлённый или затемнённый оттенок цвета по светлоте HSL.</summary>
+        private static Color Shade(Color color, double delta)
+        {
+            var hsl = color.ToHsl();
+            var lightness = Math.Clamp(hsl.L + delta, 0, 1);
+            return new HslColor(hsl.A, hsl.H, hsl.S, lightness).ToRgb();
         }
 
         private static bool TryParseColor(string hex, out Color color)

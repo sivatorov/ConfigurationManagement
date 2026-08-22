@@ -1,6 +1,7 @@
 #if LINUX
 using System.Collections.Generic;
 using Avalonia;
+using System;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Configuration_Management.Localization;
@@ -15,6 +16,12 @@ namespace Configuration_Management.Controls
     /// </summary>
     public class HotkeyBox : TextBox
     {
+        /// <summary>
+        /// Тема ищется по ключу стиля, а для наследника её в Fluent нет:
+        /// без этого поле не отрисуется, как это было у дерева и PasswordBox.
+        /// </summary>
+        protected override Type StyleKeyOverride => typeof(TextBox);
+
         /// <summary>Каноническое представление горячей клавиши (например «Ctrl+Shift+F») или пустая строка.</summary>
         public static readonly StyledProperty<string> ValueProperty =
             AvaloniaProperty.Register<HotkeyBox, string>(nameof(Value), string.Empty);

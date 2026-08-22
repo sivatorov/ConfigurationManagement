@@ -106,6 +106,7 @@ namespace Configuration_Management.Controls
         /// <summary>Добавляет плавный переход цвета фона и/или границы элемента.</summary>
         public static void AddBrushTransition(Border target, bool background = true, bool border = true)
         {
+            target.Transitions ??= new Transitions();
             if (background)
                 target.Transitions.Add(new BrushTransition
                 {
@@ -123,6 +124,7 @@ namespace Configuration_Management.Controls
         /// <summary>Добавляет плавное появление/исчезание по прозрачности.</summary>
         public static void AddOpacityTransition(Visual target, double durationMs = 180)
         {
+            target.Transitions ??= new Transitions();
             target.Transitions.Add(new DoubleTransition
             {
                 Property = Visual.OpacityProperty,

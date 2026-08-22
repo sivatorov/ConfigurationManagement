@@ -288,6 +288,7 @@ public static class OneCTemplateService
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!string.IsNullOrEmpty(home))
         {
+            cfgCandidates.Add(Path.Combine(home, ".1C", "1cestart", "1cestart.cfg"));
             cfgCandidates.Add(Path.Combine(home, ".1cv8", "1CEStart", "1cestart.cfg"));
             cfgCandidates.Add(Path.Combine(home, ".local", "share", "1cv8", "1CEStart", "1cestart.cfg"));
         }

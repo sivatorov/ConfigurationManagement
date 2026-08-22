@@ -7,18 +7,19 @@ using Avalonia.Data.Converters;
 namespace Configuration_Management.Converters
 {
     /// <summary>
-    /// Avalonia-версия: true → Collapsed, false → Visible (обратный BooleanToVisibility).
+    /// Avalonia-версия: true → скрыт, false → показан (обратный BooleanToVisibility).
+    /// В Avalonia видимостью управляет булево IsVisible, перечисления Visibility нет.
     /// </summary>
     public class InverseBoolToVisibilityConverter : IValueConverter
     {
         public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
             var flag = value is bool b && b;
-            return flag ? Visibility.Collapsed : Visibility.Visible;
+            return !flag;
         }
 
         public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-            => value is Visibility v && v != Visibility.Visible;
+            => value is bool v && !v;
     }
 }
 #endif

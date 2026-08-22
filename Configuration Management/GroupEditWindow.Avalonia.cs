@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Path = Avalonia.Controls.Shapes.Path;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.ViewModels;
@@ -273,9 +274,9 @@ namespace Configuration_Management
                     Width = 40,
                     Height = 40,
                     Margin = new Thickness(3),
-                    ToolTip = new ToolTip { Content = label },
                     Tag = key
                 };
+                ToolTip.SetTip(btn, label);
 
                 if (string.IsNullOrEmpty(key))
                 {

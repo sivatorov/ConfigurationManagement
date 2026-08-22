@@ -31,6 +31,23 @@ public sealed class LaunchViewModel : ViewModelBase
 
     public ICommand LaunchCommand { get; }
 
+    /// <summary>
+    /// Переопределения запуска Предприятия из блока «Текущая сессия».
+    /// Возвращает null, когда переопределять нечего, и тогда запуск идёт
+    /// по настройкам самой базы.
+    /// </summary>
+    public Func<Infobase, LaunchOverrides?>? EnterpriseOverrides { get; set; }
+
+    /// <summary>Запуск Предприятия с учётом переопределений текущей сессии.</summary>
+    private bool LaunchEnterprise(Infobase infobase)
+    {
+        var overrides = EnterpriseOverrides?.Invoke(infobase);
+        return overrides is null
+            ? _launcher.Launch(infobase, OneCLaunchMode.Enterprise)
+            : _launcher.Launch(infobase, OneCLaunchMode.Enterprise,
+                overrides.Client, overrides.RunMode, overrides.Architecture);
+    }
+
     public void Launch(object? parameter)
     {
         var selected = _getSelected();
@@ -56,7 +73,7 @@ public sealed class LaunchViewModel : ViewModelBase
                 _launcher.Launch(selected, OneCLaunchMode.Enterprise, OneCClientType.Thin, OneCArchitecture.x64),
             LaunchKind.Thick64 =>
                 _launcher.Launch(selected, OneCLaunchMode.Enterprise, OneCClientType.Thick, OneCArchitecture.x64),
-            _ => _launcher.Launch(selected, OneCLaunchMode.Enterprise)
+            _ => LaunchEnterprise(selected)
         };
 
         if (ok)
@@ -70,4 +87,10 @@ public sealed class LaunchViewModel : ViewModelBase
         }
     }
 }
+
+/// <summary>
+/// Переопределения очередного запуска Предприятия: тип клиента, режим форм
+/// и разрядность. Пустое значение поля означает «как у базы».
+/// </summary>
+public sealed record LaunchOverrides(OneCClientType? Client, OneCRunMode? RunMode, OneCArchitecture Architecture);
 #endif

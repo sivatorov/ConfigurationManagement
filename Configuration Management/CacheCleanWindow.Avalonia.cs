@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls.Primitives;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -73,7 +75,7 @@ namespace Configuration_Management
             _programCacheCheck.Content = BuildCacheTypeContent(LocalizationManager.T("CacheClean.ProgramCache"), _programCacheSizeText);
             _userCacheCheck.Content = BuildCacheTypeContent(LocalizationManager.T("CacheClean.UserCache"), _userCacheSizeText);
             _orphanCacheCheck.Content = BuildCacheTypeContent(LocalizationManager.T("CacheClean.OrphanCache"), _orphanCacheSizeText);
-            _orphanCacheCheck.ToolTip = new ToolTip { Content = LocalizationManager.T("CacheClean.OrphanCacheTooltip") };
+            ToolTip.SetTip(_orphanCacheCheck, LocalizationManager.T("CacheClean.OrphanCacheTooltip"));
 
             _programCacheCheck.IsChecked = initialKind.HasFlag(OneCCacheKind.Program);
             _userCacheCheck.IsChecked = initialKind.HasFlag(OneCCacheKind.User);
@@ -268,8 +270,8 @@ namespace Configuration_Management
             grid.Children.Add(typeLabel);
 
             var typePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-            _programCacheCheck.ToolTip = new ToolTip { Content = "%LOCALAPPDATA%\\1C\\1cv8…" };
-            _userCacheCheck.ToolTip = new ToolTip { Content = "%APPDATA%\\1C\\1cv8…" };
+            ToolTip.SetTip(_programCacheCheck, "%LOCALAPPDATA%\\1C\\1cv8…");
+            ToolTip.SetTip(_userCacheCheck, "%APPDATA%\\1C\\1cv8…");
             typePanel.Children.Add(_programCacheCheck);
             typePanel.Children.Add(_userCacheCheck);
             Grid.SetRow(typePanel, 3);
@@ -419,9 +421,9 @@ namespace Configuration_Management
                 Width = 8,
                 ZIndex = 1,
                 Background = Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.SizeWestEast),
-                ToolTip = new ToolTip { Content = LocalizationManager.T("CacheClean.ResizeColumnTooltip") }
+                Cursor = new Cursor(StandardCursorType.SizeWestEast)
             };
+            ToolTip.SetTip(grip, LocalizationManager.T("CacheClean.ResizeColumnTooltip"));
             Grid.SetColumn(grip, column);
             grip.PointerPressed += OnResize_PointerPressed;
             grip.PointerMoved += OnResize_PointerMoved;
@@ -442,7 +444,7 @@ namespace Configuration_Management
             _resizeStartWidth = _headerGrid.ColumnDefinitions[column].ActualWidth;
             _resizeStartX = e.GetPosition(this).X;
             _isResizing = true;
-            grip.CapturePointer(e.Pointer);
+            e.Pointer.Capture(grip);
             e.Handled = true;
         }
 
@@ -460,8 +462,8 @@ namespace Configuration_Management
 
         private void OnResize_PointerReleased(object? sender, PointerReleasedEventArgs e)
         {
-            if (sender is Border grip)
-                grip.ReleasePointerCapture(e.Pointer);
+            if (sender is Border)
+                e.Pointer.Capture(null);
 
             if (_isResizing)
             {
@@ -508,12 +510,9 @@ namespace Configuration_Management
                 {
                     Content = ib.Name,
                     IsChecked = ReferenceEquals(ib, defaultSelected),
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    ToolTip = new ToolTip
-                    {
-                        Content = string.IsNullOrWhiteSpace(ib.ConnectionPathDisplay) ? ib.Name : ib.ConnectionPathDisplay
-                    }
+                    VerticalContentAlignment = VerticalAlignment.Center
                 };
+                ToolTip.SetTip(check, string.IsNullOrWhiteSpace(ib.ConnectionPathDisplay) ? ib.Name : ib.ConnectionPathDisplay);
                 check.Checked += (_, _) => OnBaseChecked();
                 check.Unchecked += (_, _) => OnBaseChecked();
                 Grid.SetColumn(check, 0);

@@ -99,8 +99,8 @@ namespace Configuration_Management.Services
             var roots = new List<string>();
             foreach (var root in GetInstallRoots(architecture))
             {
-                var bin = Path.Combine(root, "bin");
-                if (Directory.Exists(bin))
+                var bin = ResolveBinDirectory(root);
+                if (bin is not null)
                     roots.Add(bin);
             }
             return roots;
@@ -144,8 +144,8 @@ namespace Configuration_Management.Services
                 var a = arch is "64" or "32" ? arch : DetectArchitecture(info.Path);
                 if (a != archKey)
                     continue;
-                var bin = Path.Combine(info.Path, "bin");
-                if (Directory.Exists(bin) && seen.Add(bin))
+                var bin = ResolveBinDirectory(info.Path);
+                if (bin is not null && seen.Add(bin))
                     results.Add((ver, bin));
             }
 
@@ -161,8 +161,8 @@ namespace Configuration_Management.Services
 
             foreach (var root in GetInstallRoots(architecture))
             {
-                var bin = Path.Combine(root, cleanVersion, "bin");
-                if (Directory.Exists(bin) && HasOneCBinary(bin))
+                var bin = ResolveBinDirectory(Path.Combine(root, cleanVersion));
+                if (bin is not null)
                     return bin;
             }
 
@@ -194,8 +194,8 @@ namespace Configuration_Management.Services
 
                     if (string.Equals(name, version, StringComparison.OrdinalIgnoreCase))
                     {
-                        var bin = Path.Combine(dir, "bin");
-                        if (Directory.Exists(bin) && HasOneCBinary(bin))
+                        var bin = ResolveBinDirectory(dir);
+                        if (bin is not null)
                             return bin;
                     }
 
@@ -234,8 +234,7 @@ namespace Configuration_Management.Services
                     var name = Path.GetFileName(dir);
                     if (!LooksLikeVersion(name))
                         continue;
-                    var binDir = Path.Combine(dir, "bin");
-                    if (!Directory.Exists(binDir) || !HasOneCBinary(binDir))
+                    if (ResolveBinDirectory(dir) is null)
                         continue;
                     var arch = DetectArchitecture(dir);
                     if (!seen.Add(dir))
@@ -246,8 +245,7 @@ namespace Configuration_Management.Services
                 // 2. Сам корень — каталог версии (например ~/.1cv8/8.3.27.1).
                 if (LooksLikeVersion(Path.GetFileName(root)))
                 {
-                    var binDir = Path.Combine(root, "bin");
-                    if (Directory.Exists(binDir) && HasOneCBinary(binDir) && seen.Add(root))
+                    if (ResolveBinDirectory(root) is not null && seen.Add(root))
                     {
                         var arch = DetectArchitecture(root);
                         result.Add(new PlatformVersionInfo
@@ -288,7 +286,12 @@ namespace Configuration_Management.Services
                 var binDir = Path.GetDirectoryName(target);
                 if (string.IsNullOrEmpty(binDir))
                     return;
-                var versionDir = Path.GetDirectoryName(binDir);
+
+                // При раскладке <версия>/bin каталог версии на уровень выше,
+                // при плоской раскладке каталог цели сам является каталогом версии.
+                var versionDir = LooksLikeVersion(Path.GetFileName(binDir))
+                    ? binDir
+                    : Path.GetDirectoryName(binDir);
                 if (string.IsNullOrEmpty(versionDir))
                     return;
                 var name = Path.GetFileName(versionDir);
@@ -343,10 +346,39 @@ namespace Configuration_Management.Services
             return "64";
         }
 
+        /// <summary>
+        /// Каталог с исполняемыми файлами платформы для каталога версии.
+        /// Раскладка отличается между дистрибутивами и версиями платформы:
+        /// у одних бинарники лежат в подкаталоге bin, у других прямо в каталоге
+        /// версии (например /opt/1cv8/x86_64/8.3.27.2214/1cv8). Проверяются оба
+        /// варианта, возвращается тот, где бинарники действительно есть.
+        /// </summary>
+        private static string? ResolveBinDirectory(string? versionDir)
+        {
+            if (string.IsNullOrWhiteSpace(versionDir))
+                return null;
+
+            var bin = Path.Combine(versionDir, "bin");
+            if (Directory.Exists(bin) && HasOneCBinary(bin))
+                return bin;
+
+            if (Directory.Exists(versionDir) && HasOneCBinary(versionDir))
+                return versionDir;
+
+            return null;
+        }
+
         private static string? DetectArchViaReadelf(string dir)
         {
-            var bin = Path.Combine(dir, "bin", "1cv8");
-            if (!File.Exists(bin))
+            var binDir = ResolveBinDirectory(dir);
+            if (binDir is null)
+                return null;
+            // Установка может быть неполной: у версии с одним тонким клиентом
+            // файла 1cv8 нет, разрядность читаем с любого доступного бинарника.
+            var bin = OneCBinaryNames
+                .Select(n => Path.Combine(binDir, n))
+                .FirstOrDefault(File.Exists);
+            if (bin is null)
                 return null;
             try
             {

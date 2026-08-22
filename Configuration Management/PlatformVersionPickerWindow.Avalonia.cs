@@ -2,6 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia.Controls.Primitives;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
@@ -101,7 +103,8 @@ namespace Configuration_Management
             // Дерево
             _tree.SelectionMode = SelectionMode.Single;
             _tree.ItemTemplate = new FuncTreeDataTemplate(
-                BuildTreeRow,
+                typeof(object),
+                (item, _) => BuildTreeRow(item),
                 item => item is PlatformVersionGroup g && g.Children.Count > 0 ? g.Children : null);
             _tree.SelectionChanged += (_, _) =>
             {

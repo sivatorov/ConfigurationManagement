@@ -1,10 +1,12 @@
 #if LINUX
 using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Configuration_Management.Localization;
+using Configuration_Management.Services;
 
 namespace Configuration_Management
 {

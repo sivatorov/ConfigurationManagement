@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Avalonia.Controls.Primitives;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
@@ -78,7 +80,8 @@ namespace Configuration_Management
 
             _tree.SelectionMode = SelectionMode.Single;
             _tree.ItemTemplate = new FuncTreeDataTemplate(
-                BuildTreeRow,
+                typeof(object),
+                (item, _) => BuildTreeRow(item),
                 item => item is GroupNodeViewModel g ? g.Children : null);
 
             var treeBorder = new Border

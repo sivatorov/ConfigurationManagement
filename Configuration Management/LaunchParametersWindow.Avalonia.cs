@@ -1,6 +1,8 @@
 #if LINUX
 using System;
 using System.Collections.Generic;
+using Avalonia.Controls.Primitives;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;

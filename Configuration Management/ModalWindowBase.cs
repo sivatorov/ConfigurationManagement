@@ -12,7 +12,7 @@ namespace Configuration_Management
     /// <summary>
     /// База модальных диалоговых окон (Avalonia/Linux). Предоставляет синхронный показ
     /// модального окна с эмуляцией <c>DialogResult</c>, как в <see cref="AvaloniaDialogService"/>:
-    /// модальный цикл обрабатывает очередь задач <see cref="Dispatcher.UIThread.RunJobs"/>,
+    /// модальный показ крутит вложенный цикл сообщений <see cref="Dispatcher.PushFrame"/>,
     /// пока окно открыто. Это позволяет вызывать диалоги синхронно из команд ViewModel,
     /// не блокируя UI-поток.
     /// </summary>
@@ -39,25 +39,23 @@ namespace Configuration_Management
         /// </summary>
         /// <param name="owner">Окно-владелец (например, главное). Может быть null.</param>
         /// <returns>True, если пользователь подтвердил действие (DialogResult == true).</returns>
-        protected bool ShowDialogSync(Window? owner = null)
+        public bool ShowDialogSync(Window? owner = null)
         {
+            var frame = new DispatcherFrame();
+            Closed += (_, _) => frame.Continue = false;
+
             if (owner is not null)
             {
                 WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                Owner = owner;
+                _ = ShowDialog(owner);
             }
             else
             {
                 WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                Show();
             }
 
-            Show();
-
-            while (IsVisible)
-            {
-                Dispatcher.UIThread.RunJobs();
-                Thread.Sleep(10);
-            }
+            Dispatcher.UIThread.PushFrame(frame);
 
             return DialogResult;
         }
@@ -65,7 +63,7 @@ namespace Configuration_Management
         /// <summary>
         /// Показывает окно модально (синхронно) без владельца.
         /// </summary>
-        protected bool ShowDialogSync() => ShowDialogSync(null);
+        public bool ShowDialogSync() => ShowDialogSync(null);
 
         /// <summary>
         /// Строит стандартный ряд кнопок «Отмена»/«ОК» с иконками и обработчиками.
