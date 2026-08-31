@@ -127,7 +127,8 @@ namespace Configuration_Management
                 VisibleOf("Size"),
                 VisibleOf("Configuration"),
                 ShowEmptyGroupsCheck?.IsChecked ?? false,
-                _columnOrderItems.Select(i => i.Key).ToList());
+                _columnOrderItems.Select(i => i.Key).ToList(),
+                VisibleOf("Actions"));
 
             _viewModel.ShowRightPanelDetails = ShowRightPanelDetailsCheck?.IsChecked ?? true;
             _viewModel.ShowSessionLaunchPanel = ShowSessionLaunchPanelCheck?.IsChecked ?? true;
@@ -184,6 +185,8 @@ namespace Configuration_Management
 
             _viewModel.ApplyAppBehaviorSettings(
                 AllowMultipleInstancesCheck.IsChecked ?? false,
+                CheckForUpdatesOnStartupCheck?.IsChecked ?? true,
+                AutoUpdateEnabledCheck?.IsChecked ?? true,
                 ShowTagFilterPanelCheck.IsChecked ?? true,
                 CloseToTrayCheck.IsChecked ?? false,
                 ShowTrayIconCheck.IsChecked ?? true,

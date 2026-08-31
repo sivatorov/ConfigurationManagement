@@ -34,6 +34,10 @@ public static class AppServices
         services.AddSingleton<IOneCComConnectorRegistrar, OneCComConnectorRegistrar>();
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<ProfilesViewModel>();
+        // Проверка обновлений из GitHub Releases (Windows-only, автообновление).
+        services.AddSingleton<GitHubReleaseService>();
+        // Подсистема автообновления: фоновая проверка и диалог «Доступна новая версия».
+        services.AddSingleton<UpdateService>();
 #else
         // Linux (Avalonia): диалоги Avalonia. Регистратор COM-коннектора не подключается —
         // на Linux COM отсутствует (чтение конфигурации выполняется без COM: 1Cv8.1CD / DESIGNER).

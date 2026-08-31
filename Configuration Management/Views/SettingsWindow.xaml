@@ -1117,6 +1117,20 @@
                                 <TextBlock Text="{loc:Loc Settings.General.AllowMultipleInstances}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </ToggleButton>
+                        <ToggleButton Style="{DynamicResource SettingsToggle}" x:Name="CheckForUpdatesOnStartupCheck" Margin="0,0,0,6">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Update" Width="16" Height="16" Foreground="#22C55E" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Loc Settings.General.CheckForUpdatesOnStartup}" VerticalAlignment="Center"
+                                           ToolTip="{loc:Loc Settings.General.CheckForUpdatesOnStartupTooltip}"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Style="{DynamicResource SettingsToggle}" x:Name="AutoUpdateEnabledCheck" Margin="0,0,0,6">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Update" Width="16" Height="16" Foreground="#22C55E" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Loc Settings.General.AutoUpdate}" VerticalAlignment="Center"
+                                           ToolTip="{loc:Loc Settings.General.AutoUpdateTooltip}"/>
+                            </StackPanel>
+                        </ToggleButton>
                         <ToggleButton Style="{DynamicResource SettingsToggle}" x:Name="ShowTrayIconCheck" Margin="0,0,0,6">
                             <StackPanel Orientation="Horizontal">
                                 <materialDesign:PackIcon Kind="TrayFull" Width="16" Height="16" Foreground="#14B8A6" Margin="0,0,8,0" VerticalAlignment="Center"/>
@@ -1515,15 +1529,26 @@
                                MaxWidth="420" MaxHeight="560" RenderOptions.BitmapScalingMode="HighQuality"
                                Cursor="Hand" MouseLeftButtonUp="OnDonatImage_Click"
                                ToolTip="{loc:Loc Settings.About.DonatTooltip}"/>
-                        <Button Margin="0,24,0,0" Padding="14,8" HorizontalAlignment="Left"
-                                Style="{DynamicResource SecondaryButton}" Cursor="Hand"
-                                Click="OnCopyTechInfo_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <materialDesign:PackIcon Kind="ContentCopy" Width="16" Height="16"
-                                                         Foreground="#3B82F6" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                <TextBlock Text="{loc:Loc Settings.About.CopyTechInfo}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                        <StackPanel Margin="0,24,0,0" Orientation="Horizontal">
+                            <Button Margin="0,0,10,0" Padding="14,8" HorizontalAlignment="Left"
+                                    Style="{DynamicResource SecondaryButton}" Cursor="Hand"
+                                    Click="OnCheckForUpdates_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Update" Width="16" Height="16"
+                                                             Foreground="#3B82F6" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{loc:Loc Settings.About.CheckForUpdates}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Padding="14,8" HorizontalAlignment="Left"
+                                    Style="{DynamicResource SecondaryButton}" Cursor="Hand"
+                                    Click="OnCopyTechInfo_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="ContentCopy" Width="16" Height="16"
+                                                             Foreground="#3B82F6" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{loc:Loc Settings.About.CopyTechInfo}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

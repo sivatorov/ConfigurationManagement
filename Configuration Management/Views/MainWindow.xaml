@@ -678,14 +678,17 @@
                                             </MultiBinding>
                                         </ColumnDefinition.Width>
                                     </ColumnDefinition>
-                                    <!-- Колонка «Действия»: встаёт сразу после «Режим запуска»,
-                                         ширина настраивается перетаскиванием разделителя. -->
-                                    <ColumnDefinition x:Name="ActionsColumn" MinWidth="120">
-                                        <!-- Колонка «Действия» всегда видима: ширина из ActionsColumnWidth,
-                                             по умолчанию 170. Не используем ColumnVis с Source=True, т.к. литерал True
-                                             ненадёжно приводится к bool и схлопывал ширину до 0 (0.3.5.1). -->
+                                    <!-- Колонка «Действия»: встаёт сразу после «Режим запуска»;
+                                         видимость управляется переключателем ShowActionsColumn,
+                                         ширина настраивается перетаскиванием разделителя.
+                                         MinWidth не задан намеренно — при скрытии колонка схлопывается в 0;
+                                         минимум 120 гарантирует обработчик перетаскивания, пока колонка видима. -->
+                                    <ColumnDefinition x:Name="ActionsColumn">
                                         <ColumnDefinition.Width>
-                                            <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}" Converter="{StaticResource DoubleToGridLength}" ConverterParameter="170"/>
+                                            <MultiBinding Converter="{StaticResource ColumnVis}" ConverterParameter="170">
+                                                <Binding Path="DataContext.ShowActionsColumn" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                            </MultiBinding>
                                         </ColumnDefinition.Width>
                                     </ColumnDefinition>
                                     <ColumnDefinition x:Name="ServerColumn">
@@ -1047,10 +1050,16 @@
                                                     </MultiBinding>
                                                 </ColumnDefinition.Width>
                                             </ColumnDefinition>
-                                            <!-- Колонка «Действия»: команды группы на уровне кнопок строк баз -->
-                                            <ColumnDefinition MinWidth="120">
+                                            <!-- Колонка «Действия»: команды группы на уровне кнопок строк баз.
+                                                 Видимость управляется переключателем ShowActionsColumn.
+                                                 MinWidth не задан намеренно — минимум 120 гарантирует
+                                                 обработчик перетаскивания, пока колонка видима. -->
+                                            <ColumnDefinition>
                                                 <ColumnDefinition.Width>
-                                                    <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}" Converter="{StaticResource DoubleToGridLength}" ConverterParameter="170"/>
+                                                    <MultiBinding Converter="{StaticResource ColumnVis}" ConverterParameter="170">
+                                                        <Binding Path="DataContext.ShowActionsColumn" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                        <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                    </MultiBinding>
                                                 </ColumnDefinition.Width>
                                             </ColumnDefinition>
                                             <ColumnDefinition>
@@ -1258,10 +1267,16 @@
                                                     </MultiBinding>
                                                 </ColumnDefinition.Width>
                                             </ColumnDefinition>
-                                            <!-- Колонка «Действия»: встаёт сразу после «Режим запуска», совпадает с заголовком -->
-                                            <ColumnDefinition MinWidth="120">
+                                            <!-- Колонка «Действия»: встаёт сразу после «Режим запуска», совпадает с заголовком.
+                                                 Видимость управляется переключателем ShowActionsColumn.
+                                                 MinWidth не задан намеренно — минимум 120 гарантирует
+                                                 обработчик перетаскивания, пока колонка видима. -->
+                                            <ColumnDefinition>
                                                 <ColumnDefinition.Width>
-                                                    <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}" Converter="{StaticResource DoubleToGridLength}" ConverterParameter="170"/>
+                                                    <MultiBinding Converter="{StaticResource ColumnVis}" ConverterParameter="170">
+                                                        <Binding Path="DataContext.ShowActionsColumn" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                        <Binding Path="DataContext.ActionsColumnWidth" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                    </MultiBinding>
                                                 </ColumnDefinition.Width>
                                             </ColumnDefinition>
                                             <ColumnDefinition>

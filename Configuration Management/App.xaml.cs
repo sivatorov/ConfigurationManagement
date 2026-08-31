@@ -197,12 +197,42 @@ namespace Configuration_Management
                 // окна оно ещё пустое, поэтому масштабирование не сработало бы.
 
                 mainWindow.Show();
+
+                // Фоновая проверка обновлений (Windows/WPF): запускаем после показа
+                // главного окна, чтобы не задерживать старт. Если пользователь отключил
+                // проверку в настройках — пропускаем. Работа выполняется асинхронно,
+                // UI при этом не блокируется.
+                if (settings.CheckForUpdatesOnStartup)
+                {
+                    var updateService = AppServices.GetRequiredService<UpdateService>();
+                    // Передаём флаг автоматического self-update из настроек: при включённом
+                    // режиме фоновая проверка сама скачает, установит и перезапустит приложение.
+                    updateService.AutoUpdateEnabled = settings.AutoUpdateEnabled;
+                    CheckForUpdatesInBackground(updateService);
+                }
             }
             catch (Exception ex)
             {
                 LogFatal(LocalizationManager.T("App.Fatal.StartupFailed"), ex);
                 ShowFatalError(LocalizationManager.T("App.Fatal.StartupFailed"), ex);
                 Shutdown(1);
+            }
+        }
+
+        /// <summary>
+        /// Запускает фоновую проверку обновлений и не ждёт её завершения.
+        /// Внутренние ошибки ловятся в <see cref="UpdateService"/>, здесь лишь
+        /// дополнительно страхуемся, чтобы исключение не уронило поток.
+        /// </summary>
+        private static async void CheckForUpdatesInBackground(UpdateService updateService)
+        {
+            try
+            {
+                await updateService.CheckForUpdatesAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Фоновая проверка не должна влиять на запуск и работу приложения.
             }
         }
 

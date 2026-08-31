@@ -400,6 +400,23 @@ namespace Configuration_Management
                     MessageBoxImage.Error);
             }
         }
+
+        /// <summary>
+        /// Ручная проверка обновлений из вкладки «О программе». Сообщает явный результат
+        /// (актуальная версия / ошибка / доступно обновление) через UpdateService.
+        /// </summary>
+        private async void OnCheckForUpdates_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var updateService = AppServices.GetRequiredService<UpdateService>();
+                await updateService.CheckForUpdatesManualAsync();
+            }
+            catch
+            {
+                // Внутренние ошибки уже показаны в UpdateService; здесь только страхуемся.
+            }
+        }
     }
 }
 #endif

@@ -45,10 +45,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>0.3.5.70</Version>
-    <AssemblyVersion>0.3.5.70</AssemblyVersion>
-    <FileVersion>0.3.5.70</FileVersion>
-    <InformationalVersion>0.3.5.70</InformationalVersion>
+    <Version>0.3.5.88</Version>
+    <AssemblyVersion>0.3.5.88</AssemblyVersion>
+    <FileVersion>0.3.5.88</FileVersion>
+    <InformationalVersion>0.3.5.88</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -205,9 +205,14 @@
     <Compile Include="ViewModels\ConnectionSettingsViewModel.cs" />
     <!-- Windows-only сервисы — Этап 5 -->
     <Compile Remove="Services\WpfDialogService.cs" />
+    <!-- Проверка обновлений из GitHub Releases — Windows-only (автообновление). -->
+    <Compile Remove="Services\GitHubReleaseService.cs" />
     <Compile Remove="Services\MaterialMessageWindow.xaml.cs" />
     <Compile Remove="Services\MaterialMessageKind.cs" />
     <Compile Include="Services\MaterialMessageKind.cs" />
+    <!-- Подсистема автообновления — Windows-only (диалог + сервис). -->
+    <Compile Remove="Services\UpdateService.cs" />
+    <Compile Remove="Services\UpdateAvailableWindow.xaml.cs" />
     <Compile Remove="Services\OneCLauncher.cs" />
     <Compile Remove="Services\OneCLauncher.DesignerBatch.cs" />
     <Compile Remove="Services\OneCLauncher.Arguments.cs" />

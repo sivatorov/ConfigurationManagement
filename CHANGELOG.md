@@ -9,6 +9,206 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.5.88] — 2026-08-31
+
+При переключении видимости колонки «Действия» главное окно теперь корректно пересчитывает выравнивание заголовка с данными: `nameof(MainViewModel.ShowActionsColumn)` добавлен в обработчик изменения свойств в [`MainWindow.xaml.cs`](Configuration%20Management/Views/MainWindow.xaml.cs), поэтому колонки не разъезжаются при включении/выключении «Действий» в окне настроек — так же, как для остальных `Show*Column`.
+
+### Изменено
+
+- **Пересчёт выравнивания при переключении видимости колонки «Действия»** в [`MainWindow.xaml.cs`](Configuration%20Management/Views/MainWindow.xaml.cs): в условие `e.PropertyName is ...` блока пересчёта выравнивания заголовка с данными (через `Dispatcher.BeginInvoke` → `AlignHeaderToData`) добавлена ветка `or nameof(MainViewModel.ShowActionsColumn)` (размещена после `ShowSizeColumn`). Теперь изменение `ShowActionsColumn` обрабатывается так же, как у остальных колонок.
+
+### Версия
+
+- **Версия поднята до `0.3.5.87` → `0.3.5.88`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.87] — 2026-08-31
+
+В окне настроек (Настройки → Отображение → Колонки) появился переключатель видимости колонки «Действия»: в [`SettingsWindow.Display.cs`](Configuration%20Management/Views/SettingsWindow.Display.cs) добавлена ветка `"Actions"` в метод `ColumnVisible`, возвращающая реальную настройку `ShowActionsColumn`, а при сохранении настроек в [`SettingsWindow.xaml.cs`](Configuration%20Management/Views/SettingsWindow.xaml.cs) значение `VisibleOf("Actions")` передаётся последним аргументом в `ApplyDisplaySettings`. Теперь пользователь может включать и выключать колонку «Действия» из окна настроек наравне с остальными колонками.
+
+### Изменено
+
+- **Переключатель видимости колонки «Действия» в окне настроек**: в [`SettingsWindow.Display.cs`](Configuration%20Management/Views/SettingsWindow.Display.cs) в метод `ColumnVisible` добавлена ветка `"Actions" => _viewModel.ShowActionsColumn` (размещена после `"Size"`, ветка `_ => true` по умолчанию сохранена в конце). В [`SettingsWindow.xaml.cs`](Configuration%20Management/Views/SettingsWindow.xaml.cs) при сохранении настроек отображения в вызов `ApplyDisplaySettings(...)` добавлен последний аргумент `VisibleOf("Actions")` (после порядка колонок), использующий уже существующую локальную функцию `VisibleOf`.
+
+### Версия
+
+- **Версия поднята до `0.3.5.86` → `0.3.5.87`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.86] — 2026-08-31
+
+Колонка «Действия» в списке баз теперь действительно может скрываться через переключатель видимости `ShowActionsColumn`. Ширина колонки во всех трёх сетках (заголовок, строка группы, строка базы) привязана через конвертер `ColumnVis` к `ShowActionsColumn`, убран жёсткий `MinWidth=120`, чтобы колонка могла схлопнуться в 0 при выключенной настройке.
+
+### Изменено
+
+- **Колонка «Действия» скрывается через `ShowActionsColumn`** в [`MainWindow.xaml`](Configuration%20Management/Views/MainWindow.xaml): во всех трёх определениях колонки (заголовок `x:Name="ActionsColumn"`, строка группы, строка базы) привязка ширины `DoubleToGridLength` к `ActionsColumnWidth` заменена на `MultiBinding` конвертера `ColumnVis` с двумя значениями — первым `DataContext.ShowActionsColumn` (показывать колонку) и вторым `DataContext.ActionsColumnWidth` (сохранённая ширина). Атрибут `MinWidth="120"` убран, чтобы колонка могла схлопнуться в 0 при скрытии; минимальная ширина в 120 пикселей по-прежнему гарантируется обработчиком перетаскивания разделителя, пока колонка видима.
+
+### Версия
+
+- **Версия поднята до `0.3.5.85` → `0.3.5.86`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.85] — 2026-08-31
+
+Настройка `ShowActionsColumn` подключена к модели представления (Windows/WPF): добавлено поле, загрузка из настроек при запуске, публичное свойство, применение через `ApplyDisplaySettings` и сохранение. Настройка полностью задействована в логике приложения и готова к использованию разметкой и окном настроек в следующих сборках.
+
+### Изменено
+
+- **Настройка `ShowActionsColumn` подключена к Windows-версии `MainViewModel`**: в [`MainViewModel.cs`](Configuration%20Management/ViewModels/MainViewModel.cs) объявлено поле `_showActionsColumn` (по умолчанию `true`) и в конструкторе добавлена загрузка `_showActionsColumn = settings.ShowActionsColumn;`. В [`MainViewModel.Display.cs`](Configuration%20Management/ViewModels/MainViewModel.Display.cs) добавлено публичное свойство `ShowActionsColumn => _showActionsColumn`, а метод `ApplyDisplaySettings(...)` получил параметр `bool showActionsColumn = true` (в конце, с дефолтом), присваивает `_showActionsColumn` и уведомляет `OnPropertyChanged(nameof(ShowActionsColumn))`. В [`MainViewModel.Launch.cs`](Configuration%20Management/ViewModels/MainViewModel.Launch.cs) при сохранении настроек добавляется `ShowActionsColumn = _showActionsColumn`.
+
+### Версия
+
+- **Версия поднята до `0.3.5.84` → `0.3.5.85`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.84] — 2026-08-31
+
+Добавлена новая настройка `ShowActionsColumn` (по умолчанию включена), которая позволит скрывать колонку «Действия» (кнопки запуска/конфигуратора/очистки кеша) в списке баз. Реализация видимости появится в последующих сборках.
+
+### Изменено
+
+- **Новая настройка `ShowActionsColumn`** в [`AppSettings.cs`](Configuration%20Management/Models/AppSettings.cs): добавлено булево свойство (значение по умолчанию `true`), управляющее отображением колонки «Действия» в списке баз. На данном этапе настройка уже доступна в модели настроек, а применение видимости колонки в ViewModel/разметке будет реализовано в следующих сборках.
+
+### Версия
+
+- **Версия поднята до `0.3.5.83` → `0.3.5.84`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.83] — 2026-08-31
+
+Тестовая сборка для проверки автоматического обновления (Windows): выпущена следующая версия, чтобы убедиться, что программа обнаруживает и устанавливает новое обновление при включённой проверке обновлений.
+
+### Версия
+
+- **Версия поднята до `0.3.5.82` → `0.3.5.83`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.82] — 2026-08-31
+
+Программа больше не открывает окно/страницу GitHub при обновлении: теперь она всегда сама скачивает Windows-версию (single-file exe) по прямой ссылке. Удалён fallback-метод `OpenInBrowser`, который открывал страницу релиза в браузере при отсутствии прямой ссылки. Если прямой ссылки на exe нет — показывается только локализованная ошибка.
+
+### Исправлено
+
+- **Больше никакого окна GitHub при обновлении** (Windows/WPF). В [`UpdateService.DownloadAndInstallAsync`](Configuration%20Management/Services/UpdateService.cs) убран блок, который при пустом `DownloadUrl` открывал страницу релиза в браузере через [`OpenInBrowser`](Configuration%20Management/Services/UpdateService.cs). Теперь при отсутствии прямой ссылки на exe программа лишь показывает локализованную ошибку `Update.NoDownloadUrl` («скачивание недоступно») и завершает операцию, не открывая GitHub. Вместе с fallback на прошлом этапе (Atom-лента теперь отдаёт прямую ссылку) это гарантирует, что в нормальном сценарии обновление всегда скачивается самим приложением.
+
+### Версия
+
+- **Версия поднята до `0.3.5.81` → `0.3.5.82`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.81] — 2026-08-31
+
+Исправление резервного источника проверки обновлений (Atom-лента GitHub): теперь fallback отдаёт прямую ссылку на Windows-сборку, благодаря чему программа сможет сама скачать новый exe без открытия браузера GitHub, даже когда основной GitHub Releases API недоступен.
+
+### Исправлено
+
+- **Прямая ссылка на exe в Atom-fallback** (Windows/WPF). В [`GitHubReleaseService.GetLatestFromAtomAsync`](Configuration%20Management/Services/GitHubReleaseService.cs) после извлечения тега релиза из первого `<entry>` ленты теперь собирается прямая ссылка на Windows-сборку `ConfigurationManagement.exe` по шаблону `https://github.com/sivatorov/ConfigurationManagement/releases/download/{ТЕГ}/ConfigurationManagement.exe` и присваивается свойству `DownloadUrl` возвращаемого `ReleaseInfo`. Тег подставляется без нормализации (как в `<title>` ленты), небезопасные символы пути экранируются, итоговый URL проверяется через `Uri.TryCreate` (см. `BuildWindowsDownloadUrl`). Раньше `DownloadUrl` в fallback оставался `null`, и при недоступности GitHub Releases API программа открывала окно GitHub вместо самостоятельной загрузки. `HtmlUrl` (страница релиза) по-прежнему заполняется как запасной путь для ручной загрузки.
+
+### Версия
+
+- **Версия поднята до `0.3.5.80` → `0.3.5.81`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.80] — 2026-08-31
+
+Тестовая сборка для проверки полностью автоматического обновления (Windows): выпущена следующая версия, чтобы убедиться, что программа обнаруживает и молча устанавливает новое обновление при включённой настройке «Автоматически обновлять приложение».
+
+### Версия
+
+- **Версия поднята до `0.3.5.79` → `0.3.5.80`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.79] — 2026-08-31
+
+Итоговая сборка подсистемы полностью автоматического обновления (Windows): подтверждена компиляция Release-конфигурации, документация обновлена.
+
+### Исправлено / Прочее
+
+- Выполнена контрольная Release-сборка Windows-версии; подсистема автообновления компилируется без ошибок и предупреждений. `dotnet build -c Release` прошёл успешно (`bin\Release\net10.0-windows\win-x64\ConfigurationManagement.dll`, 0 ошибок / 0 предупреждений). Также выполнен self-contained single-file publish через [`build-windows-single-file.ps1`](Configuration%20Management/build-windows-single-file.ps1): собран одиночный исполняемый файл `ConfigurationManagement.exe` (~78.9 МБ) в `dist\win-x64`.
+
+### Версия
+
+- **Версия поднята до `0.3.5.78` → `0.3.5.79`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.78] — 2026-08-31
+
+Реализован полностью автоматический self-update: при включённой настройке «Автоматически обновлять приложение» программа сама скачивает, устанавливает и перезапускается при обнаружении новой версии, без диалога подтверждения и участия пользователя.
+
+### Добавлено
+
+- **Автоматическая установка обновлений без подтверждения** (Windows/WPF). В [`UpdateService`](Configuration%20Management/Services/UpdateService.cs) добавлено свойство `AutoUpdateEnabled`; фоновая проверка [`CheckForUpdatesAsync`](Configuration%20Management/Services/UpdateService.cs) при наличии новой версии и включённом флаге сразу вызывает [`DownloadAndInstallAsync`](Configuration%20Management/Services/UpdateService.cs) — скачивает self-contained exe, заменяет текущий исполняемый файл через временный PowerShell-помощник и перезапускает приложение, минуя диалог «Скачать/Отмена». Флаг устанавливается из настроек в [`App.OnStartup`](Configuration%20Management/App.xaml.cs) (`settings.AutoUpdateEnabled`). При выключенном флаге сохраняется прежнее поведение с диалогом подтверждения. Ручная проверка «Проверить обновления» по-прежнему показывает диалог/результат, не устанавливая молча: кнопка является явным действием пользователя, поэтому даже при включённом автообновлении она не запускает установку без запроса.
+
+### Версия
+
+- **Версия поднята до `0.3.5.77` → `0.3.5.78`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.77] — 2026-08-31
+
+Добавлена настройка «автоматически обновлять приложение» (флаг `AutoUpdateEnabled`) и её UI-переключатель в окне настроек — подготовка к полностью автоматическому self-update без подтверждения пользователя.
+
+### Добавлено
+
+- **Настройка «Автоматически обновлять приложение»** (Windows/WPF). Новый флаг [`AppSettings.AutoUpdateEnabled`](Configuration%20Management/Models/AppSettings.cs) (по умолчанию `true`) управляет автоматической установкой новых версий приложения без запроса подтверждения (используется в следующих пунктах). В окне настроек вкладки «Настройки» → «Поведение приложения» под переключателем `CheckForUpdatesOnStartupCheck` добавлен переключатель `AutoUpdateEnabledCheck` в [`SettingsWindow.xaml`](Configuration%20Management/Views/SettingsWindow.xaml) с иконкой обновления и локализованной подписью. Загрузка текущего значения при открытии окна выполняется в [`SettingsWindow.Display.cs`](Configuration%20Management/Views/SettingsWindow.Display.cs), сохранение при «ОК» — через [`MainViewModel.ApplyAppBehaviorSettings`](Configuration%20Management/ViewModels/MainViewModel.Tools.cs); значение персистится в `settings.json` через [`MainViewModel.BuildSettings`](Configuration%20Management/ViewModels/MainViewModel.Launch.cs). Ключи локализации `Settings.General.AutoUpdate` и `Settings.General.AutoUpdateTooltip` согласованы в `ru.json` и `en.json`.
+
+### Версия
+
+- **Версия поднята до `0.3.5.76` → `0.3.5.77`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.76] — 2026-08-31
+
+Тестовая сборка для проверки автоматического обновления.
+
+### Версия
+
+- **Версия поднята до `0.3.5.75` → `0.3.5.76`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.75] — 2026-08-31
+
+Исправлена ошибка «Не удалось проверить наличие обновлений» при проверке обновлений на Windows: добавлен резервный источник данных о релизах (Atom-лента GitHub), исправлено распознавание версий из тегов с префиксом `new-`, а при отсутствии прямой ссылки на установочный файл теперь открывается страница релиза в браузере.
+
+### Исправлено
+
+- **Fallback на Atom-ленту релизов** в [`GitHubReleaseService.GetLatestReleaseAsync`](Configuration%20Management/Services/GitHubReleaseService.cs). Раньше проверка обновлений использовала только GitHub Releases API (`api.github.com`); при его недоступности или таймауте (`ConnectTimeoutError`) показывалась ошибка `Update.CheckFailed`, хотя сам `github.com` работал. Теперь сначала пробуется API `releases/latest`, а если он не ответил/не распознан — берётся резервный источник — Atom-лента `https://github.com/sivatorov/ConfigurationManagement/releases.atom` (работает через обычный `github.com`). Из первого `<entry>` ленты заполняются `TagName`, `Name`, `Body` (текст `<content>` очищается от разметки и переносов), `PublishedAt` и `HtmlUrl` (атрибут `href` у `<link rel="alternate">`).
+- **Корректный парсинг версий из тегов `new-*`** в [`NormalizeTag`](Configuration%20Management/Services/GitHubReleaseService.cs). Раньше обрезался только ведущий `v`/`V`, поэтому теги вида `new-0.3.5.75` не распознавались (`Version.TryParse` возвращал `false`) и новая версия не находилась даже при успешном ответе. Теперь из тега извлекается подстрока с первой цифры до первого пробела/двоеточия/`+` (например `new-0.3.5.75` → `0.3.5.75`, `v0.3.5.74` → `0.3.5.74`, `new-0.3.5.16: Merge …` → `0.3.5.16`). Код устойчив и к 3-, и к 4-частным версиям; поведение для обычных тегов не изменилось.
+- **Открытие страницы релиза при отсутствии прямой ссылки на exe** в [`UpdateService.DownloadAndInstallAsync`](Configuration%20Management/Services/UpdateService.cs). В `ReleaseInfo` добавлено свойство `HtmlUrl` (страница релиза, `html_url` из API либо `href` из ленты). Если `DownloadUrl` пуст (например, при получении выпуска из Atom-ленты, где прямой ссылки на asset нет), при подтверждении «Скачать» теперь открывается страница релиза в браузере по умолчанию (`Process.Start` с `UseShellExecute = true`) вместо ошибки `Update.NoDownloadUrl`; ошибка показывается только если недоступен и `HtmlUrl`.
+
+### Версия
+
+- **Версия поднята до `0.3.5.74` → `0.3.5.75`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.74] — 2026-08-31
+
+Реализована реальная загрузка и установка Windows-версии приложения (self-update) вместо открытия браузера, а также кнопка «Проверить обновления» во вкладке «О программе» — завершающая часть подсистемы автоматического обновления из GitHub Releases.
+
+### Добавлено
+
+- **Кнопка «Проверить обновления»** (Windows/WPF). Во вкладке «О программе» окна настроек [`SettingsWindow.xaml`](Configuration%20Management/Views/SettingsWindow.xaml) рядом с кнопкой «Скопировать техническую информацию» добавлена кнопка с иконкой `PackIcon Kind="Update"` и локализованной подписью (`Settings.About.CheckForUpdates`). Обработчик [`OnCheckForUpdates_Click`](Configuration%20Management/Views/SettingsWindow.Platforms.cs) получает [`UpdateService`](Configuration%20Management/Services/UpdateService.cs) через `AppServices.GetRequiredService<UpdateService>()` и вызывает ручную проверку.
+- **Ручная проверка обновлений**. В [`UpdateService`](Configuration%20Management/Services/UpdateService.cs) добавлен метод `CheckForUpdatesManualAsync()`, который в отличие от фоновой проверки явно сообщает результат: ошибку проверки (`Update.CheckFailed`), «вы используете актуальную версию» (`Update.UpToDate`) или показывает диалог о доступной новой версии. Фоновая `CheckForUpdatesAsync()` при запуске не изменена.
+- **Реальная загрузка и установка (self-update)**. Метод [`DownloadAndInstall`](Configuration%20Management/Services/UpdateService.cs) заменён на `DownloadAndInstallAsync(ReleaseInfo)`: скачивает self-contained single-file `ConfigurationManagement.exe` из `ReleaseInfo.DownloadUrl` через `HttpClient` во временный каталог `%TEMP%\ConfigurationManagement\update`, проверяет размер файла, затем создаёт и запускает временный PowerShell-помощник, который дожидается завершения основного процесса (по PID), заменяет текущий исполняемый файл скачанным (`Move-Item -Force`), перезапускает приложение и удаляет сам скрипт. После запуска помощника показывается сообщение о перезапуске (`Update.RestartPrompt`) и вызывается `Application.Current.Shutdown()`. При отсутствии прямой ссылки на asset (`Update.NoDownloadUrl`), сетевых ошибках (`Update.DownloadFailed`) или сбое установки (`Update.InstallFailed`) показывается локализованная ошибка через `IDialogService.ShowError`.
+- **Локализация**: новые ключи `Update.CheckFailed`, `Update.UpToDate`, `Update.Downloading`, `Update.RestartPrompt`, `Update.NoDownloadUrl`, `Update.DownloadFailed`, `Update.InstallFailed` и `Settings.About.CheckForUpdates` согласованы в `ru.json` и `en.json`.
+- **Версия поднята до `0.3.5.73` → `0.3.5.74`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.73] — 2026-08-31
+
+Реализована фоновая проверка обновлений при запуске и диалог «Доступна новая версия» с кнопками «Скачать»/«Отмена» — логическая завершающая часть подсистемы автоматического обновления из GitHub Releases (загрузка и установка exe будет добавлена следующей задачей).
+
+### Добавлено
+
+- **Фоновая проверка обновлений при запуске** (Windows/WPF). В [`App.OnStartup`](Configuration%20Management/App.xaml.cs) сразу после показа главного окна, если включён флаг `CheckForUpdatesOnStartup`, запускается асинхронная проверка через новый [`UpdateService`](Configuration%20Management/Services/UpdateService.cs). Проверка не блокирует UI: метод `CheckForUpdatesAsync` выполняется в фоне, использует [`GitHubReleaseService.GetLatestReleaseAsync`](Configuration%20Management/Services/GitHubReleaseService.cs) и сравнивает доступную версию с текущей (`VersionInfo.Display()`) через `GitHubReleaseService.IsNewerThan`. При сбоях сети/парсинга проверка молча пропускается и не влияет на работу приложения.
+- **Диалог «Доступна новая версия»** (Windows/WPF). Новый [`UpdateAvailableWindow`](Configuration%20Management/Services/UpdateAvailableWindow.xaml) показывает текущую и доступную версии и краткое описание выпуска (`ReleaseInfo.Body`), с кнопками **«Скачать»** (зелёная, по умолчанию) и **«Отмена»**. Кнопки «Скачать» и заголовки/подписи локализованы через ключи `Update.*`.
+- **Сервис обновления [`UpdateService`](Configuration%20Management/Services/UpdateService.cs)**: оркестрирует проверку, показ диалога и обработку выбора пользователя. Предусмотрена точка расширения `DownloadAndInstall(ReleaseInfo)` — в текущей задаче она открывает ссылку скачивания Windows-инсталлятора (или страницу релиза, если asset не найден) в браузере по умолчанию через `Process.Start` с `UseShellExecute = true`; в следующей задаче метод будет заменён на скачивание и установку exe. Сервис зарегистрирован `AddSingleton` в [`AppServices.Configure()`](Configuration%20Management/AppServices.cs) в блоке `#if WINDOWS`; новые Windows-only файлы исключены из сборки Linux в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+- **Локализация** диалога обновления: ключи `Update.NewVersionAvailable`, `Update.CurrentVersion`, `Update.NewVersion`, `Update.WhatsNew`, `Update.NoDescription`, `Update.Download`, `Update.Cancel`, `Update.Failed` согласованы в `ru.json` и `en.json`.
+- **Версия поднята до `0.3.5.72` → `0.3.5.73`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.72] — 2026-08-31
+
+Добавлена пользовательская настройка «проверять обновления при запуске» и UI-переключатель в окне настроек — следующий шаг подсистемы автоматического обновления из GitHub Releases.
+
+### Добавлено
+
+- **Настройка «Проверять обновления при запуске»** (Windows/WPF). Новый флаг [`AppSettings.CheckForUpdatesOnStartup`](Configuration%20Management/Models/AppSettings.cs) (по умолчанию `true`) управляет проверкой новых версий приложения через GitHub Releases при каждом запуске. В окне настроек вкладки «Настройки» → «Поведение приложения» добавлен переключатель `CheckForUpdatesOnStartupCheck` в [`SettingsWindow.xaml`](Configuration%20Management/Views/SettingsWindow.xaml) со значком обновления и локализованной подписью. Загрузка текущего значения при открытии окна выполняется в [`SettingsWindow.Display.cs`](Configuration%20Management/Views/SettingsWindow.Display.cs), сохранение при «ОК» — через [`MainViewModel.ApplyAppBehaviorSettings`](Configuration%20Management/ViewModels/MainViewModel.Tools.cs); значение персистится в `settings.json` через [`MainViewModel.BuildSettings`](Configuration%20Management/ViewModels/MainViewModel.Launch.cs). Ключи локализации `Settings.General.CheckForUpdatesOnStartup` и `Settings.General.CheckForUpdatesOnStartupTooltip` согласованы в `ru.json` и `en.json`.
+- **Версия поднята до `0.3.5.71` → `0.3.5.72`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
+## [0.3.5.71] — 2026-08-31
+
+Реализован сервис проверки новых версий приложения через GitHub Releases (первый шаг подсистемы автоматического обновления).
+
+### Добавлено
+
+- **Сервис проверки обновлений из GitHub Releases** (Windows/WPF). Новый [`GitHubReleaseService`](Configuration%20Management/Services/GitHubReleaseService.cs) запрашивает последний выпуск через GitHub API (`/repos/sivatorov/ConfigurationManagement/releases/latest`), разбирает JSON и возвращает модель [`ReleaseInfo`](Configuration%20Management/Models/ReleaseInfo.cs): тег, название, описание, признак pre-release, дату публикации и прямую ссылку на Windows-инсталлятор (из `assets` выбирается `.exe` или asset с `win-x64` / `ConfigurationManagement.exe`). Ошибки сети/HTTP/парсинга обрабатываются внутри — метод возвращает `null`, не бросая исключений наружу. Статический помощник [`IsNewerThan`](Configuration%20Management/Services/GitHubReleaseService.cs) сравнивает тег выпуска (нормализуя ведущий `v`) с текущей версией приложения. Сервис зарегистрирован как `AddSingleton` в [`AppServices.Configure()`](Configuration%20Management/AppServices.cs) в блоке `#if WINDOWS`; на Linux он не компилируется и не нужен (автообновление Windows-only), модель `ReleaseInfo` остаётся общей.
+- **Версия поднята до `0.3.5.70` → `0.3.5.71`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`, `<FileVersion>`, `<InformationalVersion>` в [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.5.70] — 2026-08-31
 
 Версия программы теперь отображается и в видимой шапке главного окна (иконка + название программы), а не только в скрытом системном заголовке.

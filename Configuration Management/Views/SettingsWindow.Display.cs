@@ -73,6 +73,7 @@ namespace Configuration_Management
             "ServerBase" => _viewModel.ShowServerColumn,
             "LastLaunch" => _viewModel.ShowLastLaunchColumn,
             "Size" => _viewModel.ShowSizeColumn,
+            "Actions" => _viewModel.ShowActionsColumn,
             _ => true
         };
 
@@ -153,6 +154,10 @@ namespace Configuration_Management
                 ShowTagFilterPanelCheck.IsChecked = _viewModel.ShowTagFilterPanel;
             if (AllowMultipleInstancesCheck != null)
                 AllowMultipleInstancesCheck.IsChecked = _viewModel.AllowMultipleInstances;
+            if (CheckForUpdatesOnStartupCheck != null)
+                CheckForUpdatesOnStartupCheck.IsChecked = _viewModel.CheckForUpdatesOnStartup;
+            if (AutoUpdateEnabledCheck != null)
+                AutoUpdateEnabledCheck.IsChecked = _viewModel.AutoUpdateEnabled;
             if (ShowTrayIconCheck != null)
                 ShowTrayIconCheck.IsChecked = _viewModel.ShowTrayIcon;
             if (CloseToTrayCheck != null)

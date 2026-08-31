@@ -127,6 +127,12 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Разрешить несколько экземпляров приложения.</summary>
     public bool AllowMultipleInstances => _allowMultipleInstances;
 
+    /// <summary>Проверять наличие обновлений приложения при запуске (GitHub Releases).</summary>
+    public bool CheckForUpdatesOnStartup => _checkForUpdatesOnStartup;
+
+    /// <summary>Автоматически устанавливать новые версии без подтверждения (self-update при запуске).</summary>
+    public bool AutoUpdateEnabled => _autoUpdateEnabled;
+
     /// <summary>Выбранные теги для фильтра (можно несколько одновременно).</summary>
     public ObservableCollection<string> ActiveTagFilters => _activeTagFilters;
 
@@ -523,6 +529,9 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Показывать колонку «Размер» файловой ИБ.</summary>
     public bool ShowSizeColumn => _showSizeColumn;
 
+    /// <summary>Показывать колонку «Действия» (кнопки запуска/конфигуратора/очистки кеша) в списке баз.</summary>
+    public bool ShowActionsColumn => _showActionsColumn;
+
     public double SizeColumnWidth
     {
         get => _sizeColumnWidth;
@@ -588,7 +597,7 @@ public partial class MainViewModel : ViewModelBase
         bool showVersionColumn, bool showLaunchModeColumn, bool showServerColumn, bool showLastLaunchColumn,
         bool groupByGroup, bool showFavoritesOnly, bool showSizeColumn = true,
         bool showConfigurationColumn = true, bool showEmptyGroups = false,
-        List<string>? columnOrder = null)
+        List<string>? columnOrder = null, bool showActionsColumn = true)
     {
         _showFavoritesButton = showFavoritesButton;
         _showPinnedButton = showPinnedButton;
@@ -599,6 +608,7 @@ public partial class MainViewModel : ViewModelBase
         _showServerColumn = showServerColumn;
         _showLastLaunchColumn = showLastLaunchColumn;
         _showSizeColumn = showSizeColumn;
+        _showActionsColumn = showActionsColumn;
 
         OnPropertyChanged(nameof(ShowFavoritesButton));
         OnPropertyChanged(nameof(ShowPinnedButton));
@@ -609,6 +619,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowServerColumn));
         OnPropertyChanged(nameof(ShowLastLaunchColumn));
         OnPropertyChanged(nameof(ShowSizeColumn));
+        OnPropertyChanged(nameof(ShowActionsColumn));
 
         // Применяем поведение списка (уже имеющиеся настройки).
         GroupByGroup = groupByGroup;

@@ -58,6 +58,8 @@ public partial class MainViewModel : ViewModelBase
     private bool _showPinnedButton = true;
     private bool _showTagFilterPanel;
     private bool _allowMultipleInstances;
+    private bool _checkForUpdatesOnStartup = true;
+    private bool _autoUpdateEnabled = true;
     private readonly ObservableCollection<string> _activeTagFilters = new();
     private ListViewMode _listViewMode = ListViewMode.All;
 
@@ -89,6 +91,7 @@ public partial class MainViewModel : ViewModelBase
     private bool _showServerColumn = true;
     private bool _showLastLaunchColumn = true;
     private bool _showSizeColumn = true;
+    private bool _showActionsColumn = true;
     private double _sizeColumnWidth;
     private List<string> _columnOrder = new();
     private double _windowWidth;
@@ -244,6 +247,8 @@ public partial class MainViewModel : ViewModelBase
         _showTags = settings.ShowTags;
         _showTagFilterPanel = settings.ShowTagFilterPanel;
         _allowMultipleInstances = settings.AllowMultipleInstances;
+        _checkForUpdatesOnStartup = settings.CheckForUpdatesOnStartup;
+        _autoUpdateEnabled = settings.AutoUpdateEnabled;
         _showVersionColumn = settings.ShowVersionColumn;
         _showConfigurationColumn = settings.ShowConfigurationColumn;
         _configurationColumnWidth = settings.ConfigurationColumnWidth;
@@ -271,6 +276,7 @@ public partial class MainViewModel : ViewModelBase
         _showServerColumn = settings.ShowServerColumn;
         _showLastLaunchColumn = settings.ShowLastLaunchColumn;
         _showSizeColumn = settings.ShowSizeColumn;
+        _showActionsColumn = settings.ShowActionsColumn;
         _sizeColumnWidth = settings.SizeColumnWidth;
         _columnOrder = settings.ColumnOrder is { Count: > 0 }
             ? new List<string>(settings.ColumnOrder)

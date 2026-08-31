@@ -162,6 +162,14 @@ public class AppSettings
     /// </summary>
     public bool AllowMultipleInstances { get; set; }
 
+    /// <summary>
+    /// Проверять наличие обновлений приложения при запуске (GitHub Releases).
+    /// </summary>
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
+
+    /// <summary>Автоматически устанавливать новые версии без подтверждения (self-update при запуске).</summary>
+    public bool AutoUpdateEnabled { get; set; } = true;
+
     /// <summary>Показывать колонку «Версия платформы» в списке баз.</summary>
     public bool ShowVersionColumn { get; set; } = true;
 
@@ -170,6 +178,9 @@ public class AppSettings
 
     /// <summary>Ширина колонки «Конфигурация» (0 — по умолчанию).</summary>
     public double ConfigurationColumnWidth { get; set; }
+
+    /// <summary>Показывать колонку «Действия» (кнопки запуска/конфигуратора/очистки кеша) в списке баз.</summary>
+    public bool ShowActionsColumn { get; set; } = true;
 
     /// <summary>Ширина колонки «Действия» в списке баз (0 — по умолчанию).</summary>
     public double ActionsColumnWidth { get; set; }

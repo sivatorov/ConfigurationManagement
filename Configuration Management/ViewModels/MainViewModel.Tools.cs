@@ -1595,6 +1595,8 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     public void ApplyAppBehaviorSettings(
         bool allowMultipleInstances,
+        bool checkForUpdatesOnStartup,
+        bool autoUpdateEnabled,
         bool showTagFilterPanel,
         bool closeToTray = false,
         bool showTrayIcon = true,
@@ -1614,6 +1616,8 @@ public partial class MainViewModel : ViewModelBase
         string afterLaunchAction = "None")
     {
         _allowMultipleInstances = allowMultipleInstances;
+        _checkForUpdatesOnStartup = checkForUpdatesOnStartup;
+        _autoUpdateEnabled = autoUpdateEnabled;
         _showTagFilterPanel = showTagFilterPanel;
         _closeToTray = closeToTray;
         _showTrayIcon = showTrayIcon;
@@ -1632,6 +1636,8 @@ public partial class MainViewModel : ViewModelBase
         if (hotkeyShowFavorites != null) _hotkeyShowFavorites = hotkeyShowFavorites.Trim();
         if (hotkeyShowRecent != null) _hotkeyShowRecent = hotkeyShowRecent.Trim();
         OnPropertyChanged(nameof(AllowMultipleInstances));
+        OnPropertyChanged(nameof(CheckForUpdatesOnStartup));
+        OnPropertyChanged(nameof(AutoUpdateEnabled));
         OnPropertyChanged(nameof(ShowTagFilterPanel));
         OnPropertyChanged(nameof(CloseToTray));
         OnPropertyChanged(nameof(ShowTrayIcon));

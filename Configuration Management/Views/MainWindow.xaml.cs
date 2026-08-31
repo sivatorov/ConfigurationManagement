@@ -168,6 +168,7 @@ namespace Configuration_Management
                     or nameof(MainViewModel.ShowServerColumn)
                     or nameof(MainViewModel.ShowLastLaunchColumn)
                     or nameof(MainViewModel.ShowSizeColumn)
+                    or nameof(MainViewModel.ShowActionsColumn)
                     or nameof(MainViewModel.ShowFavoritesButton)
                     or nameof(MainViewModel.ShowPinnedButton))
                 {
