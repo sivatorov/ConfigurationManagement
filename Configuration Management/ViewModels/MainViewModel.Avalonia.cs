@@ -104,8 +104,8 @@ public class MainViewModel : ViewModelBase
     /// Настраиваемый шаблон имени COM-коннектора 1С (issue #175).
     /// Пустая строка — стандартные ProgID V85/V83/V82/V81.COMConnector; иначе шаблон
     /// разворачивается по версии платформы каждой базы (плейсхолдеры %V12%/%V3%/%V4%)
-    /// и пробуется первым в переборе. Применяется после перезапуска, как и чтение настройки.
-    /// На Linux COM отсутствует, но значение сохраняется в общий файл настроек,
+    /// и пробуется первым в переборе. Применяется сразу: новое значение передаётся коннектору
+    /// (issue #175). На Linux COM отсутствует, но значение сохраняется в общий файл настроек,
     /// чтобы не теряться при переходе между платформами.
     /// </summary>
     public string ComConnectorNameTemplate
@@ -117,6 +117,9 @@ public class MainViewModel : ViewModelBase
             if (string.Equals(_settings.ComConnectorNameTemplate, normalized, StringComparison.Ordinal))
                 return;
             _settings.ComConnectorNameTemplate = normalized;
+            // Симметрично Windows-сборке (issue #175). На Linux вызов — no-op: COM
+            // отсутствует, кэшировать нечего, но ветки держим одинаковыми.
+            OneCComConnector.ApplyTemplate(normalized);
             SaveSettingsSilently();
         }
     }

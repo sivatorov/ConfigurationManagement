@@ -181,17 +181,30 @@ internal static class ComReadHost
         }
     }
 
-    /// <summary>Текущее поколение сброса — снимок на время запроса.</summary>
-    private static int CurrentEpoch()
+    /// <summary>
+    /// Текущее поколение сброса — снимок на время запроса. Вызывающий может снять его
+    /// раньше и передать в <see cref="Read"/>: запрос, начавшийся до сброса, не должен
+    /// получать право защёлкивать недоступность по новому поколению (issue #175).
+    /// </summary>
+    internal static int CurrentEpoch()
     {
         lock (StateLock) return _resetEpoch;
     }
 
-    /// <summary>Успешное чтение обнуляет счётчик отказов.</summary>
-    private static void NoteSuccess()
+    /// <summary>
+    /// Успешное чтение обнуляет счётчики отказов — но только если с начала запроса
+    /// не было сброса. Запрос прежнего поколения (например начатый до смены имени
+    /// COM-коннектора) говорит об уже неактуальном наборе имён, и его успех не должен
+    /// ослаблять защиту от повторных крахов для нового (issue #175). Проверка
+    /// симметрична <see cref="RegisterFailure"/> и <see cref="LatchIfSameEpoch"/>.
+    /// </summary>
+    private static void NoteSuccess(int epoch)
     {
         lock (StateLock)
         {
+            if (_resetEpoch != epoch)
+                return;
+
             _hardFailures = 0;
             _transportFailures = 0;
         }
@@ -222,7 +235,15 @@ internal static class ComReadHost
     /// Список ProgID для перебора (issue #175). Null — стандартный
     /// <see cref="OneCComConnector.KnownProgIds"/>. Кастомный список передаётся агенту.
     /// </param>
-    public static ComReadResult Read(string connectString, int timeoutMs, IReadOnlyList<string>? progIds = null)
+    /// <param name="startEpoch">
+    /// Поколение сброса на момент начала операции у вызывающего (issue #175). Нужно,
+    /// когда между подготовкой запроса и этим вызовом пользователь мог сменить имя
+    /// COM-коннектора: сброс поколения снимает у уже начатого запроса право защёлкнуть
+    /// недоступность, иначе отказ по прежнему списку имён погасил бы COM для нового.
+    /// Null — снять поколение здесь.
+    /// </param>
+    public static ComReadResult Read(string connectString, int timeoutMs,
+        IReadOnlyList<string>? progIds = null, int? startEpoch = null)
     {
         if (string.IsNullOrWhiteSpace(connectString))
             return ComReadResult.Fail(ComFailureKind.Transport);
@@ -236,7 +257,7 @@ internal static class ComReadHost
         if (ComUnavailable)
             return ComReadResult.Fail(ComFailureKind.Disabled);
 
-        var epoch = CurrentEpoch();
+        var epoch = startEpoch ?? CurrentEpoch();
 
         lock (Sync)
         {
@@ -392,7 +413,7 @@ internal static class ComReadHost
                         // Счётчик сбрасывает только успех. Сбрасывать его на любой ответ
                         // означало бы, что на чередующемся списке двух отказов подряд
                         // не наберётся никогда.
-                        NoteSuccess();
+                        NoteSuccess(epoch);
                         break;
                 }
 

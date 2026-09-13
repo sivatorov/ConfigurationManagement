@@ -107,6 +107,18 @@ public partial class MainViewModel
         {
             var settings = _repository.LoadSettings();
 
+            // Шаблон имени COM-коннектора у каждого профиля свой, а коннектор — singleton
+            // с кэшем шаблона (issue #175). Поле ViewModel тоже перечитываем: иначе окно
+            // настроек показало бы шаблон прежнего профиля и записало бы его в новый.
+            _comConnectorNameTemplate = settings.ComConnectorNameTemplate ?? string.Empty;
+            OnPropertyChanged(nameof(ComConnectorNameTemplate));
+            OneCComConnector.ApplyTemplate(_comConnectorNameTemplate);
+
+            // Таймаут определения — вторая настройка COM-чтения, и несвежесть у неё та же:
+            // окно настроек показало бы значение прежнего профиля и записало бы его в новый.
+            _comDetectTimeoutMs = Math.Max(1000, settings.ComDetectTimeoutMs);
+            OnPropertyChanged(nameof(ComDetectTimeoutMs));
+
             // Основные данные профиля: список баз и групп.
             var saved = _repository.Load();
             Infobases.Clear();

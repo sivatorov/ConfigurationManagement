@@ -64,6 +64,15 @@ namespace Configuration_Management.Services
         }
 
         /// <summary>
+        /// No-op: на Linux шаблон имени COM-коннектора не используется (COM отсутствует),
+        /// кэшировать нечего. Добавлен для совместимости с общим кодом настройки
+        /// шаблона (issue #175).
+        /// </summary>
+        public static void ApplyTemplate(string? template)
+        {
+        }
+
+        /// <summary>
         /// No-op: на Linux COM-коннектор отсутствует, сбрасывать вердикты о его недоступности
         /// нечего. Добавлен для совместимости с общим кодом кнопки «Определить» (issue #174).
         /// </summary>

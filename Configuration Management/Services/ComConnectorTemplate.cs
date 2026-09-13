@@ -12,12 +12,23 @@ namespace Configuration_Management.Services;
 public static class ComConnectorTemplate
 {
     /// <summary>
-    /// Разворачивает шаблон по версии. Пустая строка версии/шаблона или
-    /// невозможность разобрать версию → null.
+    /// Разворачивает шаблон по версии. Пустой шаблон → null. Версия нужна только шаблону
+    /// с плейсхолдерами: готовое имя без них (например <c>V83.COMConnector_27</c>) работает
+    /// само по себе, и требовать для него версию платформы значило бы игнорировать
+    /// заданное пользователем имя у базы, где версия не указана (issue #175). Пустая
+    /// версия или неразбираемая версия при шаблоне с плейсхолдерами → null.
     /// </summary>
     public static string? Expand(string? template, string? platformVersion)
     {
-        if (string.IsNullOrWhiteSpace(template) || string.IsNullOrWhiteSpace(platformVersion))
+        if (string.IsNullOrWhiteSpace(template))
+            return null;
+
+        // Шаблон без плейсхолдеров разворачивать нечем и незачем: имя уже готово.
+        // Проверка идёт раньше версии намеренно — см. замечание в сводке метода.
+        if (!ContainsPlaceholder(template))
+            return template;
+
+        if (string.IsNullOrWhiteSpace(platformVersion))
             return null;
 
         var seg = platformVersion.Split('.');
@@ -35,7 +46,11 @@ public static class ComConnectorTemplate
         if (v12.Length == 0)
             return null;
 
-        return Apply(template, v12, v3, v4);
+        // Развернуться в пустоту шаблон тоже может: «%V4%» при версии «8.3.27» даёт пустую
+        // строку. Такое «имя» в переборе бесполезно и вводило бы в заблуждение (пустой ProgID
+        // первым кандидатом, он же в диагностике), поэтому считаем, что развернуть не удалось.
+        var expanded = Apply(template, v12, v3, v4);
+        return string.IsNullOrWhiteSpace(expanded) ? null : expanded;
     }
 
     /// <summary>
@@ -54,10 +69,6 @@ public static class ComConnectorTemplate
     /// </summary>
     private static string Apply(string template, string v12, string v3, string v4)
     {
-        // Шаблон без плейсхолдеров — вернуть как есть (эквивалент прежнего поведения).
-        if (!ContainsPlaceholder(template))
-            return template;
-
         var elements = ParseElements(template);
 
         // Склеиваем верхний уровень. Текст, идущий перед плейсхолдером, держим отдельно,

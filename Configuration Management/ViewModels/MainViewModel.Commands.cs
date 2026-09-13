@@ -836,7 +836,8 @@ public partial class MainViewModel : ViewModelBase
     /// Настраиваемый шаблон имени COM-коннектора 1С (issue #175).
     /// Пустая строка — стандартные ProgID V85/V83/V82/V81.COMConnector; иначе шаблон
     /// разворачивается по версии платформы каждой базы (плейсхолдеры %V12%/%V3%/%V4%)
-    /// и пробуется первым в переборе. Применяется после перезапуска, как и чтение настройки.
+    /// и пробуется первым в переборе. Действует сразу: новое значение передаётся коннектору
+    /// здесь же (issue #175) — иначе настройка применялась бы только после перезапуска.
     /// </summary>
     public string ComConnectorNameTemplate
     {
@@ -844,8 +845,15 @@ public partial class MainViewModel : ViewModelBase
         set
         {
             var normalized = value?.Trim() ?? string.Empty;
-            if (SetProperty(ref _comConnectorNameTemplate, normalized))
-                ScheduleSaveSettings();
+            if (!SetProperty(ref _comConnectorNameTemplate, normalized))
+                return;
+
+            // Коннектор кэширует шаблон; передаём новое значение сразу, чтобы оно
+            // действовало без перезапуска и не зависело от того, когда настройки лягут
+            // на диск — запись отложена, а фоновое COM-чтение может случиться раньше
+            // (issue #175).
+            OneCComConnector.ApplyTemplate(normalized);
+            ScheduleSaveSettings();
         }
     }
 

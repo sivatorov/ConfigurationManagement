@@ -258,6 +258,10 @@ public partial class MainViewModel : ViewModelBase
         _checkForUpdatesOnStartup = settings.CheckForUpdatesOnStartup;
         _autoUpdateEnabled = settings.AutoUpdateEnabled;
         _comConnectorNameTemplate = settings.ComConnectorNameTemplate ?? "";
+        // Кэш шаблона в коннекторе заполняем сразу, а не ленивым чтением файла (issue #175):
+        // иначе результат зависел бы от того, случилось ли COM-чтение до смены активного
+        // профиля, — после неё каталог настроек уже другой, а список баз в окне прежний.
+        OneCComConnector.ApplyTemplate(_comConnectorNameTemplate);
         _comDetectTimeoutMs = Math.Max(1000, settings.ComDetectTimeoutMs);
         _showVersionColumn = settings.ShowVersionColumn;
         _showConfigurationColumn = settings.ShowConfigurationColumn;
