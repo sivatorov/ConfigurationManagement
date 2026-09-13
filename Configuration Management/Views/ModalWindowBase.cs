@@ -639,12 +639,22 @@ namespace Configuration_Management
         {
             if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && !e.Handled)
             {
-                DialogResult = false;
-                Close();
+                CloseAsCancel();
                 e.Handled = true;
                 return;
             }
             base.OnKeyDown(e);
+        }
+
+        /// <summary>
+        /// Закрывает диалог так же, как кнопка «Отмена»: без положительного
+        /// результата. Вызывается и из <see cref="OnKeyDown"/>, и из главного окна,
+        /// когда Esc пришёл туда (см. MainWindow.Avalonia.cs, OnWindowKeyDown).
+        /// </summary>
+        internal void CloseAsCancel()
+        {
+            DialogResult = false;
+            Close();
         }
 
         /// <summary>

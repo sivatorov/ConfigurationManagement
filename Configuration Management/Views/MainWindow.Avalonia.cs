@@ -5835,6 +5835,23 @@ namespace Configuration_Management
                 }
             }
 
+            // Esc при открытом диалоге закрывает сам диалог. Пока пользователь не
+            // кликнул внутри диалога, событие приходит именно сюда: сфокусированной
+            // остаётся кнопка главного окна, которой диалог и открыли, а клавиатурное
+            // событие Avalonia ведёт вверх по дереву от сфокусированного элемента и
+            // маршрута диалога не задевает вовсе (issue #226). После клика внутри
+            // маршрут идёт через диалог, и Esc обрабатывает его собственный OnKeyDown.
+            // Фокус в диалог не переносим: первым элементом обхода в безрамочном окне
+            // оказывается кнопка «Свернуть» собственной полосы заголовка, и рамка
+            // фокуса вставала бы на неё.
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None
+                && TopmostModalDialog() is { } dialog)
+            {
+                dialog.CloseAsCancel();
+                e.Handled = true;
+                return;
+            }
+
             // Esc уводит окно в трей, если так задано настройкой. В поле ввода
             // клавиша остаётся своей: там ей отменяют правку.
             if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None
@@ -5867,6 +5884,35 @@ namespace Configuration_Management
             if (_vm.DeleteInfobaseCommand.CanExecute(null))
                 _vm.DeleteInfobaseCommand.Execute(null);
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// Верхнее по Z-порядку открытое окно, если это диалог, унаследованный от
+        /// <see cref="ModalWindowBase"/>, иначе <c>null</c>. Порядок берём у платформы
+        /// (<see cref="Window.SortWindowsByZOrder"/>), а не порядок открытия: у окон
+        /// без отношения владения он последнему открытому не равен. Если сверху лежит
+        /// окно другого рода (сообщение, ход обновления), метод возвращает <c>null</c>:
+        /// закрывать вместо него диалог под ним нельзя.
+        /// </summary>
+        private ModalWindowBase? TopmostModalDialog()
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime
+                    is not Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+                return null;
+
+            var visible = new List<Window>();
+            foreach (var window in desktop.Windows)
+            {
+                if (!ReferenceEquals(window, this) && window.IsVisible)
+                    visible.Add(window);
+            }
+
+            if (visible.Count == 0)
+                return null;
+
+            var ordered = visible.ToArray();
+            Window.SortWindowsByZOrder(ordered);
+            return ordered[ordered.Length - 1] as ModalWindowBase;
         }
 
         /// <summary>
