@@ -50,38 +50,11 @@ public static class IbasesV8iExporter
 
         // Существующие базы по имени (для обновления на месте).
         var existingByName = new Dictionary<string, IbaseEntry>(StringComparer.OrdinalIgnoreCase);
-        // Существующие секции-группы по имени.
-        var groupSectionByName = new Dictionary<string, IbaseEntry>(StringComparer.OrdinalIgnoreCase);
-
         foreach (var entry in entries)
         {
-            if (entry.IsGroup)
-            {
-                if (!string.IsNullOrWhiteSpace(entry.Name))
-                    groupSectionByName[entry.Name] = entry;
-            }
-            else if (!string.IsNullOrWhiteSpace(entry.Name))
+            if (!entry.IsGroup && !string.IsNullOrWhiteSpace(entry.Name))
             {
                 existingByName[entry.Name] = entry;
-            }
-        }
-
-        // Обновляем секции-группы, уже существующие в файле. Новые секции-группы при
-        // выгрузке не создаются: папки в 1С отображаются по Folder-ссылкам баз, поэтому
-        // добавление явных секций приводило бы к появлению лишних групп, которых не было
-        // в исходном файле (например, групп, возникших из Folder-ссылок при импорте).
-        foreach (var group in groupList)
-        {
-            if (string.IsNullOrWhiteSpace(group.Name))
-                continue;
-
-            var entry = ToGroupEntry(group, groupList);
-
-            if (groupSectionByName.TryGetValue(group.Name, out var existingGroup))
-            {
-                // Обновляем существующую секцию-группу (имя и иерархия).
-                existingGroup.Id = entry.Id;
-                existingGroup.Group = entry.Group;
             }
         }
 
@@ -150,10 +123,10 @@ public static class IbasesV8iExporter
         // (Name=«Учёт\Бухгалтерия»). Сопоставление по одному имени (см. Deduplicate)
         // такие пары НЕ склеивает, поэтому обе секции попадали в файл, и стартер под
         // Windows показывал их как две отдельные папки. Здесь каждая секция приводится
-        // к единому каноническому виду (Name — имя листа, Folder — путь родителя
-        // с нативным разделителем), а совпавшие по полному пути — устраняются.
+        // к нативному виду стартера (Name — полный путь, Folder=/), а совпавшие по
+        // полному пути устраняются.
         var groupSectionsBefore = entries.Count(e => e.IsGroup);
-        entries = NormalizeAndDedupeGroupSections(entries);
+        entries = NormalizeAndDedupeGroupSections(entries, groupList);
         var groupDupesRemoved = groupSectionsBefore - entries.Count(e => e.IsGroup);
 
         // Лог экспорта (issue #165): количество записей, баз, групп и устранённых
@@ -248,8 +221,10 @@ public static class IbasesV8iExporter
             written++;
         }
 
-        // Устраняем дубликаты секций с одинаковым именем (как в полном Export).
+        // Устраняем дубликаты секций с одинаковым именем и приводим секции групп к
+        // нативному формату стартера (как в полном Export).
         entries = Deduplicate(entries);
+        entries = NormalizeAndDedupeGroupSections(entries, groupList);
 
         var sb = new StringBuilder();
         foreach (var entry in entries)
@@ -314,17 +289,28 @@ public static class IbasesV8iExporter
     /// Приводит секции-группы файла ibases.v8i к единому каноническому виду и устраняет
     /// дубликаты по ПОЛНОМУ пути папки. Файл, переписанный штатным стартером 1С, может
     /// содержать одну и ту же вложенную папку в двух представлениях: с именем-листом
-    /// (Name=«Бухгалтерия», Folder=«Учёт») и с полным путём в заголовке секции
-    /// (Name=«Учёт\Бухгалтерия»). Сопоставление по одному имени (см. <see cref="Deduplicate"/>)
-    /// такие пары не склеивает, из-за чего стартер под Windows показывал их как две
-    /// отдельные папки (issue #165). Здесь каждая секция приводится к каноническому виду
-    /// (Name — имя листа, Folder — путь родителя с нативным разделителем), а совпавшие
-    /// по полному пути — устраняются (сохраняется первая встреченная).
+    /// (Name=«Бухгалтерия», Folder=«Учёт») и в нативном формате стартера — с полным
+    /// путём в заголовке секции (Name=«Учёт\Бухгалтерия», Folder=«/»). Сопоставление
+    /// по одному имени (см. <see cref="Deduplicate"/>) такие пары не склеивает.
+    ///
+    /// Важно не только удалить дубликат, но и записать оставшуюся секцию в нативном
+    /// формате. Если снова сохранить Name=«Бухгалтерия», Folder=«Учёт», штатный стартер
+    /// при следующем запуске добавит рядом Name=«Учёт\Бухгалтерия», Folder=«/», и дубль
+    /// вернётся. Именно этот цикл воспроизводился на пользовательском файле issue #165.
+    /// Идентификатор секции синхронизируется с группой приложения по полному пути.
     /// </summary>
-    private static List<IbaseEntry> NormalizeAndDedupeGroupSections(List<IbaseEntry> entries)
+    private static List<IbaseEntry> NormalizeAndDedupeGroupSections(
+        List<IbaseEntry> entries,
+        List<Group> groups)
     {
         var byPath = new Dictionary<string, IbaseEntry>(StringComparer.OrdinalIgnoreCase);
         var result = new List<IbaseEntry>(entries.Count);
+        var appGroupsByPath = groups
+            .Where(g => !string.IsNullOrWhiteSpace(g.Name))
+            .GroupBy(
+                g => NormalizeGroupPath(GroupHierarchyHelper.GetFullPath(g, groups)),
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in entries)
         {
@@ -345,28 +331,20 @@ public static class IbasesV8iExporter
             if (byPath.ContainsKey(canonicalPath))
                 continue; // Дубликат папки — пропускаем.
 
-            var (leaf, parentPath) = SplitLeafAndParent(canonicalPath);
-            // Приводим к каноническому виду: имя — лист, Folder — путь родителя.
-            entry.Name = leaf;
-            entry.Group = string.IsNullOrWhiteSpace(parentPath) ? string.Empty : ToFolderPath(parentPath);
+            // Штатный стартер хранит путь группы целиком в имени секции, а Folder=/
+            // обозначает корень дерева. Это относится и к корневым, и к вложенным группам.
+            entry.Name = ToFolderPath(canonicalPath);
+            entry.Group = "/";
+            if (appGroupsByPath.TryGetValue(canonicalPath, out var appGroup)
+                && !string.IsNullOrWhiteSpace(appGroup.Id))
+            {
+                entry.Id = appGroup.Id;
+            }
             byPath[canonicalPath] = entry;
             result.Add(entry);
         }
 
         return result;
-    }
-
-    /// <summary>
-    /// Разделяет канонический путь группы на имя листа и путь родителя.
-    /// </summary>
-    private static (string Leaf, string ParentPath) SplitLeafAndParent(string canonicalPath)
-    {
-        var idx = canonicalPath.LastIndexOf(GroupHierarchyHelper.PathSeparator, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0)
-            return (canonicalPath.Trim(), string.Empty);
-        return (
-            canonicalPath.Substring(idx + GroupHierarchyHelper.PathSeparator.Length).Trim(),
-            canonicalPath.Substring(0, idx).Trim());
     }
 
     /// <summary>
@@ -473,33 +451,6 @@ public static class IbasesV8iExporter
 
         PlatformVersionService.ParseVariant(version, out var cleanVersion, out _);
         return string.IsNullOrWhiteSpace(cleanVersion) ? version : cleanVersion;
-    }
-
-    /// <summary>
-    /// Преобразует группу приложения в запись ibases.v8i (секцию-группу без строки подключения).
-    /// Имя секции — одиночное наименование группы, вложенность задаётся ключом Folder
-    /// (полный путь с разделителем «\»), как в типовом файле 1С.
-    /// </summary>
-    private static IbaseEntry ToGroupEntry(Group group, List<Group> groups)
-    {
-        var entry = new IbaseEntry
-        {
-            Name = group.Name,
-            Id = group.Id,
-            Enabled = true
-        };
-
-        if (!string.IsNullOrWhiteSpace(group.ParentId))
-        {
-            var parent = groups.FirstOrDefault(g =>
-                string.Equals(g.Id, group.ParentId, StringComparison.OrdinalIgnoreCase));
-            if (parent is not null)
-            {
-                entry.Group = ToFolderPath(GroupHierarchyHelper.GetFullPath(parent, groups));
-            }
-        }
-
-        return entry;
     }
 
     /// <summary>

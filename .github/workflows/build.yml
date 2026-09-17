@@ -48,6 +48,9 @@ jobs:
         working-directory: Configuration Management
         run: ./build.ps1 -Configuration Release
 
+      - name: Регрессионные тесты
+        run: dotnet test "ConfigurationManagement.Tests/ConfigurationManagement.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false
+
   linux:
     name: Linux (Avalonia, net10.0)
     runs-on: ubuntu-latest
@@ -63,3 +66,6 @@ jobs:
       - name: Сборка Release
         working-directory: Configuration Management
         run: ./build.sh Release
+
+      - name: Регрессионные тесты
+        run: dotnet test "ConfigurationManagement.Tests/ConfigurationManagement.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false
