@@ -326,13 +326,28 @@ public sealed class UpdateService
         await using (var target = new FileStream(dest, mode, FileAccess.Write, FileShare.None))
         {
             target.Position = offset;
-            var buffer = new byte[81920];
+            // Крупный буфер (1 МБ) сокращает число системных вызовов чтения/записи,
+            // а отчёт о прогрессе публикуется только на смене целого процента — иначе
+            // на каждый блок приходилась бы отправка в поток интерфейса и замедляла бы
+            // загрузку на Windows (issue #284). Если полный размер неизвестен — сообщаем
+            // неопределённый прогресс раз в блок, что редко.
+            var buffer = new byte[1024 * 1024];
             long readBytes = offset;
+            var lastPercent = -1;
             int read;
             while ((read = await source.ReadAsync(buffer)) > 0)
             {
                 await target.WriteAsync(buffer.AsMemory(0, read));
                 readBytes += read;
+
+                if (fullTotal > 0)
+                {
+                    var percent = (int)Math.Min(100, readBytes * 100 / fullTotal);
+                    if (percent == lastPercent)
+                        continue;
+                    lastPercent = percent;
+                }
+
                 ReportDownloadProgress(fullTotal, readBytes);
             }
             await target.FlushAsync();
