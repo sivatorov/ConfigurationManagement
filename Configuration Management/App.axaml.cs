@@ -100,6 +100,8 @@ namespace Configuration_Management
                 try { LogProcessExit(); } catch { /* ignore */ }
                 try { _activateCts?.Cancel(); _activateCts?.Dispose(); } catch { /* ignore */ }
                 try { _instanceLock?.Dispose(); } catch { /* ignore */ }
+                // Останавливаем планировщик заданий по расписанию (issue #286).
+                try { AppServices.GetRequiredService<SchedulerService>().Stop(); } catch { /* ignore */ }
             };
 
             try
@@ -312,6 +314,18 @@ namespace Configuration_Management
 
                     if (settings.CheckForUpdatesOnStartup)
                         CheckForUpdatesInBackground(updateService);
+
+                    // Задания по расписанию (issue #286): запускаем планировщик после
+                    // входа в профиль и показа главного окна. Он работает, пока приложение
+                    // запущено; остановка выполняется при завершении приложения.
+                    try
+                    {
+                        AppServices.GetRequiredService<SchedulerService>().Start();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("[schedule] Ошибка запуска планировщика: " + ex.Message);
+                    }
 
                     // Прежний режим завершения возвращается: на время старта он
                     // переключался на явный, иначе закрытие окна входа гасило

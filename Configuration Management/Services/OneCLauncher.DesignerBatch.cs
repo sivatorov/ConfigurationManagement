@@ -23,6 +23,11 @@ public static partial class OneCLauncher
         TestAndRepair,
         /// <summary>Восстановление данных ИБ из выгрузки .dt (/RestoreIB"path").</summary>
         RestoreIB,
+        /// <summary>
+        /// Загрузка конфигурации из файла .cf и обновление конфигурации БД
+        /// (/LoadCfg"path.cf" /UpdateDBCfg). Используется заданиями по расписанию (issue #286).
+        /// </summary>
+        LoadCfg,
         /// <summary>Установка блокировки сеансов ИБ (/LockIB"строка сеансов").</summary>
         LockIB,
         /// <summary>Снятие блокировки сеансов ИБ (/LockIB"").</summary>
@@ -77,6 +82,7 @@ public static partial class OneCLauncher
             DesignerBatchOperation.DumpCfg => LocalizationManager.T("Launcher.OperationDumpCfg"),
             DesignerBatchOperation.TestAndRepair => LocalizationManager.T("Launcher.OperationTestAndRepair"),
             DesignerBatchOperation.RestoreIB => LocalizationManager.T("Launcher.OperationRestoreIB"),
+            DesignerBatchOperation.LoadCfg => LocalizationManager.T("Launcher.OperationLoadCfg"),
             DesignerBatchOperation.LockIB => LocalizationManager.T("Launcher.OperationLockIB"),
             DesignerBatchOperation.UnlockIB => LocalizationManager.T("Launcher.OperationUnlockIB"),
             _ => LocalizationManager.T("Launcher.OperationGeneric")
@@ -139,9 +145,9 @@ public static partial class OneCLauncher
                 }
             }
         }
-        else if (operation == DesignerBatchOperation.RestoreIB)
+        else if (operation is DesignerBatchOperation.RestoreIB or DesignerBatchOperation.LoadCfg)
         {
-            // Восстановление требует существующий исходный файл выгрузки (.dt).
+            // Восстановление и загрузка конфигурации требуют существующий исходный файл.
             if (string.IsNullOrWhiteSpace(outputPath) || !File.Exists(outputPath))
                 return false;
         }
@@ -162,6 +168,8 @@ public static partial class OneCLauncher
             DesignerBatchOperation.DumpCfg when IsSafeCliValue(outputPath) => $"/DumpCfg\"{outputPath}\"",
             DesignerBatchOperation.TestAndRepair => "/IBCheckAndRepair -TestOnly",
             DesignerBatchOperation.RestoreIB when IsSafeCliValue(outputPath) => $"/RestoreIB\"{outputPath}\"",
+            // Загрузка новой конфигурации из .cf и обновление конфигурации БД.
+            DesignerBatchOperation.LoadCfg when IsSafeCliValue(outputPath) => $"/LoadCfg\"{outputPath}\" /UpdateDBCfg",
             // Блокировка сеансов файловой ИБ: /LockIB"строка сеансов". Строка строится
             // в SessionLockOptions.BuildSessionLockString(); выходной файл не создаётся,
             // поэтому в outputPath передаётся именно строка сеансов.

@@ -32,6 +32,11 @@ public static class AppServices
         services.AddSingleton<IBackupScenarioStore, BackupScenarioStore>();
         services.AddSingleton<IArchiveService, ArchiveService>();
         services.AddSingleton<IBackupService, BackupService>();
+        // Задания по расписанию (issue #286): хранилище заданий, обновление конфигурации ИБ
+        // из .cf (/LoadCfg + /UpdateDBCfg) и фоновый планировщик. Чистые сервисы.
+        services.AddSingleton<IScheduledTaskStore, ScheduledTaskStore>();
+        services.AddSingleton<IConfigUpdateService, ConfigUpdateService>();
+        services.AddSingleton<SchedulerService>();
         // Блокировка сеансов файловой ИБ (функция №20): пакетный запуск конфигуратора
         // (/LockIB) без открытия «1С:Предприятия». Чистый сервис — без UI-зависимостей.
         services.AddSingleton<ISessionLockService, SessionLockService>();

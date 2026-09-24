@@ -9,6 +9,42 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.44] — 2026-09-24
+
+### Новое
+
+- **Задания по расписанию (#286)** — резервное копирование, обновление конфигурации ИБ и
+  обновление самого приложения по расписанию (время «ЧЧ:ММ» + дни недели). Задания
+  выполняются фоновым планировщиком, пока приложение запущено; пропущенные запуски
+  не «догоняются», результат каждого выполнения сохраняется в задании.
+  1. **Типы заданий**: «Резервная копия» (существующий сценарий + база), «Обновление
+     конфигурации ИБ» (загрузка `.cf` через `/LoadCfg` + `/UpdateDBCfg`), «Копия → обновление
+     конфигурации» (последовательно) и «Обновить приложение» (GitHub Releases, без диалогов).
+  2. **Модель и хранилище**: [`ScheduledTask`](Configuration%20Management/Models/ScheduledTask.cs)
+     и [`ScheduledTaskStore`](Configuration%20Management/Services/ScheduledTaskStore.cs)
+     (`<DataDir>/schedules/*.task.json`); чистая логика расписания —
+     [`ScheduleCalculator`](Configuration%20Management/Services/ScheduleCalculator.cs)
+     (время + дни недели, покрыта юнит-тестами).
+  3. **Планировщик** [`SchedulerService`](Configuration%20Management/Services/SchedulerService.cs):
+     фоновый таймер каждые 30 секунд, выполнение заданий строго последовательно
+     (одна операция 1С за раз), журналирование, кнопка «Выполнить сейчас».
+  4. **Обновление конфигурации ИБ**: новая пакетная операция `DesignerBatchOperation.LoadCfg`
+     в [`OneCLauncher.DesignerBatch.cs`](Configuration%20Management/Services/OneCLauncher.DesignerBatch.cs)
+     и Linux-версии + сервис [`ConfigUpdateService`](Configuration%20Management/Services/ConfigUpdateService.cs).
+  5. **UI**: окно «Задания по расписанию» и форма редактирования
+     ([`ScheduledTasksWindow`](Configuration%20Management/Views/ScheduledTasksWindow.xaml),
+     [`ScheduledTaskEditWindow`](Configuration%20Management/Views/ScheduledTaskEditWindow.xaml)
+     + Avalonia-версии); точка входа — подменю «Утилиты» верхней панели; локализация `Schedule.*` в ru/en.
+  6. **Интеграция**: планировщик запускается после входа в профиль
+     ([`App.xaml.cs`](Configuration%20Management/App.xaml.cs)) и на Linux/Avalonia
+     ([`App.axaml.cs`](Configuration%20Management/App.axaml.cs)), останавливается при выходе.
+
+### Версия
+
+- **Версия приложения обновлена до `0.3.9.44`** во всех четырёх полях: `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.43] — 2026-09-24
 
 ### Новое

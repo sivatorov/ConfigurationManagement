@@ -263,6 +263,18 @@ namespace Configuration_Management
                     updateService.AutoUpdateEnabled = settings.AutoUpdateEnabled;
                     CheckForUpdatesInBackground(updateService);
                 }
+
+                // Задания по расписанию (issue #286): запускаем планировщик после входа
+                // в профиль и показа главного окна. Он работает, пока приложение запущено.
+                try
+                {
+                    AppServices.GetRequiredService<SchedulerService>().Start();
+                }
+                catch (Exception ex)
+                {
+                    // Сбой планировщика не должен блокировать запуск приложения.
+                    System.Diagnostics.Debug.WriteLine("[schedule] Ошибка запуска планировщика: " + ex.Message);
+                }
             }
             catch (Exception ex)
             {
@@ -399,6 +411,16 @@ namespace Configuration_Management
             {
                 var logger = AppServices.GetRequiredService<IAppLogger>();
                 logger.Info("Приложение завершает работу");
+            }
+            catch
+            {
+                // ignore
+            }
+
+            // Останавливаем планировщик заданий по расписанию (issue #286).
+            try
+            {
+                AppServices.GetRequiredService<SchedulerService>().Stop();
             }
             catch
             {

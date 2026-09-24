@@ -625,6 +625,11 @@
                                         <MenuItem Header="{loc:Loc Settings.About.CheckForUpdates}" Click="OnCheckForUpdatesMenuClick" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="Update" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
                                         </MenuItem>
+                                        <!-- Задания по расписанию (issue #286): резервная копия, обновление
+                                             конфигурации ИБ, «копия → обновление», обновление приложения. -->
+                                        <MenuItem Header="{loc:Loc Schedule.Title}" Click="OnScheduledTasksMenuClick" Style="{DynamicResource ModernMenuItem}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="CalendarClock" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                        </MenuItem>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>

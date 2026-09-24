@@ -1613,6 +1613,19 @@ namespace Configuration_Management
             };
             menu.Items.Add(checkUpdatesItem);
 
+            // Задания по расписанию (issue #286): резервная копия, обновление конфигурации
+            // ИБ, «копия → обновление», обновление приложения. Открывается отложенно,
+            // чтобы попап меню успел закрыться (та же проблема, что в issue #288).
+            var scheduleItem = new MenuItem { Header = LocalizationManager.T("Schedule.Title") };
+            scheduleItem.Styled(Themes.ControlThemes.ModernMenuItem);
+            scheduleItem.Icon = MenuIcon("IconScheduler", "#14B8A6");
+            scheduleItem.Click += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                var win = new ScheduledTasksWindow();
+                win.ShowSync(this);
+            });
+            menu.Items.Add(scheduleItem);
+
             return menu;
         }
 

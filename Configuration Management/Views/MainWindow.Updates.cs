@@ -39,6 +39,23 @@ public partial class MainWindow
     }
 
     /// <summary>
+    /// Открывает окно «Задания по расписанию» из подменю «Утилиты» (issue #286).
+    /// Окно отображается отложенно, чтобы контекстное меню успело закрыться
+    /// (та же проблема и решение, что в issue #288).
+    /// </summary>
+    private void OnScheduledTasksMenuClick(object sender, RoutedEventArgs e)
+    {
+        Dispatcher.BeginInvoke(
+            new System.Action(() =>
+            {
+                var win = new ScheduledTasksWindow();
+                win.Owner = this;
+                win.ShowDialog();
+            }),
+            System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    /// <summary>
     /// Открывает выпадающее меню «Утилиты» верхней панели по клику на её кнопке (issue #262):
     /// глобальные команды, не привязанные к конкретной базе.
     /// </summary>
