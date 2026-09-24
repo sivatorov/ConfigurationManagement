@@ -31,6 +31,8 @@ namespace Configuration_Management
         private readonly PasswordBox _passwordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
         private readonly PasswordBox _repositoryPasswordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
         private readonly PasswordBox _configuratorPasswordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
+        /// <summary>Панель чипов тегов базы (issue #283).</summary>
+        private readonly WrapPanel _tagChipsPanel = new();
 
         private bool _isSyncingPassword;
         private bool _isSyncingRepositoryPassword;
@@ -47,7 +49,8 @@ namespace Configuration_Management
         /// <param name="availablePorts">Список портов серверов 1С из других баз списка.</param>
         public ConnectionSettingsWindow(Infobase? infobase = null, IEnumerable<Group>? groups = null,
             IEnumerable<string>? installedPlatformVersions = null, string? defaultGroupPath = null,
-            IEnumerable<string>? availableServers = null, IEnumerable<int>? availablePorts = null)
+            IEnumerable<string>? availableServers = null, IEnumerable<int>? availablePorts = null,
+            IEnumerable<string>? availableTags = null)
         {
             // Размеры и базовый кегль по разметке (ConnectionSettingsWindow.xaml:13).
             Title = LocalizationManager.T("ConnectionSettings.Title");
@@ -63,6 +66,8 @@ namespace Configuration_Management
             _viewModel.SetInstalledPlatformVersions(installedPlatformVersions ?? new List<string>());
             _viewModel.SetAvailableServers(availableServers);
             _viewModel.SetAvailablePorts(availablePorts);
+            // Существующие теги всех баз — для автодополнения при добавлении (issue #283).
+            _viewModel.SetAvailableTags(availableTags);
             if (infobase != null)
             {
                 _viewModel.LoadFrom(infobase);
@@ -590,7 +595,96 @@ namespace Configuration_Management
             Grid.SetColumn(manualSizeText, 1);
             fields.Children.Add(manualSizeText);
 
-            return Group("IconDatabase", "Connection.GroupBase", fields);
+            var baseGroup = Group("IconDatabase", "Connection.GroupBase", fields);
+
+            // Теги базы (issue #283): правка тегов в окне свойств + автодополнение
+            // из существующих тегов.
+            var tagsContent = new StackPanel { Spacing = 8 };
+
+            _viewModel.Tags.CollectionChanged += (_, _) => RebuildTagChips();
+            RebuildTagChips();
+            tagsContent.Children.Add(_tagChipsPanel);
+
+            var addRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(GridLength.Star),
+                    new ColumnDefinition(GridLength.Auto)
+                }
+            };
+
+            var combo = new ComboBox
+            {
+                IsEditable = true,
+                IsTextSearchEnabled = false,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(6, 4)
+            };
+            combo.Bind(ComboBox.TextProperty,
+                new Binding(nameof(ConnectionSettingsViewModel.TagInput)) { Mode = BindingMode.TwoWay });
+            combo.Bind(ComboBox.ItemsSourceProperty,
+                new Binding(nameof(ConnectionSettingsViewModel.AvailableTags)));
+            combo.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    _viewModel.AddTag();
+                    e.Handled = true;
+                }
+            };
+            Grid.SetColumn(combo, 0);
+            addRow.Children.Add(combo);
+
+            var addBtn = new Button
+            {
+                Content = LocalizationManager.T("Connection.AddTag"),
+                Padding = new Thickness(10, 4),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            addBtn.Click += (_, _) => _viewModel.AddTag();
+            Grid.SetColumn(addBtn, 1);
+            addRow.Children.Add(addBtn);
+            tagsContent.Children.Add(addRow);
+
+            var tagsGroup = Group("IconTagMultiple", "Connection.GroupTags", tagsContent);
+
+            return new StackPanel { Children = { baseGroup, tagsGroup } };
+        }
+
+        /// <summary>Перестраивает чипы тегов базы (issue #283).</summary>
+        private void RebuildTagChips()
+        {
+            _tagChipsPanel.Children.Clear();
+            foreach (var tag in _viewModel.Tags)
+            {
+                var chipTag = tag;
+                var remove = new Button
+                {
+                    Content = "×",
+                    FontSize = 12,
+                    Padding = new Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0, 0, 0)
+                };
+                remove.Click += (_, _) => _viewModel.RemoveTag(chipTag);
+                _tagChipsPanel.Children.Add(new Border
+                {
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(8, 3),
+                    Margin = new Thickness(0, 0, 6, 4),
+                    Child = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Children =
+                        {
+                            new TextBlock { Text = tag, VerticalAlignment = VerticalAlignment.Center },
+                            remove
+                        }
+                    }
+                });
+            }
         }
 
         private Control BuildConnectionTab()

@@ -9,6 +9,32 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.38] — 2026-09-24
+
+### Новое
+
+- **Правка тегов базы в окне свойств (создание/редактирование базы) (#283)** — добавлено
+  редактирование тегов прямо в окне настройки базы (`ConnectionSettingsWindow`), на обеих
+  платформах (Windows/WPF и Linux/Avalonia).
+  1. **Раздел «Теги» во вкладке «База»**: текущие теги показаны чипами, каждый можно удалить
+     кнопкой «×»; ниже поле ввода нового тега с кнопкой «Добавить» (добавление также по Enter).
+     [`ConnectionSettingsWindow.xaml`](Configuration%20Management/Views/ConnectionSettingsWindow.xaml)
+     (Windows) и [`ConnectionSettingsWindow.Avalonia.cs`](Configuration%20Management/Views/ConnectionSettingsWindow.Avalonia.cs)
+     (Linux).
+  2. **Автодополнение из существующих тегов**: при вводе в комбобоксе подставляются уже
+     используемые в списке теги (список передаётся из главного окна через `AvailableTags`).
+  3. **Логика вынесена в ViewModel** [`ConnectionSettingsViewModel`](Configuration%20Management/ViewModels/ConnectionSettingsViewModel.cs):
+     свойства `Tags`, `AvailableTags`, `TagInput` и методы `AddTag()`/`RemoveTag(tag)` (без дублей,
+     регистронезависимо); теги загружаются в `LoadFrom` и сохраняются в `ApplyTo`.
+  4. **Новые ключи локализации** `Connection.GroupTags`, `Connection.AddTag`,
+     `Connection.RemoveTagTooltip` в ru/en.
+
+### Версия
+
+- **Версия поднята до `0.3.9.38`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.37] — 2026-09-24
 
 ### Исправления

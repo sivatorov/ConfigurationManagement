@@ -98,7 +98,8 @@ public partial class MainViewModel : ViewModelBase
                 var dialog = new ConnectionSettingsWindow(null, Groups, _installedPlatformVersions, defaultGroupPath,
                     availableServers: GetAvailableServers(), availablePorts: GetAvailablePorts(),
                     customLaunchParameters: CustomLaunchParameters, onCustomLaunchParametersChanged: SetCustomLaunchParameters,
-                    availableRepositoryServers: GetAvailableRepositoryServers())
+                    availableRepositoryServers: GetAvailableRepositoryServers(),
+                    availableTags: AvailableTags)
                 {
                     Owner = Application.Current.MainWindow
                 };
@@ -232,7 +233,8 @@ public partial class MainViewModel : ViewModelBase
         var dialog = new ConnectionSettingsWindow(ib, Groups, _installedPlatformVersions,
             availableServers: GetAvailableServers(), availablePorts: GetAvailablePorts(),
             customLaunchParameters: CustomLaunchParameters, onCustomLaunchParametersChanged: SetCustomLaunchParameters,
-            availableRepositoryServers: GetAvailableRepositoryServers())
+            availableRepositoryServers: GetAvailableRepositoryServers(),
+            availableTags: AvailableTags)
         {
             Owner = Application.Current.MainWindow
         };

@@ -42,7 +42,8 @@ namespace Configuration_Management
             IEnumerable<string>? availableServers = null, IEnumerable<int>? availablePorts = null,
             IReadOnlyList<string>? customLaunchParameters = null,
             Action<IReadOnlyList<string>>? onCustomLaunchParametersChanged = null,
-            IEnumerable<string>? availableRepositoryServers = null)
+            IEnumerable<string>? availableRepositoryServers = null,
+            IEnumerable<string>? availableTags = null)
         {
             _customLaunchParameters = customLaunchParameters ?? Array.Empty<string>();
             _onCustomLaunchParametersChanged = onCustomLaunchParametersChanged;
@@ -66,6 +67,8 @@ namespace Configuration_Management
             _viewModel.SetAvailableServers(availableServers);
             _viewModel.SetAvailablePorts(availablePorts);
             _viewModel.SetAvailableRepositoryServers(availableRepositoryServers);
+            // Существующие теги всех баз — для автодополнения при добавлении (issue #283).
+            _viewModel.SetAvailableTags(availableTags);
             if (infobase != null)
             {
                 _viewModel.LoadFrom(infobase);
@@ -103,6 +106,26 @@ namespace Configuration_Management
             // на запуск не влиял (двойной клик использует ResolveDoubleClickAction), поэтому его
             // комбобокс убран из окна свойств базы.
             InitDoubleClickActionCombo();
+        }
+
+        /// <summary>Добавляет тег из поля ввода (кнопка «Добавить») — issue #283.</summary>
+        private void OnAddTag_Click(object sender, RoutedEventArgs e) => _viewModel.AddTag();
+
+        /// <summary>Добавляет тег по нажатию Enter в поле ввода — issue #283.</summary>
+        private void OnTagInput_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                _viewModel.AddTag();
+                e.Handled = true;
+            }
+        }
+
+        /// <summary>Удаляет тег по клику на «×» в чипе — issue #283.</summary>
+        private void OnRemoveTag_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button b && b.Tag is string tag)
+                _viewModel.RemoveTag(tag);
         }
 
         /// <summary>

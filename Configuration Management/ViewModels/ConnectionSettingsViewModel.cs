@@ -48,6 +48,8 @@ public class ConnectionSettingsViewModel : ViewModelBase
     private string _doubleClickAction = Configuration_Management.Models.DoubleClickAction.Default;
     private string _externalProcessingPath = string.Empty;
     private string _externalProcessingData = string.Empty;
+    private string _tagInput = string.Empty;
+    private IReadOnlyList<string> _availableTags = Array.Empty<string>();
 
     /// <summary>
     /// Создаёт ViewModel с указанным списком доступных групп.
@@ -125,6 +127,61 @@ public class ConnectionSettingsViewModel : ViewModelBase
     /// <summary>Текст для поля группы: путь или «Без группы».</summary>
     public string GroupDisplayPath =>
         string.IsNullOrWhiteSpace(_group) ? LocalizationManager.T("Conn.GroupNoGroup") : _group;
+
+    /// <summary>Теги базы (редактируются в окне свойств, issue #283).</summary>
+    public ObservableCollection<string> Tags { get; } = new();
+
+    /// <summary>Существующие теги всех баз для автодополнения при добавлении (issue #283).</summary>
+    public IReadOnlyList<string> AvailableTags
+    {
+        get => _availableTags;
+        private set => SetProperty(ref _availableTags, value ?? Array.Empty<string>());
+    }
+
+    /// <summary>Текст в поле ввода нового тега (issue #283).</summary>
+    public string TagInput
+    {
+        get => _tagInput;
+        set => SetProperty(ref _tagInput, value);
+    }
+
+    /// <summary>
+    /// Задаёт список доступных тегов для автодополнения (сортировка по алфавиту,
+    /// без дублей, регистронезависимо).
+    /// </summary>
+    public void SetAvailableTags(IEnumerable<string>? availableTags)
+    {
+        AvailableTags = availableTags?
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+    }
+
+    /// <summary>Добавляет тег из поля ввода (без дублей, регистронезависимо).</summary>
+    public void AddTag()
+    {
+        var tag = (TagInput ?? string.Empty).Trim();
+        if (tag.Length == 0)
+        {
+            TagInput = string.Empty;
+            return;
+        }
+        if (!Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+            Tags.Add(tag);
+        TagInput = string.Empty;
+    }
+
+    /// <summary>Удаляет тег (регистронезависимо).</summary>
+    public void RemoveTag(string tag)
+    {
+        if (string.IsNullOrEmpty(tag))
+            return;
+        var item = Tags.FirstOrDefault(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+        if (item is not null)
+            Tags.Remove(item);
+    }
 
     /// <summary>
     /// Находит группу по полному пути (например, «Учёт / Бухгалтерия»).
@@ -1052,6 +1109,11 @@ public class ConnectionSettingsViewModel : ViewModelBase
             // учётных данных: при включении сеттер скопирует в поля Конфигуратора
             // значения «1С:Предприятия» уже из загруженных выше полей.
             ConfiguratorUseEnterpriseAuth = infobase.ConfiguratorUseEnterpriseAuth;
+
+            // Теги базы (issue #283): загружаем текущие теги для редактирования.
+            Tags.Clear();
+            foreach (var t in infobase.Tags ?? new List<string>())
+                Tags.Add(t);
         }
         finally
         {
@@ -1144,6 +1206,9 @@ public class ConnectionSettingsViewModel : ViewModelBase
         infobase.DoubleClickAction = (DoubleClickAction ?? string.Empty).Trim();
         infobase.ExternalProcessingPath = (ExternalProcessingPath ?? string.Empty).Trim();
         infobase.ExternalProcessingData = (ExternalProcessingData ?? string.Empty).Trim();
+
+        // Теги базы (issue #283): переносим отредактированные теги.
+        infobase.Tags = Tags.ToList();
 
         // Ручной размер базы (issue #243).
         infobase.ManualSizeBytes = ManualSizeBytes;

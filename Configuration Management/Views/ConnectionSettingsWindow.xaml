@@ -192,6 +192,7 @@
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
+                <StackPanel>
                 <GroupBox Margin="4,6,4,4" VerticalAlignment="Top">
                     <GroupBox.Header>
                         <StackPanel Orientation="Horizontal">
@@ -239,6 +240,48 @@
                                  ToolTip="{loc:Loc Connection.ManualSizeTooltip}"/>
                     </Grid>
                 </GroupBox>
+
+                <!-- Теги базы (issue #283): правка тегов в окне свойств + автодополнение
+                     из существующих тегов. -->
+                <GroupBox Margin="4,6,4,4" VerticalAlignment="Top">
+                    <GroupBox.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="TagMultiple" Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}"/>
+                            <TextBlock Text="{loc:Loc Connection.GroupTags}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </GroupBox.Header>
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding Tags}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="10" Padding="8,3" Margin="0,0,6,4">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <Button Content="×" Tag="{Binding}" Click="OnRemoveTag_Click" Style="{DynamicResource IconButton}"
+                                                    Width="16" Height="16" Padding="0" FontSize="12" VerticalAlignment="Center"
+                                                    ToolTip="{loc:Loc Connection.RemoveTagTooltip}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <DockPanel Margin="0,4,0,0">
+                            <Button DockPanel.Dock="Right" Content="{loc:Loc Connection.AddTag}" Click="OnAddTag_Click"
+                                    Style="{DynamicResource SecondaryButton}" Margin="6,0,0,0" Padding="10,4"/>
+                            <ComboBox x:Name="TagInputBox" IsEditable="True" IsTextSearchEnabled="False"
+                                      StaysOpenOnEdit="True"
+                                      Text="{Binding TagInput, UpdateSourceTrigger=PropertyChanged}"
+                                      ItemsSource="{Binding AvailableTags}"
+                                      KeyDown="OnTagInput_KeyDown" Padding="6,4"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+                </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
