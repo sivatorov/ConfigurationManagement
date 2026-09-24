@@ -616,6 +616,8 @@ namespace Configuration_Management.Services
         /// Скачивает новый бинарник по прямой ссылке во временный каталог. Возвращает путь
         /// к файлу или null при сетевой ошибке / пустом файле. Временный файл удаляется при неудаче.
         /// О ходе загрузки сообщается окну <paramref name="progress"/>, если оно показано.
+        /// Сначала пробуется многопоточная загрузка (issue #284), при любом сбое —
+        /// переход к однопоточной загрузке ниже.
         /// </summary>
         private async Task<string?> DownloadNewBinaryAsync(
             string url, UpdateProgressWindowAvalonia? progress = null)
@@ -625,6 +627,16 @@ namespace Configuration_Management.Services
 
             try
             {
+                // Многопоточная загрузка по HTTP Range (N сегментов): файл делится на части,
+                // каждая скачивается отдельным соединением, затем части склеиваются. Прогресс
+                // агрегированный (сумма по сегментам / общий размер), публикуется не чаще раза
+                // на процент. При сбое (сервер без Range, неизвестный размер, ошибка сегмента) —
+                // fallback на однопоточный путь ниже.
+                var parallelPath = await ParallelDownloader.TryDownloadAsync(
+                    _http, url, dest, p => progress?.SetProgress(p)).ConfigureAwait(false);
+                if (parallelPath is not null)
+                    return parallelPath;
+
                 // ResponseHeadersRead: тело пишется на диск потоком, а не буферизуется
                 // целиком в памяти (бинарник весит десятки МБ). При этом HttpClient.Timeout
                 // перестаёт покрывать чтение тела, поэтому срок задаётся здесь явно, иначе
