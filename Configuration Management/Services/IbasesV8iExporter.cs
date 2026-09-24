@@ -286,6 +286,12 @@ public static class IbasesV8iExporter
     /// местах (issue #277). Connect сохраняет состав параметров исходной строки файла
     /// (<see cref="IbaseEntry.MergeConnect"/>): Usr/Pwd дописываются только если они были
     /// в исходном Connect; полная пересборка Connect — только при изменении цели подключения.
+    /// Ключ режима запуска <c>App=Auto</c> из файла сохраняется как есть (issue #277): у базы,
+    /// которую пользователь не трогал, режим запуска в приложении может быть производным от
+    /// DefaultApp (например, в файле App=Auto + DefaultApp=ThickClient, а приложение видит
+    /// «Толстый клиент»), поэтому перезапись App=Auto на App=ThickClient — нежелательная потеря
+    /// данных. Не-нейтральные App и DefaultApp продолжают синхронизироваться с приложением
+    /// (явно заданный режим запуска). Новые базы получают App/DefaultApp из <see cref="ToEntry"/>.
     /// При смене имени базы (матчинг по ID, issue #278) переименовывает секцию в файле
     /// и обновляет индекс по имени, чтобы не создавался дубль со старым именем.
     /// </summary>
@@ -299,7 +305,12 @@ public static class IbasesV8iExporter
         existing.Id = entry.Id;
         existing.Version = entry.Version;
         existing.AdditionalParameters = entry.AdditionalParameters;
-        existing.App = entry.App;
+        // App=Auto (режим по умолчанию) в файле сохраняем — не даём приложению перезаписать
+        // его производным от DefaultApp значением (issue #277). Остальные App и DefaultApp
+        // синхронизируем с приложением.
+        existing.App = string.Equals(existing.App, "Auto", StringComparison.OrdinalIgnoreCase)
+            ? existing.App
+            : entry.App;
         existing.DefaultApp = entry.DefaultApp;
         existing.Enabled = true;
 

@@ -686,7 +686,9 @@ public sealed class IbasesV8iExporterTests
     {
         // Сценарий issue #277: если ключ DefaultApp/App БЫЛ в секции, его значение
         // обновляется на своём месте — даже на нейтральное «Auto» (правило только
-        // про «не дописывать отсутствующий нейтральный ключ»).
+        // про «не дописывать отсутствующий нейтральный ключ»). Исключение: App=Auto
+        // из файла сохраняется (issue #277), чтобы приложение не перезаписывало его
+        // производным от DefaultApp значением.
         var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
         try
         {
@@ -722,8 +724,8 @@ public sealed class IbasesV8iExporterTests
                 "DefaultApp=ThinClient"
             }, lines);
 
-            // Нейтральный режим в приложении при НАЛИЧИИ ключа в секции обновляет
-            // значение на «Auto» (ключ не удаляется и не пропускается).
+            // Нейтральный режим в приложении при НАЛИЧИИ не-нейтрального ключа в секции
+            // обновляет значение на «Auto» (ключ не удаляется и не пропускается).
             infobases[0].LaunchMode = "Автоматический";
             IbasesV8iExporter.Export(filePath, infobases, groups);
             var lines2 = GetSectionLines(File.ReadAllText(filePath, Encoding.Default), "Database");
@@ -735,6 +737,60 @@ public sealed class IbasesV8iExporterTests
                 "App=Auto",
                 "DefaultApp=Auto"
             }, lines2);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void Export_UpdateBaseWithAppAuto_DoesNotRewriteToThickClient()
+    {
+        // Точный сценарий из последнего комментария issue #277: в файле у базы стоит
+        // App=Auto (режим по умолчанию), а DefaultApp=ThickClient. При импорте приложение
+        // получает режим запуска «Толстый клиент» (производный от DefaultApp). Экспорт не
+        // должен перезаписывать App=Auto на App=ThickClient — файл остаётся без изменений.
+        var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
+        try
+        {
+            File.WriteAllText(filePath, """
+                [Database]
+                ID=db-id
+                Connect=File="C:\database";
+                App=Auto
+                DefaultApp=ThickClient
+                """, Encoding.Default);
+
+            var groups = new List<Group>();
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "db-id",
+                    Name = "Database",
+                    // Приложение увидело «Толстый клиент» (из DefaultApp), хотя в файле App=Auto.
+                    LaunchMode = "Толстый клиент",
+                    Connection = new ConnectionSettings { Type = ConnectionType.File, FilePath = @"C:\database" }
+                }
+            };
+
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+            var content = File.ReadAllText(filePath, Encoding.Default);
+            // App=Auto из файла сохраняется (не перезаписывается на App=ThickClient),
+            // DefaultApp остаётся ThickClient.
+            Assert.Equal(new[]
+            {
+                "[Database]",
+                "ID=db-id",
+                "Connect=File=\"C:\\database\";",
+                "App=Auto",
+                "DefaultApp=ThickClient"
+            }, GetSectionLines(content, "Database"));
+
+            // Повторный экспорт идемпотентен.
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+            Assert.Equal(content, File.ReadAllText(filePath, Encoding.Default));
         }
         finally
         {
