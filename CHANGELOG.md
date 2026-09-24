@@ -9,6 +9,32 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.40] — 2026-09-24
+
+### Исправления
+
+- **Сохранение кодировки «UTF-8 (BOM)» при перезаписи `ibases.v8i` (#277)** — после правки базы
+  файл переписывался в кодировку по умолчанию без метки порядка, хотя исходный файл стартера 1С
+  был сохранён как «UTF-8 (BOM)». Теперь кодировка определяется по байтовой метке порядка (BOM)
+  перед чтением и сохраняется при записи.
+  1. **Определение кодировки по BOM** — новый метод
+     [`IbaseEntry.DetectEncoding`](Configuration%20Management/Services/IbasesV8iEntry.cs): распознаются
+     UTF-8 с BOM, UTF-16 LE/BE и UTF-32 LE/BE; без BOM — кодировка по умолчанию. Для нового файла
+     используется UTF-8 с BOM (нативная кодировка, в которой стартер 1С создаёт `ibases.v8i`).
+  2. **Чтение и запись в одной кодировке** — [`IbaseEntry.Parse`](Configuration%20Management/Services/IbasesV8iEntry.cs)
+     читает файл в определённой кодировке, а [`IbasesV8iExporter.Export`](Configuration%20Management/Services/IbasesV8iExporter.cs)
+     и [`AddInfobasesToFile`](Configuration%20Management/Services/IbasesV8iExporter.cs) пишут в той же
+     кодировке (без потери BOM и кириллицы). Файл без BOM не получает BOM после экспорта.
+  3. **Проверено тестами** — файл «UTF-8 (BOM)» остаётся «UTF-8 (BOM)» после полного экспорта и после
+     дописывания базы (`AddInfobasesToFile`), повторный экспорт идемпотентен, файл без BOM не получает
+     метку порядка. Весь набор тестов (86) проходит.
+
+### Версия
+
+- **Версия поднята до `0.3.9.40`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.39] — 2026-09-24
 
 ### Исправления

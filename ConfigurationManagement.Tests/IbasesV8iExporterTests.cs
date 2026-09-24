@@ -1174,6 +1174,136 @@ public sealed class IbasesV8iExporterTests
         }
     }
 
+    [Fact]
+    public void Export_PreservesUtf8BomEncoding()
+    {
+        // Сценарий issue #277: исходный файл стартера 1С сохранён как «UTF-8 (BOM)».
+        // Экспорт обязан сохранить ту же кодировку с BOM, а не переписать файл
+        // в кодировку по умолчанию без метки порядка.
+        var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
+        try
+        {
+            File.WriteAllText(
+                filePath,
+                "[База]\r\nID=bom-id\r\nConnect=File=\"C:\\база\";\r\n",
+                new UTF8Encoding(true));
+
+            var groups = new List<Group>();
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "bom-id",
+                    Name = "База",
+                    Connection = new ConnectionSettings { Type = ConnectionType.File, FilePath = @"C:\база" }
+                }
+            };
+
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+
+            var bytes = File.ReadAllBytes(filePath);
+            Assert.True(
+                bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+                "Файл должен остаться в кодировке UTF-8 с BOM (EF BB BF).");
+
+            var text = File.ReadAllText(filePath, new UTF8Encoding(true));
+            Assert.Contains("[База]", text);
+            Assert.Contains("Connect=File=\"C:\\база\";", text);
+
+            // Повторный экспорт не должен снимать BOM (идемпотентность).
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+            var bytesAfterSecondExport = File.ReadAllBytes(filePath);
+            Assert.True(
+                bytesAfterSecondExport.Length >= 3
+                && bytesAfterSecondExport[0] == 0xEF
+                && bytesAfterSecondExport[1] == 0xBB
+                && bytesAfterSecondExport[2] == 0xBF,
+                "Повторный экспорт должен сохранить UTF-8 BOM.");
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void AddInfobasesToFile_PreservesUtf8BomEncoding()
+    {
+        // Сценарий issue #277 на пути AddInfobasesToFile: файл в «UTF-8 (BOM)» при
+        // дописывании базы не должен терять BOM и кириллицу.
+        var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
+        try
+        {
+            File.WriteAllText(
+                filePath,
+                "[Существующая]\r\nID=existing-id\r\nConnect=File=\"C:\\существующая\";\r\n",
+                new UTF8Encoding(true));
+
+            var groups = new List<Group>();
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "new-id",
+                    Name = "Новая",
+                    Connection = new ConnectionSettings { Type = ConnectionType.File, FilePath = @"C:\новая" }
+                }
+            };
+
+            IbasesV8iExporter.AddInfobasesToFile(filePath, infobases, groups);
+
+            var bytes = File.ReadAllBytes(filePath);
+            Assert.True(
+                bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+                "AddInfobasesToFile должен сохранить UTF-8 BOM.");
+
+            var text = File.ReadAllText(filePath, new UTF8Encoding(true));
+            Assert.Contains("[Существующая]", text);
+            Assert.Contains("[Новая]", text);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void Export_FileWithoutBom_StaysWithoutBom()
+    {
+        // Сценарий issue #277: файл без BOM не должен получать BOM после экспорта —
+        // кодировка «как была, так и остаётся» (минимум изменений в файле).
+        var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
+        try
+        {
+            File.WriteAllText(
+                filePath,
+                "[Base]\r\nID=no-bom-id\r\nConnect=File=\"C:\\base\";\r\n",
+                new UTF8Encoding(false));
+
+            var groups = new List<Group>();
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "no-bom-id",
+                    Name = "Base",
+                    Connection = new ConnectionSettings { Type = ConnectionType.File, FilePath = @"C:\base" }
+                }
+            };
+
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+
+            var bytes = File.ReadAllBytes(filePath);
+            Assert.False(
+                bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+                "Файл без BOM не должен получать UTF-8 BOM после экспорта.");
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
     private static string GetSection(string content, string name)
     {
         var marker = $"[{name}]";

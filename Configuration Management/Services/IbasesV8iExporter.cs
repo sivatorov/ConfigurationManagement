@@ -178,7 +178,10 @@ public static class IbasesV8iExporter
             Directory.CreateDirectory(dir);
         }
 
-        File.WriteAllText(filePath, sb.ToString(), Encoding.Default);
+        // Кодировку файла определяем по BOM и сохраняем её при перезаписи (issue #277):
+        // файл стартера в «UTF-8 (BOM)» не должен превращаться в «UTF-8» без BOM.
+        // Для нового файла используется UTF-8 с BOM (нативная кодировка стартера 1С).
+        File.WriteAllText(filePath, sb.ToString(), IbaseEntry.DetectEncoding(filePath));
         return result;
     }
 
@@ -256,7 +259,8 @@ public static class IbasesV8iExporter
             Directory.CreateDirectory(dir);
         }
 
-        File.WriteAllText(filePath, sb.ToString(), Encoding.Default);
+        // Кодировку файла определяем по BOM и сохраняем её при перезаписи (issue #277).
+        File.WriteAllText(filePath, sb.ToString(), IbaseEntry.DetectEncoding(filePath));
         return written;
     }
 

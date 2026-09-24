@@ -122,16 +122,50 @@ internal sealed class IbaseEntry
     }
 
     /// <summary>
+    /// Определяет кодировку файла ibases.v8i по байтовой метке порядка (BOM) — issue #277:
+    /// исходный файл стартера 1С может быть сохранён как «UTF-8 (BOM)», и при перезаписи
+    /// нужно сохранить ту же кодировку/BOM, а не переписывать файл в кодировку по умолчанию
+    /// («UTF-8» без BOM). Методы проверяются от более длинных к более коротким, чтобы
+    /// UTF-32 LE (FF FE 00 00) не принимался за UTF-16 LE (FF FE). Без BOM возвращается
+    /// кодировка по умолчанию (ANSI). Для нового файла — UTF-8 с BOM (нативная кодировка,
+    /// в которой стартер 1С создаёт ibases.v8i).
+    /// </summary>
+    public static Encoding DetectEncoding(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return new UTF8Encoding(true);
+
+        var bytes = File.ReadAllBytes(filePath);
+
+        if (bytes.Length >= 4
+            && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00)
+            return new UTF32Encoding(false, true); // UTF-32 LE
+        if (bytes.Length >= 4
+            && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
+            return new UTF32Encoding(true, true);  // UTF-32 BE
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return new UTF8Encoding(true);         // UTF-8 с BOM
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return new UnicodeEncoding(false, true); // UTF-16 LE
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return new UnicodeEncoding(true, true);  // UTF-16 BE
+
+        return Encoding.Default;
+    }
+
+    /// <summary>
     /// Разбирает файл ibases.v8i на список записей. Используется и экспортёром
     /// (для чтения существующего файла перед перезаписью), и импортёром — единая
     /// реализация гарантирует, что ни один из путей не теряет ключи (issue #277).
+    /// Кодировка определяется по BOM (<see cref="DetectEncoding"/>): исходный файл
+    /// в «UTF-8 (BOM)» читается и впоследствии переписывается без потери кодировки.
     /// </summary>
     public static List<IbaseEntry> Parse(string filePath)
     {
         var entries = new List<IbaseEntry>();
         IbaseEntry? current = null;
 
-        foreach (var rawLine in File.ReadAllLines(filePath, Encoding.Default))
+        foreach (var rawLine in File.ReadAllLines(filePath, DetectEncoding(filePath)))
         {
             var line = rawLine.Trim();
 
