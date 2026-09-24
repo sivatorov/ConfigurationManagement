@@ -183,4 +183,47 @@ public sealed class EtapHotkeysFavoritesTests
 
         Assert.Equal(expected, BookmarkSlotHelper.FindKeyBySlot(keys, number));
     }
+
+    // ---- «Найти в списке» (issue #285) ----
+
+    [Fact]
+    public void AppSettings_HotkeyFindInList_DefaultIsCtrlT()
+    {
+        var settings = new AppSettings();
+
+        Assert.Equal("Ctrl+T", settings.HotkeyFindInList);
+    }
+
+    [Fact]
+    public void AppSettings_NormalizeForLoad_PreservesHotkeyFindInList()
+    {
+        var settings = new AppSettings { HotkeyFindInList = "Ctrl+Shift+F" };
+
+        settings.NormalizeForLoad();
+
+        Assert.Equal("Ctrl+Shift+F", settings.HotkeyFindInList);
+    }
+
+    /// <summary>
+    /// Команда «Найти в списке» переключается на «Все базы», а база из «Избранного»
+    /// или «Закреплённых» — это тот же экземпляр, что и в общем списке: режимы лишь
+    /// фильтруют общую коллекцию, поэтому после переключения цель не «теряется»
+    /// и выделение/прокрутка применяются к актуальной строке.
+    /// </summary>
+    [Fact]
+    public void FindInList_FavoriteAndPinnedViewsShareSameInstances()
+    {
+        var favorite = CreateInfobase("base-1", "Бухгалтерия");
+        favorite.IsFavorite = true;
+        favorite.IsPinned = true;
+        var all = new List<Infobase> { favorite, CreateInfobase("base-2", "ЗУП") };
+
+        var favorites = all.Where(i => i.IsFavorite).ToList();
+        var pinned = all.Where(i => i.IsPinned).ToList();
+
+        Assert.Single(favorites);
+        Assert.Single(pinned);
+        Assert.Same(all[0], favorites[0]);
+        Assert.Same(all[0], pinned[0]);
+    }
 }

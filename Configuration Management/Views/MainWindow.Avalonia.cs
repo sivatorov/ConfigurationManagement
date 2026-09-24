@@ -222,6 +222,9 @@ namespace Configuration_Management
             _vm.TreeModalOpening += RememberTreeScroll;
             _vm.TreeModalClosed += RestoreTreeScrollAfterCancel;
             _vm.TreeRebuilt += RestoreTreeSelection;
+            // «Найти в списке» (issue #285): цель выставлена и дерево пересобрано — окну
+            // нужно показать строку, а не возвращать прежнюю позицию прокрутки.
+            _vm.RevealFindInListRequested += RevealFindInList;
 
             // Смена языка интерфейса: названия колонок, кнопки правой панели и подсказки
             // создаются в коде через LocalizationManager.T(...), поэтому окно пересобирается,

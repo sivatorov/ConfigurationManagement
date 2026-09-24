@@ -720,6 +720,12 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Состав списка вот-вот сменится: окну нужно запомнить прокрутку.</summary>
     public event Action? TreeRebuilding;
 
+    /// <summary>
+    /// «Найти в списке» (issue #285) завершил переход: цель выставлена и дерево пересобрано.
+    /// Окну нужно показать строку цели, а не восстанавливать прежнюю позицию прокрутки.
+    /// </summary>
+    public event Action? RevealFindInListRequested;
+
     /// <summary>Состав списка обновлён: окну нужно вернуть выделение строки и прокрутку.</summary>
     public event Action? TreeRebuilt;
 

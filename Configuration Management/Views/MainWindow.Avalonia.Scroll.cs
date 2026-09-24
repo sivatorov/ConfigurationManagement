@@ -154,6 +154,33 @@ namespace Configuration_Management
         }
 
         /// <summary>
+        /// «Найти в списке» (issue #285): команда переключила вкладку на «Все базы», раскрыла
+        /// группы-предки и пересобрала дерево; цель уже выставлена во вьюмодели. Возврат
+        /// прежней позиции прокрутки здесь отменяется (обнуляем offset, запомненный
+        /// RememberTreeScroll), а повторная установка выбора доводит строку до видимой
+        /// области через AutoScrollToSelectedItem. Post ставится ПОСЛЕ RestoreTreeSelection,
+        /// поэтому итоговое положение прокрутки — у цели, а не на старом месте.
+        /// </summary>
+        private void RevealFindInList()
+        {
+            _treeScrollOffset = null;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (_vm is null || _tree is null)
+                    return;
+                var target = (object?)_vm.SelectedInfobase ?? _vm.SelectedGroupNode;
+                if (target is not null && !ReferenceEquals(_tree.SelectedItem, target))
+                {
+                    // Выбор ставится напрямую, без обработчика: он уже согласован
+                    // с вьюмоделью (тот же приём, что в RestoreTreeSelection).
+                    _tree.SelectionChanged -= OnTreeSelectionChanged;
+                    try { _tree.SelectedItem = target; }
+                    finally { _tree.SelectionChanged += OnTreeSelectionChanged; }
+                }
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
         /// Восстанавливает прежнюю позицию прокрутки после закрытия окна свойств базы без
         /// сохранения («Нет»). Пересборки дерева не было, поэтому события TreeRebuilding/
         /// TreeRebuilt не сработали и <see cref="RestoreTreeSelection"/> не вызвался, а при

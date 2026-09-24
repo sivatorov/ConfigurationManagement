@@ -9,6 +9,44 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.45] — 2026-09-24
+
+### Исправления
+
+- **Команда «Найти в списке» (Ctrl+T) снова работает (#285)** — из «Избранного», «Недавних» и
+  закреплённых переход к базе в общем списке «Все базы» теперь реально переключает вкладку,
+  сбрасывает поиск/фильтр тегов, раскрывает группы-предки, выделяет базу и прокручивает список
+  к строке. В 0.3.9.43 команда была реализована только на Linux/Avalonia: на Windows/WPF
+  `FindInListCommand` оставалась неинициализированной (null), поэтому и хоткей Ctrl+T, и пункт
+  контекстного меню молча «ничего не делали».
+  1. **Инициализация команды на Windows** в
+     [`MainViewModel.cs`](Configuration%20Management/ViewModels/MainViewModel.cs): `FindInListCommand`
+     теперь создаётся в `InitializeCommands` на обеих платформах (доступна при выбранной базе
+     или параметре-базе).
+  2. **Порядок «выделить → пересобрать»** в
+     [`MainViewModel.Commands.cs`](Configuration%20Management/ViewModels/MainViewModel.Commands.cs):
+     на Windows `SelectedInfobase` устанавливается ПОСЛЕ `RebuildGroupTree()` — пересборка дерева
+     сбрасывала выделение (`SelectedItemChanged(null)` очищал `SelectedInfobase`), и отложенное
+     восстановление `RevealAndSelectAfterRebuild` не находило цель.
+  3. **Linux/Avalonia** —
+     [`MainViewModel.Avalonia.Commands.cs`](Configuration%20Management/ViewModels/MainViewModel.Avalonia.Commands.cs):
+     `ExpandPathTo` снимает ключи свёрнутых групп (`_collapsedGroups`) перед пересборкой (как при
+     переходе по закладке Ctrl+N), иначе группа-предок оставалась свёрнутой, а база — скрытой;
+     цель выставляется повторно после `RebuildTree`, а окно
+     ([`MainWindow.Avalonia.Scroll.cs`](Configuration%20Management/Views/MainWindow.Avalonia.Scroll.cs))
+     не возвращает прежнюю позицию прокрутки, а доводит строку до видимой области
+     (`AutoScrollToSelectedItem`).
+  4. **Юнит-тесты**
+     [`EtapHotkeysFavoritesTests.cs`](ConfigurationManagement.Tests/EtapHotkeysFavoritesTests.cs):
+     дефолт и нормализация `HotkeyFindInList`, ссылочная стабильность базы между режимами
+     «Избранное»/«Закреплённые» и «Все базы».
+
+### Версия
+
+- **Версия приложения обновлена до `0.3.9.45`** во всех четырёх полях: `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.44] — 2026-09-24
 
 ### Новое

@@ -177,16 +177,23 @@ public partial class MainViewModel : ViewModelBase
 
         ExpandPathTo(ib);
 
-        SelectedInfobase = ib;
+        // Цель выставляем ПОСЛЕ пересборки: RebuildTree пересоздаёт узлы, и отложенное
+        // восстановление выделения (TreeRebuilt → RestoreTreeSelection) читает цель
+        // в момент выполнения. Окно по RevealFindInListRequested не вернёт прежнюю
+        // позицию прокрутки, а доведёт строку до видимой области (issue #285).
         RebuildTree();
+        SelectedInfobase = ib;
+        RevealFindInListRequested?.Invoke();
     }
 
     /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно).</summary>
     private void ExpandPathTo(Infobase infobase)
     {
+        if (string.IsNullOrWhiteSpace(infobase.Group))
+            return;
         foreach (var root in AllGroupNodes)
         {
-            var owner = FindNodeWith(root, infobase);
+            var owner = FindNode(root, infobase.Group);
             if (owner is null)
                 continue;
 
@@ -198,6 +205,11 @@ public partial class MainViewModel : ViewModelBase
             {
                 n.SetExpandedSilent(true);
                 n.NotifyIsExpanded();
+                // Убираем ключ из списка свёрнутых: RebuildTree создаёт узлы заново по
+                // _collapsedGroups, иначе свёрнутая группа-предок осталась бы свёрнутой
+                // и база осталась бы скрытой (тот же приём, что в NavigateToBookmark).
+                if (!string.IsNullOrEmpty(n.NodeKey))
+                    _collapsedGroups.Remove(n.NodeKey);
             }
             return;
         }

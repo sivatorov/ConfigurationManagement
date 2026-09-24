@@ -1291,8 +1291,12 @@ public string HotkeyEnterprise
         // гарантированно оказалась видимой в общем списке.
         ExpandPathTo(ib);
 
-        SelectedInfobase = ib;
+        // RebuildGroupTree пересоздаёт узлы и сбрасывает выделение дерева (обработчик
+        // SelectedItemChanged(null) очищает SelectedInfobase), поэтому цель ставим ПОСЛЕ
+        // пересборки: RevealAndSelectAfterRebuild читает её отложенно и выделит/прокрутит
+        // строку (тот же приём, что в EditInfobase).
         RebuildGroupTree();
+        SelectedInfobase = ib;
     }
 
     /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно, с сохранением состояния коллапса).</summary>

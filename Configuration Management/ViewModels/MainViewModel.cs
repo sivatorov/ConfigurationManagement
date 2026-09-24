@@ -568,6 +568,10 @@ public partial class MainViewModel : ViewModelBase
         SearchByTagCommand = new RelayCommand(SearchByTag);
         ClearSearchCommand = new RelayCommand(ClearSearch);
         ClearTagFiltersCommand = new RelayCommand(ClearTagFilters, _ => HasActiveTagFilter);
+        // «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285).
+        // Команда обязательна и на Windows: без инициализации FindInListCommand остаётся
+        // null, и хоткей Ctrl+T с пунктом контекстного меню молча не работают.
+        FindInListCommand = new RelayCommand(ExecuteFindInList, p => ResolveActionTarget(p) != null);
         CollapseAllGroupsCommand = new RelayCommand(CollapseAllGroups);
         ExpandAllGroupsCommand = new RelayCommand(ExpandAllGroups);
         SortGroupsAscendingCommand = new RelayCommand(_ => SortGroups(ascending: true));
