@@ -47,13 +47,25 @@ public partial class MainWindow
         // Тот же паттерн, что и у остальных меню верхней панели (OnEnterpriseMenuClick,
         // OnConfiguratorMenuClick, OnClearCacheMenuClick): раскрываем меню под кнопкой
         // (PlacementMode.Bottom) и передаём DataContext окна, чтобы Command/InputGestureText
-        // пунктов резолвились, а меню позиционировалось и рендерилось как в Linux (issue #282).
+        // пунктов резолвились, а меню позиционировалось как в Linux (issue #282).
         if (sender is not System.Windows.Controls.Button btn || btn.ContextMenu is null)
             return;
         btn.ContextMenu.PlacementTarget = btn;
         btn.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
         btn.ContextMenu.DataContext = DataContext;
-        btn.ContextMenu.IsOpen = true;
+
+        // Открываем меню ОТЛОЖЕННО (как OnLaunchSplitButton_Click, см. MainWindow.Events.cs):
+        // при синхронном открытии прямо в обработчике клика WPF не успевает измерить и
+        // отрисовать пункты меню, из-за чего на Windows показывались только иконки без
+        // текста заголовков (issue #282). Отложенное открытие на приоритете Input даёт
+        // меню корректно раскрыться — заголовки, иконки и команды видны.
+        Dispatcher.BeginInvoke(
+            new Action(() =>
+            {
+                if (btn.ContextMenu is not null)
+                    btn.ContextMenu.IsOpen = true;
+            }),
+            System.Windows.Threading.DispatcherPriority.Input);
     }
 }
 #endif
