@@ -593,14 +593,21 @@
                                     Background="{DynamicResource BorderBrushColor}" Opacity="0.55"/>
                             <!-- «Утилиты»: общие команды, не привязанные к конкретной базе (issue #262).
                                  Раньше такие команды лежали в контекстном меню базы; теперь собраны
-                                 в отдельное подменю общей панели, куда можно добавлять новые. -->
+                                 в отдельное подменю общей панели, куда можно добавлять новые.
+                                 Подпись рядом с иконкой показывается как на Linux (issue #282). -->
                             <Button x:Name="UtilitiesButton" Click="OnUtilitiesMenuButton_Click"
-                                    Style="{DynamicResource IconButton}" Margin="0,0,2,0"
+                                    Style="{DynamicResource IconButton}" Margin="0,0,2,0" Padding="10,7"
                                     ToolTip="{loc:Loc Main.UtilitiesTooltip}">
-                                <!-- Отдельная иконка (Apps-сетка), чтобы не путать с «Конфигуратором»
-                                     (гаечный ключ Wrench) — issue #282. -->
-                                <materialDesign:PackIcon Kind="Apps" Width="18" Height="18"
-                                    Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <!-- Отдельная иконка (Apps-сетка), чтобы не путать с «Конфигуратором»
+                                         (гаечный ключ Wrench) — issue #282. -->
+                                    <materialDesign:PackIcon Kind="Apps" Width="16" Height="16"
+                                        Foreground="{DynamicResource TextSecondaryBrush}"
+                                        VerticalAlignment="Center"/>
+                                    <TextBlock Text="{loc:Loc Main.Utilities}" FontSize="13"
+                                        Foreground="{DynamicResource TextSecondaryBrush}"
+                                        VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                </StackPanel>
                                 <Button.ContextMenu>
                                     <ContextMenu Style="{DynamicResource ModernContextMenu}">
                                         <MenuItem Header="{loc:Loc Updates.ActualReleasesTitle}" Command="{Binding ShowActualReleasesCommand}" InputGestureText="{Binding HotkeyActualReleases}" Style="{DynamicResource ModernMenuItem}">
