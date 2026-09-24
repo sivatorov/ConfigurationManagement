@@ -169,8 +169,29 @@ public class ConnectionSettingsViewModel : ViewModelBase
             return;
         }
         if (!Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+        {
             Tags.Add(tag);
+            // Новый тег сразу попадает и в список автодополнения: иначе в том же окне
+            // его нельзя было выбрать из раскрытого списка (issue #283).
+            AddToAvailableTags(tag);
+        }
         TagInput = string.Empty;
+    }
+
+    /// <summary>
+    /// Добавляет тег в список доступных для автодополнения (без дублей,
+    /// регистронезависимо, с сохранением сортировки по алфавиту).
+    /// </summary>
+    private void AddToAvailableTags(string tag)
+    {
+        if (_availableTags.Any(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var updated = _availableTags
+            .Append(tag)
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        AvailableTags = updated;
     }
 
     /// <summary>Удаляет тег (регистронезависимо).</summary>

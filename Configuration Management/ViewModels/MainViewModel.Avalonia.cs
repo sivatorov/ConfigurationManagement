@@ -1310,7 +1310,11 @@ public partial class MainViewModel : ViewModelBase
         {
             dialog = new Configuration_Management.ConnectionSettingsWindow(
                 null, _groups, InstalledPlatformVersions(), defaultGroupPath,
-                AvailableServers(), AvailablePorts());
+                AvailableServers(), AvailablePorts(),
+                // Существующие теги всех баз — для автодополнения при добавлении (issue #283).
+                _allInfobases.SelectMany(i => i.Tags)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
         }
         catch (Exception ex)
         {

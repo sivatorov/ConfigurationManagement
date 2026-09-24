@@ -148,6 +148,23 @@ namespace Configuration_Management
         }
 
         /// <summary>
+        /// Выбор тега из выпадающего списка панели фильтров: включает отбор по тегу
+        /// и сбрасывает выделение, чтобы тот же тег можно было выбрать снова (issue #283).
+        /// </summary>
+        private void OnTagFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender is not ComboBox combo || combo.SelectedItem is not string tag)
+                return;
+
+            // Сбрасываем выделение до выполнения команды: иначе повторный выбор
+            // того же тега не сработал бы (SelectedItem уже равен ему).
+            combo.SelectedItem = null;
+
+            if (!string.IsNullOrWhiteSpace(tag) && _viewModel.SearchByTagCommand.CanExecute(tag))
+                _viewModel.SearchByTagCommand.Execute(tag);
+        }
+
+        /// <summary>
         /// Ищет дочерний элемент заданного типа в визуальном дереве.
         /// </summary>
         private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject

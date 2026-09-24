@@ -227,6 +227,9 @@ public partial class MainViewModel : ViewModelBase
         foreach (var t in tags)
             _tagFilterItems.Add(new TagFilterItem(t, selected.Contains(t)));
         OnPropertyChanged(nameof(HasActiveTagFilter));
+        // Набор тегов изменился — обновляем выпадающий список «выбор тега» на панели
+        // фильтров и автодополнение в окне свойств базы (issue #283).
+        OnPropertyChanged(nameof(AvailableTags));
     }
 
     /// <summary>

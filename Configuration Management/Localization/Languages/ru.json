@@ -175,6 +175,7 @@
     "Main.TagFilterTitle": "Теги — нажмите, чтобы добавить в фильтр",
     "Main.ClearTagFilters": "Сбросить выбранные теги",
     "Main.FilterByTagLabel": "Отбор по тегу",
+    "Main.TagFilterPick": "Выбрать тег из списка…",
     "Main.ExpandAllGroups": "Развернуть все группы в списке",
     "Main.CollapseAllGroups": "Свернуть все группы в списке",
     "Main.SortGroupsAscending": "Сортировать группы по возрастанию (А→Я)",

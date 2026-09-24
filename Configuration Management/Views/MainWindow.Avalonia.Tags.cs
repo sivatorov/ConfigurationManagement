@@ -328,8 +328,34 @@ namespace Configuration_Management
             header.Children.Add(hintRow);
             header.Children.Add(_tagClearButton);
 
+            // Выбор тега из выпадающего списка существующих: не нужно вводить
+            // название вручную и можно не ошибиться в букве (issue #283).
+            _tagFilterCombo = new ComboBox
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                MinHeight = UiMetrics.Scaled(32),
+                FontSize = UiMetrics.ScaledFont(12),
+                PlaceholderText = LocalizationManager.T("Main.TagFilterPick")
+            };
+            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.BackgroundProperty, "CardBackgroundBrush");
+            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.ForegroundProperty, "TextPrimaryColorBrush");
+            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.BorderBrushProperty, "BorderColorBrush");
+            ToolTip.SetTip(_tagFilterCombo, LocalizationManager.T("Main.TagFilterPick"));
+            _tagFilterCombo.SelectionChanged += (_, _) =>
+            {
+                if (_tagFilterCombo?.SelectedItem is not string tag)
+                    return;
+
+                // Сбрасываем выделение до выполнения команды: иначе повторный выбор
+                // того же тега не сработал бы (SelectedItem уже равен ему).
+                _tagFilterCombo.SelectedItem = null;
+                _vm?.SearchByTagCommand.Execute(tag);
+            };
+
             var rows = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
             rows.Children.Add(header);
+            rows.Children.Add(_tagFilterCombo);
             rows.Children.Add(_tagPanelItems);
 
             // Карточка с полем 4,0,4,8, отступом 8,6, рамкой и скруглением 8
@@ -351,7 +377,7 @@ namespace Configuration_Management
         /// <summary>Пересобирает кнопки тегов и обновляет видимость панели.</summary>
         private void RefreshTagFilterPanel()
         {
-            if (_vm is null || _tagPanelItems is null || _tagPanel is null || _tagClearButton is null)
+            if (_vm is null || _tagPanelItems is null || _tagPanel is null || _tagClearButton is null || _tagFilterCombo is null)
                 return;
 
             // Старые кнопки держат подписки на ресурсы темы, поэтому освобождаются
@@ -381,6 +407,9 @@ namespace Configuration_Management
                 button.Click += (_, _) => _vm.SearchByTagCommand.Execute(item.Name);
                 _tagPanelItems.Children.Add(button);
             }
+
+            // Список выбора тега всегда совпадает с чипами панели (включая новые теги).
+            _tagFilterCombo.ItemsSource = _vm.TagFilterItems.Select(t => t.Name).ToList();
 
             _tagClearButton.IsVisible = _vm.HasActiveTagFilter;
             _tagPanel.IsVisible = _vm.ShowTagFilterPanel;

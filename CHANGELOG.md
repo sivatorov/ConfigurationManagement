@@ -9,6 +9,42 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.46] — 2026-09-24
+
+### Исправления
+
+- **Вновь добавленный тег сразу отображается в списке и автодополнении (#283)** — тег,
+  добавленный в окне свойств базы, теперь сразу же появляется:
+  1. **В автодополнении того же окна** —
+     [`ConnectionSettingsViewModel.cs`](Configuration%20Management/ViewModels/ConnectionSettingsViewModel.cs):
+     при `AddTag` новый тег добавляется и в список доступных тегов (`AvailableTags`) — раньше
+     раскрытый комбобокс автодополнения «не видел» только что введённый тег до переоткрытия окна.
+  2. **В панели фильтров главного окна** после сохранения базы на обеих платформах: WPF
+     пересобирает облако тегов в `RefreshTagFilterItems`
+     ([`MainViewModel.Display.cs`](Configuration%20Management/ViewModels/MainViewModel.Display.cs)),
+     Avalonia — в `RebuildTagFilters`
+     ([`MainViewModel.Avalonia.cs`](Configuration%20Management/ViewModels/MainViewModel.Avalonia.cs));
+     список без дублей и регистронезависимо.
+  3. **При регистрации новой базы на Linux/Avalonia** в окно свойств передаются существующие
+     теги всех баз для автодополнения (раньше параметр терялся).
+
+### Новое
+
+- **Выбор тега из выпадающего списка на панели фильтра тегов (#283)** — на главном окне под
+  заголовком панели тегов появился раскрывающийся список существующих тегов: не нужно вводить
+  название вручную и можно не ошибиться в букве. Выбор тега включает отбор по нему (как клик по
+  чипу). Реализовано на обеих платформах:
+  [`MainWindow.xaml`](Configuration%20Management/Views/MainWindow.xaml) /
+  [`MainWindow.Tags.cs`](Configuration%20Management/Views/MainWindow.Tags.cs) (WPF) и
+  [`MainWindow.Avalonia.Tags.cs`](Configuration%20Management/Views/MainWindow.Avalonia.Tags.cs)
+  (Avalonia/Linux); текст и подсказка — ключ `Main.TagFilterPick` в ru/en локализациях.
+
+### Версия
+
+- **Версия приложения обновлена до `0.3.9.46`** во всех четырёх полях: `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.45] — 2026-09-24
 
 ### Исправления

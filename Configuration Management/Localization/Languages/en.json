@@ -175,6 +175,7 @@
     "Main.TagFilterTitle": "Tags — click to add to the filter",
     "Main.ClearTagFilters": "Clear selected tags",
     "Main.FilterByTagLabel": "Filter by tag",
+    "Main.TagFilterPick": "Pick a tag from the list…",
     "Main.ExpandAllGroups": "Expand all groups in the list",
     "Main.CollapseAllGroups": "Collapse all groups in the list",
     "Main.SortGroupsAscending": "Sort groups ascending (A→Z)",

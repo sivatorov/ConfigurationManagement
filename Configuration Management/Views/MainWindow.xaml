@@ -423,6 +423,16 @@
                                     </StackPanel>
                                 </Button>
                             </Grid>
+                            <!-- Выбор тега из списка существующих: не нужно вводить
+                                 название вручную и можно не ошибиться в букве (issue #283). -->
+                            <ComboBox x:Name="TagFilterCombo"
+                                      Margin="0,0,0,6"
+                                      MinHeight="32"
+                                      FontSize="12"
+                                      Style="{StaticResource ModernComboBox}"
+                                      ItemsSource="{Binding AvailableTags}"
+                                      SelectionChanged="OnTagFilterCombo_SelectionChanged"
+                                      ToolTip="{loc:Loc Main.TagFilterPick}"/>
                             <ItemsControl ItemsSource="{Binding TagFilterItems}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
