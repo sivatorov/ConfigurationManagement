@@ -696,6 +696,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <ContentPresenter Grid.Column="0"
                                                   ContentSource="Icon"
@@ -705,8 +706,20 @@
                                                   ContentSource="Header"
                                                   VerticalAlignment="Center"
                                                   RecognizesAccessKey="True"/>
+                                <!-- Хоткей команды (InputGestureText): справа от заголовка,
+                                     выровнен по правому краю строки, как в стандартном меню WPF.
+                                     Колонка Header растягивается (*), поэтому хоткей прижимается
+                                     к правому краю; скрывается, если текст не задан (issue #290). -->
+                                <TextBlock x:Name="InputGestureText"
+                                           Grid.Column="2"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Right"
+                                           Margin="16,0,0,0"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           FontSize="12"/>
                                 <!-- Стрелка раскрытия подменю (видна только у пунктов-контейнеров). -->
-                                <Path Grid.Column="2"
+                                <Path Grid.Column="3"
                                       x:Name="SubmenuArrow"
                                       VerticalAlignment="Center"
                                       Margin="10,0,0,0"
@@ -736,6 +749,14 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="Role" Value="SubmenuHeader">
                             <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <!-- Хоткей показываем, только если InputGestureText задан (issue #290):
+                             пустая строка или null скрывают текст жеста, как в стандартном меню. -->
+                        <Trigger Property="InputGestureText" Value="">
+                            <Setter TargetName="InputGestureText" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="InputGestureText" Value="{x:Null}">
+                            <Setter TargetName="InputGestureText" Property="Visibility" Value="Collapsed"/>
                         </Trigger>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="border" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
