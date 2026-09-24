@@ -906,6 +906,16 @@
         </Setter>
     </Style>
 
+    <!-- ===================== Стиль разделителя меню ===================== -->
+    <!-- Компактный разделитель (issue #287): тонкая линия с минимальным вертикальным
+         отступом, чтобы меню с подменю занимало меньше высоты. Такой же стиль
+         в тёмной теме (DarkTheme.xaml). -->
+    <Style TargetType="Separator">
+        <Setter Property="Background" Value="{DynamicResource BorderBrushColor}"/>
+        <Setter Property="Margin" Value="4,1"/>
+        <Setter Property="Height" Value="1"/>
+    </Style>
+
     <!-- ===================== Стиль заголовка группы ===================== -->
     <Style x:Key="ModernGroupHeader" TargetType="TextBlock">
         <Setter Property="FontWeight" Value="Bold"/>

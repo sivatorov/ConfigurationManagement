@@ -1133,7 +1133,8 @@
     </Style>
     <Style TargetType="Separator">
         <Setter Property="Background" Value="{DynamicResource BorderBrushColor}"/>
-        <Setter Property="Margin" Value="4,2"/>
+        <!-- Вертикальный отступ уменьшен с 2 до 1: компактнее меню (issue #287). -->
+        <Setter Property="Margin" Value="4,1"/>
         <Setter Property="Height" Value="1"/>
     </Style>
 

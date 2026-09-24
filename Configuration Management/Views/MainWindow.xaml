@@ -624,6 +624,12 @@
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="CloudDownload" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
                                         </MenuItem>
                                         <MenuItem Header="{loc:Loc Updates.ManageList}" Click="OnConfigTypesEditMenuClick" Style="{DynamicResource ModernMenuItem}"/>
+                                        <!-- Консоль администрирования серверов не связана с конкретной базой,
+                                             поэтому перенесена из контекстного меню базы в «Утилиты» (issue #287). -->
+                                        <Separator/>
+                                        <MenuItem Header="{loc:Loc Admin.ServerConsole}" Command="{Binding OpenServerConsoleCommand}" InputGestureText="{Binding HotkeyServerConsole}" Style="{DynamicResource ModernMenuItem}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <Separator/>
                                         <MenuItem Header="{loc:Loc Settings.Bases.RemoveMissing}" Command="{Binding RemoveMissingFileBasesCommand}" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="FolderRemove" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
@@ -1959,26 +1965,16 @@
 
                         <!-- Контекстное меню по правой кнопке мыши для выбранной базы -->
                         <controls:LeveledTreeView.ContextMenu>
+                            <!-- Контекстное меню строки базы перестроено в подменю (issue #287):
+                                 чтобы уменьшить высоту меню, все группы команд свернуты в подменю
+                                 «Обновление и связь», «Администрирование», «Резервирование»
+                                 и «Очистить кэш». Хоткеи (issue #290) сохранены на прежних пунктах. -->
                             <ContextMenu Style="{DynamicResource ModernContextMenu}" Opened="OnBaseContextMenu_Opened">
                                 <MenuItem Header="{loc:Loc Main.LaunchEnterprise}" Tag="User" Command="{Binding LaunchEnterpriseCommand}" InputGestureText="{Binding HotkeyEnterprise}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Play" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="{loc:Loc Main.LaunchConfigurator}" Tag="User" Command="{Binding LaunchConfiguratorCommand}" InputGestureText="{Binding HotkeyConfigurator}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Cog" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.RefreshConfigInfo}" Command="{Binding RefreshConfigurationInfoCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="CloudDownload" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- Проверка обновлений конфигураций 1С (функции №21/№22): F9 — для
-                                     выбранной ИБ, ALT+F9 — окно «Актуальные релизы». -->
-                                <MenuItem Header="{loc:Loc Updates.CheckTitle}" Command="{Binding CheckUpdateCommand}" InputGestureText="{Binding HotkeyCheckUpdate}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="CloudDownload" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- «Актуальные релизы» и «Список типовых конфигураций» перенесены
-                                     в общее подменю «Утилиты» верхней панели (issue #262). -->
-                                <MenuItem Header="{loc:Loc Updates.ConfigLink}" Click="OnConfigUpdateLinkMenuClick" Style="{DynamicResource ModernMenuItem}"/>
-                                <MenuItem Header="{loc:Loc Main.RegisterComConnector}" Command="{Binding RegisterComConnectorCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Key" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
                                 </MenuItem>
                                 <Separator/>
                                 <MenuItem Header="{loc:Loc Main.ToFavorites}" Tag="User" Command="{Binding ToggleFavoriteCommand}" InputGestureText="{Binding HotkeyFavorite}" Style="{DynamicResource ModernMenuItem}">
@@ -1987,85 +1983,106 @@
                                 <MenuItem Header="{loc:Loc Main.Pin}" Tag="User" Command="{Binding TogglePinCommand}" InputGestureText="{Binding HotkeyPin}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Pin" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
                                 </MenuItem>
-                                <!-- «Очистить кеш» по аналогии со split-кнопкой правой панели:
-                                     сам пункт открывает окно очистки кеша, а стрелка справа —
-                                     выпадающее меню с выбором типа кеша. -->
-                                <MenuItem Style="{DynamicResource ModernMenuItem}" InputGestureText="{Binding HotkeyClearCache}">
-                                    <MenuItem.Icon>
-                                        <materialDesign:PackIcon Kind="Broom" Width="16" Height="16" Foreground="#14B8A6"/>
-                                    </MenuItem.Icon>
-                                    <MenuItem.Header>
-                                        <Button Click="OnClearCacheSplitClick" Cursor="Hand"
-                                                Background="Transparent" BorderThickness="0" Padding="0" Focusable="False"
-                                                HorizontalContentAlignment="Left" VerticalAlignment="Center">
-                                            <TextBlock Text="{loc:Loc Main.ClearCache}" VerticalAlignment="Center"
-                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=MenuItem}}"/>
-                                        </Button>
-                                    </MenuItem.Header>
-                                    <MenuItem Header="{loc:Loc Main.ClearProgramCache}" Command="{Binding ClearProgramCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <MenuItem Header="{loc:Loc Main.ClearUserCache}" Command="{Binding ClearUserCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                    <Separator/>
-                                    <MenuItem Header="{loc:Loc Main.ClearCacheBoth}" Command="{Binding ClearCacheBothCommand}" Style="{DynamicResource ModernMenuItem}"/>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.CopyConnectionString}" Command="{Binding CopyConnectionStringCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="ContentCopy" Width="16" Height="16" Foreground="#06B6D4"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285). -->
-                                <MenuItem Header="{loc:Loc Main.FindInList}" Command="{Binding FindInListCommand}" InputGestureText="{Binding HotkeyFindInList}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Magnify" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.OpenCatalog}" Command="{Binding OpenInfobaseFolderCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.DesktopShortcut}" Command="{Binding CreateDesktopShortcutCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DesktopClassic" Width="16" Height="16" Foreground="#6366F1"/></MenuItem.Icon>
-                                </MenuItem>
+                                <Separator/>
                                 <MenuItem Header="{loc:Loc Main.AddBase}" Command="{Binding AddInfobaseCommand}" InputGestureText="{Binding HotkeyAdd}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Plus" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
                                 </MenuItem>
                                 <Separator/>
-                                <!-- «Удалить» отделён разделителями сверху и снизу и стоит выше
-                                     раздела выгрузки, как и договаривались в issue #242. -->
+                                <!-- Подменю «Обновление и связь»: обновление информации о конфигурации,
+                                     проверка обновлений и привязка базы к конфигурации (issue #287). -->
+                                <MenuItem Header="{loc:Loc Menu.UpdateAndLink}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Refresh" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                    <MenuItem Header="{loc:Loc Main.RefreshConfigInfo}" Command="{Binding RefreshConfigurationInfoCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="CloudDownload" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <!-- Проверка обновлений конфигураций 1С (функции №21/№22): F9 — для
+                                         выбранной ИБ, ALT+F9 — окно «Актуальные релизы». -->
+                                    <MenuItem Header="{loc:Loc Updates.CheckTitle}" Command="{Binding CheckUpdateCommand}" InputGestureText="{Binding HotkeyCheckUpdate}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="CloudDownload" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <!-- «Актуальные релизы» и «Список типовых конфигураций» перенесены
+                                         в общее подменю «Утилиты» верхней панели (issue #262). -->
+                                    <MenuItem Header="{loc:Loc Updates.ConfigLink}" Click="OnConfigUpdateLinkMenuClick" Style="{DynamicResource ModernMenuItem}"/>
+                                </MenuItem>
+                                <!-- Подменю «Администрирование»: блокировки, COM-коннектор, каталог,
+                                     целостность и история запусков (issue #287). -->
+                                <MenuItem Header="{loc:Loc Menu.Administration}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
+                                    <!-- Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L)
+                                         и временная блокировка приложения (функция №19). -->
+                                    <MenuItem Header="{loc:Loc SessionLock.Title}" Command="{Binding ShowSessionLockCommand}" InputGestureText="{Binding HotkeySessionLock}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="ShieldLockOutline" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="Lock" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Main.RegisterComConnector}" Command="{Binding RegisterComConnectorCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="Key" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Main.OpenCatalog}" Command="{Binding OpenInfobaseFolderCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <!-- Администрирование ИБ (Этап 6, функция №29): проверка целостности
+                                         файловой ИБ (chdbfl). Консоль серверов перенесена в «Утилиты» (issue #287). -->
+                                    <MenuItem Header="{loc:Loc Admin.CheckIntegrity}" Command="{Binding CheckIntegrityCommand}" InputGestureText="{Binding HotkeyCheckIntegrity}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseCheck" Width="16" Height="16" Foreground="#10B981"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Main.LaunchHistory}" Command="{Binding ShowLaunchHistoryCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="History" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                </MenuItem>
+                                <!-- Подменю «Резервирование»: выгрузки, сценарии и список выгрузок (issue #287).
+                                     Сценарии и «Список выгрузок» (функции №16/№18): Ctrl+Shift+F5 —
+                                     выполнить сценарий, Ctrl+Shift+F7 — список выгрузок. -->
+                                <MenuItem Header="{loc:Loc Menu.Backup}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
+                                    <MenuItem Header="{loc:Loc Main.DumpToDt}" Command="{Binding DumpInfobaseDtCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{loc:Loc Main.DumpConfigToCf}" Command="{Binding DumpConfigurationCfCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="FileExport" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Backup.ScenariosTitle}" Command="{Binding ShowBackupScenariosCommand}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="Cog" Width="16" Height="16" Foreground="#F59E0B"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{loc:Loc Backup.RunTitle}" Command="{Binding RunBackupScenarioCommand}" InputGestureText="{Binding HotkeyRunBackup}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
+                                    </MenuItem>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Restore.Title}" Command="{Binding ShowExportsListCommand}" InputGestureText="{Binding HotkeyExportsList}" Style="{DynamicResource ModernMenuItem}">
+                                        <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseImport" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
+                                    </MenuItem>
+                                </MenuItem>
+                                <!-- Подменю «Очистить кэш»: три варианта очистки. Хоткей Ctrl+Shift+C
+                                     (открытие окна очистки обоих кешей) показан на пункте
+                                     «Программный и пользовательский», как на Linux (issue #287, #290). -->
+                                <MenuItem Header="{loc:Loc Main.ClearCache}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Broom" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                    <MenuItem Header="{loc:Loc Main.ClearProgramCache}" Command="{Binding ClearProgramCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
+                                    <MenuItem Header="{loc:Loc Main.ClearUserCache}" Command="{Binding ClearUserCacheCommand}" Style="{DynamicResource ModernMenuItem}"/>
+                                    <Separator/>
+                                    <MenuItem Header="{loc:Loc Main.ClearCacheBoth}" Command="{Binding ClearCacheBothCommand}" InputGestureText="{Binding HotkeyClearCache}" Style="{DynamicResource ModernMenuItem}"/>
+                                </MenuItem>
+                                <Separator/>
+                                <!-- «Удалить» отделён разделителями сверху и снизу, как в issue #242. -->
                                 <MenuItem Header="{loc:Loc Main.Delete}" Command="{Binding DeleteInfobaseCommand}" InputGestureText="{Binding HotkeyDelete}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Delete" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
                                 </MenuItem>
                                 <Separator/>
-                                <MenuItem Header="{loc:Loc Main.DumpToDt}" Command="{Binding DumpInfobaseDtCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
+                                <!-- «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285). -->
+                                <MenuItem Header="{loc:Loc Main.FindInList}" Command="{Binding FindInListCommand}" InputGestureText="{Binding HotkeyFindInList}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Magnify" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.DumpConfigToCf}" Command="{Binding DumpConfigurationCfCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="FileExport" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
+                                <MenuItem Header="{loc:Loc Main.DesktopShortcut}" Command="{Binding CreateDesktopShortcutCommand}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DesktopClassic" Width="16" Height="16" Foreground="#6366F1"/></MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="{loc:Loc Main.LaunchHistory}" Command="{Binding ShowLaunchHistoryCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="History" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- Сценарии резервирования и «Список выгрузок» (функции №16/№18):
-                                     Ctrl+Shift+F5 — выполнить сценарий, Ctrl+Shift+F7 — список выгрузок. -->
-                                <MenuItem Header="{loc:Loc Backup.ScenariosTitle}" Command="{Binding ShowBackupScenariosCommand}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Cog" Width="16" Height="16" Foreground="#F59E0B"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Backup.RunTitle}" Command="{Binding RunBackupScenarioCommand}" InputGestureText="{Binding HotkeyRunBackup}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Restore.Title}" Command="{Binding ShowExportsListCommand}" InputGestureText="{Binding HotkeyExportsList}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseImport" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L)
-                                     и временная блокировка приложения (функция №19). -->
-                                <MenuItem Header="{loc:Loc SessionLock.Title}" Command="{Binding ShowSessionLockCommand}" InputGestureText="{Binding HotkeySessionLock}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="ShieldLockOutline" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Lock" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
-                                </MenuItem>
-                                <!-- Администрирование ИБ (Этап 6, функция №29 + консоль серверов):
-                                     проверка целостности файловой ИБ (chdbfl) и консоль
-                                     администрирования серверов 1С для клиент-серверных баз. -->
-                                <MenuItem Header="{loc:Loc Admin.CheckIntegrity}" Command="{Binding CheckIntegrityCommand}" InputGestureText="{Binding HotkeyCheckIntegrity}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseCheck" Width="16" Height="16" Foreground="#10B981"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc Admin.ServerConsole}" Command="{Binding OpenServerConsoleCommand}" InputGestureText="{Binding HotkeyServerConsole}" Style="{DynamicResource ModernMenuItem}">
-                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                <MenuItem Header="{loc:Loc Main.CopyConnectionString}" Command="{Binding CopyConnectionStringCommand}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="ContentCopy" Width="16" Height="16" Foreground="#06B6D4"/></MenuItem.Icon>
                                 </MenuItem>
                                 <Separator/>
                                 <!-- «Изменить настройки» (аналог «Свойств» в ОС) размещён внизу меню,

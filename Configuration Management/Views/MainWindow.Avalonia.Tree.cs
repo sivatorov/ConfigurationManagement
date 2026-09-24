@@ -1459,7 +1459,7 @@ namespace Configuration_Management
             {
                 if (header.Length == 0)
                 {
-                    menu.Items.Add(new Separator());
+                    menu.Items.Add(MenuSeparator());
                     continue;
                 }
 
@@ -1570,15 +1570,12 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Контекстное меню строки базы: те же действия, что и в WPF-версии,
-        /// кроме тех, чьих команд в Avalonia-вьюмодели пока нет (регистрация
-        /// COM-коннектора на Linux неприменима, выгрузка в dt и cf и история
-        /// запусков ждут порта сервисов запуска).
-        /// </summary>
-        /// <summary>
         /// Подменю «Утилиты» общей панели (issue #262): глобальные команды, не привязанные
         /// к конкретной базе. Раньше они жили в контекстном меню строки базы; теперь собраны
         /// в общее подменю, куда в будущем можно добавлять новые общие команды.
+        /// Сюда же перенесена «Консоль администрирования серверов» из контекстного меню
+        /// базы (issue #287): она не связана с конкретной базой и стоит сразу после
+        /// «Списка типовых конфигураций», между разделителями.
         /// </summary>
         private ContextMenu BuildUtilitiesMenu()
         {
@@ -1594,13 +1591,20 @@ namespace Configuration_Management
             manageItem.Click += (_, _) => _vm.OpenConfigTypesEdit();
             menu.Items.Add(manageItem);
 
+            // Консоль администрирования серверов 1С не связана с конкретной базой, поэтому
+            // перенесена из контекстного меню базы в «Утилиты», сразу после «Списка типовых
+            // конфигураций» и с разделителями вокруг (issue #287).
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuAction("Admin.ServerConsole", _vm.OpenServerConsoleCommand, _vm.HotkeyServerConsole, "IconServer", "#14B8A6"));
+            menu.Items.Add(MenuSeparator());
+
             menu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6"));
             menu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
 
             // Обслуживание списка и приложения (issue #279): удаление отсутствующих
             // файловых баз, завершение процессов платформы и проверка обновлений самого
             // приложения. В WPF те же пункты в том же порядке.
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuSeparator());
 
             var removeMissingItem = new MenuItem { Header = LocalizationManager.T("Settings.Bases.RemoveMissing") };
             removeMissingItem.Styled(Themes.ControlThemes.ModernMenuItem);
@@ -1614,7 +1618,7 @@ namespace Configuration_Management
             killProcessesItem.Click += (_, _) => _vm.KillOneCProcesses();
             menu.Items.Add(killProcessesItem);
 
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuSeparator());
 
             var checkUpdatesItem = new MenuItem { Header = LocalizationManager.T("Settings.About.CheckForUpdates") };
             checkUpdatesItem.Styled(Themes.ControlThemes.ModernMenuItem);
@@ -1656,26 +1660,32 @@ namespace Configuration_Management
             if (_vm is null)
                 return menu;
 
-            var cacheMenu = new MenuItem
-            {
-                Header = LocalizationManager.T("Main.ClearCache"),
-                Icon = MenuIcon("IconBroom", "#14B8A6")
-            };
-            cacheMenu.Styled(Themes.ControlThemes.ModernMenuItem);
-            cacheMenu.Items.Add(MenuAction("Main.ClearProgramCache", _vm.ClearProgramCacheCommand));
-            cacheMenu.Items.Add(MenuAction("Main.ClearUserCache", _vm.ClearUserCacheCommand));
-            cacheMenu.Items.Add(new Separator());
-            // Сочетание показано здесь, а не у программного кеша: Ctrl+Shift+C
-            // открывает очистку обоих кешей. В WPF подпись стоит у программного,
-            // хотя клавиша делает то же самое, что этот пункт.
-            cacheMenu.Items.Add(MenuAction("Main.ClearCacheBoth", _vm.ClearCacheBothCommand, _vm.HotkeyClearCache));
-
+            // Контекстное меню строки базы перестроено в подменю (issue #287): чтобы
+            // уменьшить высоту меню, группы команд свернуты в подменю «Обновление и связь»,
+            // «Администрирование», «Резервирование» и «Очистить кэш». Хоткеи (issue #290)
+            // сохранены на прежних пунктах.
             menu.Items.Add(MenuAction("Main.LaunchEnterprise", _vm.LaunchEnterpriseCommand, _vm.HotkeyEnterprise, "IconPlay", "#22C55E"));
             menu.Items.Add(MenuAction("Main.LaunchConfigurator", _vm.LaunchConfiguratorCommand, _vm.HotkeyConfigurator, "IconSettings", "#3B82F6"));
-            menu.Items.Add(MenuAction("Main.RefreshConfigInfo", _vm.RefreshConfigurationInfoCommand, null, "IconCloudDownload", "#14B8A6"));
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuAction("Main.ToFavorites", _vm.ToggleFavoriteCommand, _vm.HotkeyFavorite, "IconStar", "#FBBF24"));
+            menu.Items.Add(MenuAction("Main.Pin", _vm.TogglePinCommand, _vm.HotkeyPin, "IconPin", "#8B5CF6"));
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuAction("Main.AddBase", _vm.AddInfobaseCommand, _vm.HotkeyAdd, "IconAdd", "#22C55E"));
+            menu.Items.Add(MenuSeparator());
+
+            // Подменю «Обновление и связь»: обновление информации о конфигурации, проверка
+            // обновлений и привязка базы к конфигурации (issue #287).
+            var updateMenu = new MenuItem
+            {
+                Header = LocalizationManager.T("Menu.UpdateAndLink"),
+                Icon = MenuIcon("IconRefresh", "#14B8A6")
+            };
+            updateMenu.Styled(Themes.ControlThemes.ModernMenuItem);
+            updateMenu.Items.Add(MenuAction("Main.RefreshConfigInfo", _vm.RefreshConfigurationInfoCommand, null, "IconCloudDownload", "#14B8A6"));
             // Проверка обновлений конфигураций 1С (функции №21/№22): F9 — для выбранной
             // ИБ, ALT+F9 — окно «Актуальные релизы». Сочетания показываются из настроек.
-            menu.Items.Add(MenuAction("Updates.CheckTitle", _vm.CheckUpdateCommand, _vm.HotkeyCheckUpdate, "IconCloudDownload", "#14B8A6"));
+            updateMenu.Items.Add(MenuAction("Updates.CheckTitle", _vm.CheckUpdateCommand, _vm.HotkeyCheckUpdate, "IconCloudDownload", "#14B8A6"));
+            updateMenu.Items.Add(MenuSeparator());
             // «Актуальные релизы» перенесено в общее подменю «Утилиты» верхней панели (issue #262).
             var linkItem = new MenuItem { Header = LocalizationManager.T("Updates.ConfigLink") };
             linkItem.Styled(Themes.ControlThemes.ModernMenuItem);
@@ -1684,42 +1694,70 @@ namespace Configuration_Management
                 if (_vm.SelectedInfobase is not null)
                     _vm.OpenConfigUpdateLink(_vm.SelectedInfobase);
             };
-            menu.Items.Add(linkItem);
-            // «Список типовых конфигураций» (Updates.ManageList) убран из контекстного меню
-            // строки базы: это глобальная команда, она живёт в подменю «Утилиты» общей панели
-            // (issue #262).
-            // «Зарегистрировать COM-коннектор» здесь нет намеренно: внешнее соединение
-            // это COM, в Linux регистрировать нечего. Windows-сторона решение подтвердила.
-            menu.Items.Add(new Separator());
-            menu.Items.Add(MenuAction("Main.ToFavorites", _vm.ToggleFavoriteCommand, _vm.HotkeyFavorite, "IconStar", "#FBBF24"));
-            menu.Items.Add(MenuAction("Main.Pin", _vm.TogglePinCommand, _vm.HotkeyPin, "IconPin", "#8B5CF6"));
+            updateMenu.Items.Add(linkItem);
+            menu.Items.Add(updateMenu);
+
+            // Подменю «Администрирование»: блокировки, каталог и проверка целостности (issue #287).
+            // «Зарегистрировать COM-коннектор» и «История запусков» здесь нет намеренно:
+            // внешнее соединение это COM, в Linux регистрировать нечего, а история запусков
+            // ждёт порта сервисов запуска.
+            var adminMenu = new MenuItem
+            {
+                Header = LocalizationManager.T("Menu.Administration"),
+                Icon = MenuIcon("IconServer", "#EF4444")
+            };
+            adminMenu.Styled(Themes.ControlThemes.ModernMenuItem);
+            // Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
+            adminMenu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
+            adminMenu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6"));
+            adminMenu.Items.Add(MenuSeparator());
+            adminMenu.Items.Add(MenuAction("Main.OpenCatalog", _vm.OpenInfobaseFolderCommand, null, "IconFolderOpen", "#0EA5E9"));
+            // Администрирование ИБ (Этап 6, функция №29): проверка целостности файловой ИБ
+            // (chdbfl). Консоль серверов перенесена в «Утилиты» (issue #287).
+            adminMenu.Items.Add(MenuAction("Admin.CheckIntegrity", _vm.CheckIntegrityCommand, _vm.HotkeyCheckIntegrity, "IconDatabase", "#10B981"));
+            menu.Items.Add(adminMenu);
+
+            // Подменю «Резервирование»: выгрузки, сценарии и список выгрузок (issue #287).
+            // Сценарии и «Список выгрузок» (функции №16/№18): Ctrl+Shift+F5 — выполнить
+            // сценарий, Ctrl+Shift+F7 — список выгрузок.
+            var backupMenu = new MenuItem
+            {
+                Header = LocalizationManager.T("Menu.Backup"),
+                Icon = MenuIcon("IconDatabaseExport", "#0EA5E9")
+            };
+            backupMenu.Styled(Themes.ControlThemes.ModernMenuItem);
+            backupMenu.Items.Add(MenuAction("Main.DumpToDt", _vm.DumpInfobaseDtCommand, null, "IconDatabaseExport", "#0EA5E9"));
+            backupMenu.Items.Add(MenuAction("Main.DumpConfigToCf", _vm.DumpConfigurationCfCommand, null, "IconFileExport", "#3B82F6"));
+            backupMenu.Items.Add(MenuSeparator());
+            backupMenu.Items.Add(MenuAction("Backup.ScenariosTitle", _vm.ShowBackupScenariosCommand, null, "IconSettings", "#F59E0B"));
+            backupMenu.Items.Add(MenuAction("Backup.RunTitle", _vm.RunBackupScenarioCommand, _vm.HotkeyRunBackup, "IconDatabaseExport", "#22C55E"));
+            backupMenu.Items.Add(MenuSeparator());
+            backupMenu.Items.Add(MenuAction("Restore.Title", _vm.ShowExportsListCommand, _vm.HotkeyExportsList, null, null));
+            menu.Items.Add(backupMenu);
+
+            // Подменю «Очистить кэш»: три варианта очистки. Сочетание Ctrl+Shift+C (открытие
+            // окна очистки обоих кешей) показано на пункте «Программный и пользовательский».
+            var cacheMenu = new MenuItem
+            {
+                Header = LocalizationManager.T("Main.ClearCache"),
+                Icon = MenuIcon("IconBroom", "#14B8A6")
+            };
+            cacheMenu.Styled(Themes.ControlThemes.ModernMenuItem);
+            cacheMenu.Items.Add(MenuAction("Main.ClearProgramCache", _vm.ClearProgramCacheCommand));
+            cacheMenu.Items.Add(MenuAction("Main.ClearUserCache", _vm.ClearUserCacheCommand));
+            cacheMenu.Items.Add(MenuSeparator());
+            cacheMenu.Items.Add(MenuAction("Main.ClearCacheBoth", _vm.ClearCacheBothCommand, _vm.HotkeyClearCache));
             menu.Items.Add(cacheMenu);
-            menu.Items.Add(MenuAction("Main.CopyConnectionString", _vm.CopyConnectionStringCommand, null, "IconCopy", "#06B6D4"));
+
+            // «Удалить» отделён разделителями сверху и снизу, как в issue #242 (соответствует WPF).
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(MenuAction("Main.Delete", _vm.DeleteInfobaseCommand, _vm.HotkeyDelete, "IconDelete", "#EF4444"));
+            menu.Items.Add(MenuSeparator());
             // «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285).
             menu.Items.Add(MenuAction("Main.FindInList", _vm.FindInListCommand, _vm.HotkeyFindInList, "IconSearch", "#3B82F6"));
-            menu.Items.Add(MenuAction("Main.OpenCatalog", _vm.OpenInfobaseFolderCommand, null, "IconFolderOpen", "#0EA5E9"));
             menu.Items.Add(MenuAction("Main.DesktopShortcut", _vm.CreateDesktopShortcutCommand, null, "IconDesktopClassic", "#6366F1"));
-            menu.Items.Add(MenuAction("Main.AddBase", _vm.AddInfobaseCommand, _vm.HotkeyAdd, "IconAdd", "#22C55E"));
-            // «Удалить» отделён разделителями сверху и снизу и стоит выше раздела
-            // выгрузки, как и договаривались в issue #242 (соответствует WPF).
-            menu.Items.Add(new Separator());
-            menu.Items.Add(MenuAction("Main.Delete", _vm.DeleteInfobaseCommand, _vm.HotkeyDelete, "IconDelete", "#EF4444"));
-            menu.Items.Add(new Separator());
-            menu.Items.Add(MenuAction("Main.DumpToDt", _vm.DumpInfobaseDtCommand, null, "IconDatabaseExport", "#0EA5E9"));
-            menu.Items.Add(MenuAction("Main.DumpConfigToCf", _vm.DumpConfigurationCfCommand, null, "IconFileExport", "#3B82F6"));
-            // Сценарии резервирования и «Список выгрузок» (функции №16/№18):
-            // Ctrl+Shift+F5 — выполнить сценарий, Ctrl+Shift+F7 — список выгрузок.
-            menu.Items.Add(MenuAction("Backup.ScenariosTitle", _vm.ShowBackupScenariosCommand, null, "IconSettings", "#F59E0B"));
-            menu.Items.Add(MenuAction("Backup.RunTitle", _vm.RunBackupScenarioCommand, _vm.HotkeyRunBackup, "IconDatabaseExport", "#22C55E"));
-            menu.Items.Add(MenuAction("Restore.Title", _vm.ShowExportsListCommand, _vm.HotkeyExportsList, null, null));
-            // Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
-            menu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
-            menu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6"));
-            // Администрирование ИБ (Этап 6, функция №29 + консоль серверов): проверка
-            // целостности файловой ИБ (chdbfl) и консоль администрирования серверов 1С.
-            menu.Items.Add(MenuAction("Admin.CheckIntegrity", _vm.CheckIntegrityCommand, _vm.HotkeyCheckIntegrity, "IconDatabase", "#10B981"));
-            menu.Items.Add(MenuAction("Admin.ServerConsole", _vm.OpenServerConsoleCommand, _vm.HotkeyServerConsole, "IconServer", "#14B8A6"));
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuAction("Main.CopyConnectionString", _vm.CopyConnectionStringCommand, null, "IconCopy", "#06B6D4"));
+            menu.Items.Add(MenuSeparator());
             // «Изменить настройки» (аналог «Свойств» в ОС) размещён внизу меню,
             // после разделителя, как в issue #242 (соответствует WPF).
             menu.Items.Add(MenuAction("Main.EditSettings", _vm.EditInfobaseCommand, _vm.HotkeyEdit, "IconEdit", "#3B82F6"));
@@ -1749,6 +1787,17 @@ namespace Configuration_Management
                 item.InputGesture = parsed;
             return item;
         }
+
+        /// <summary>
+        /// Разделитель пунктов меню: тонкая линия с минимальным вертикальным отступом.
+        /// Значения задаются на самом элементе, а не стилем темы: у значения из шаблона
+        /// Fluent приоритет выше, чем у именованного стиля (issue #287 — компактнее меню).
+        /// </summary>
+        private static Separator MenuSeparator() => new()
+        {
+            Height = 1,
+            Margin = new Thickness(4, 2)
+        };
     }
 }
 #endif

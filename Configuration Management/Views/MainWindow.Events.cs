@@ -682,34 +682,6 @@ namespace Configuration_Management
             btn.ContextMenu.IsOpen = true;
         }
 
-        /// <summary>
-        /// Клик по заголовку пункта «Очистить кеш» в контекстном меню дерева баз.
-        /// Пункт устроен по аналогии со split-кнопкой правой панели: сам заголовок
-        /// открывает окно очистки кеша (<see cref="CacheCleanWindow"/>), а стрелка
-        /// справа раскрывает подменю с выбором типа кеша. Здесь закрываем меню,
-        /// чтобы оно не осталось поверх модального окна, и запускаем команду.
-        /// </summary>
-        private void OnClearCacheSplitClick(object sender, RoutedEventArgs e)
-        {
-            // Пункт живёт в ContextMenu, которого нет в визуальном дереве окна,
-            // поэтому до него идём по логическому дереву от кнопки-заголовка.
-            var o = sender as DependencyObject;
-            ContextMenu? menu = null;
-            while (o is not null)
-            {
-                if (o is ContextMenu candidate)
-                {
-                    menu = candidate;
-                    break;
-                }
-                o = System.Windows.LogicalTreeHelper.GetParent(o);
-            }
-            if (menu is not null)
-                menu.IsOpen = false;
-
-            if (DataContext is MainViewModel vm && vm.ClearCacheCommand.CanExecute(null))
-                vm.ClearCacheCommand.Execute(null);
-        }
 
     }
 }
