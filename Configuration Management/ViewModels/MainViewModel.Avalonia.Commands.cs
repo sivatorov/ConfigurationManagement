@@ -16,6 +16,7 @@ public partial class MainViewModel : ViewModelBase
     public ICommand AddTagInlineCommand { get; private set; } = null!;
     public ICommand RemoveTagCommand { get; private set; } = null!;
     public ICommand ClearTagFiltersCommand { get; private set; } = null!;
+    public ICommand FindInListCommand { get; private set; } = null!;
     public ICommand ShowAllCommand { get; private set; } = null!;
     public ICommand ShowFavoritesCommand { get; private set; } = null!;
     public ICommand ShowRecentCommand { get; private set; } = null!;
@@ -72,6 +73,9 @@ public partial class MainViewModel : ViewModelBase
         AddTagInlineCommand = new RelayCommand(AddTagInline);
         RemoveTagCommand = new RelayCommand(RemoveTag);
         ClearTagFiltersCommand = new RelayCommand(ClearTagFilters);
+        // «Найти в списке»: переход к базе в общем списке «Все базы» с раскрытием группы (issue #285).
+        FindInListCommand = new RelayCommand(p => ExecuteFindInList(p as Infobase),
+            p => SelectedInfobase is not null || p is Infobase);
         // Режимы списка вынесены в команды, чтобы их можно было повесить
         // на горячую клавишу: привязка принимает команду, а не свойство.
         ShowAllCommand = new RelayCommand(() => IsListModeAll = true);
@@ -152,6 +156,51 @@ public partial class MainViewModel : ViewModelBase
         ClearCacheBothCommand = new RelayCommand(_ => OpenCacheClean(OneCCacheKind.All));
         // Смена пользователя (issue #200): диалог входа без перезапуска приложения.
         SwitchUserCommand = new RelayCommand(SwitchUser);
+    }
+
+    /// <summary>
+    /// «Найти в списке» (issue #285): переходит к базе в общем списке «Все базы».
+    /// Сбрасывает фильтры (вкладка/поиск/теги), принудительно раскрывает цепочку групп
+    /// от корня до группы базы и выделяет базу; UI после пересборки прокрутит список к строке.
+    /// </summary>
+    private void ExecuteFindInList(Infobase? target)
+    {
+        var ib = target ?? SelectedInfobase;
+        if (ib is null)
+            return;
+
+        // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
+        IsListModeAll = true;
+        if (!string.IsNullOrWhiteSpace(SearchText))
+            SearchText = string.Empty;
+        ClearTagFilters();
+
+        ExpandPathTo(ib);
+
+        SelectedInfobase = ib;
+        RebuildTree();
+    }
+
+    /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно).</summary>
+    private void ExpandPathTo(Infobase infobase)
+    {
+        foreach (var root in AllGroupNodes)
+        {
+            var owner = FindNodeWith(root, infobase);
+            if (owner is null)
+                continue;
+
+            var chain = new List<GroupNodeViewModel>();
+            for (var n = owner; n is not null; n = n.Parent)
+                chain.Add(n);
+            chain.Reverse();
+            foreach (var n in chain)
+            {
+                n.SetExpandedSilent(true);
+                n.NotifyIsExpanded();
+            }
+            return;
+        }
     }
 }
 #endif

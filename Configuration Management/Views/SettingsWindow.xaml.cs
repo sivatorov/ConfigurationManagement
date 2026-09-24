@@ -453,6 +453,7 @@ namespace Configuration_Management
             var hkClearSearch = ReadHotkeyBox(HotkeyClearSearchBox);
             var hkClearTags = ReadHotkeyBox(HotkeyClearTagsBox);
             var hkRightPanelDetails = ReadHotkeyBox(HotkeyRightPanelDetailsBox);
+            var hkFindInList = ReadHotkeyBox(HotkeyFindInListBox);
             var hkSwitchUser = ReadHotkeyBox(HotkeySwitchUserBox);
             var hkSessionLock = ReadHotkeyBox(HotkeySessionLockBox);
             var hkLockApp = ReadHotkeyBox(HotkeyLockAppBox);
@@ -478,6 +479,7 @@ namespace Configuration_Management
                 (LocalizationManager.T("Main.ClearSearch"), hkClearSearch),
                 (LocalizationManager.T("Main.ClearTags"), hkClearTags),
                 (LocalizationManager.T("Main.CollapseRightPanel"), hkRightPanelDetails),
+                (LocalizationManager.T("Main.FindInList"), hkFindInList),
                 (LocalizationManager.T("Main.SwitchUser"), hkSwitchUser),
                 (LocalizationManager.T("SessionLock.Title"), hkSessionLock),
                 (LocalizationManager.T("AppLock.LockTitle"), hkLockApp),
@@ -532,6 +534,7 @@ namespace Configuration_Management
                 hotkeyClearSearch: hkClearSearch,
                 hotkeyClearTags: hkClearTags,
                 hotkeyRightPanelDetails: hkRightPanelDetails,
+                hotkeyFindInList: hkFindInList,
                 hotkeySwitchUser: hkSwitchUser,
                 hotkeySessionLock: hkSessionLock,
                 hotkeyLockApp: hkLockApp,

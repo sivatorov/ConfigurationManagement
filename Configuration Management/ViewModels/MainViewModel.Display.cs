@@ -876,6 +876,9 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Команда очистки поля поиска.</summary>
     public ICommand ClearSearchCommand { get; }
 
+    /// <summary>«Найти в списке» — переход к базе в общем списке «Все базы» (issue #285).</summary>
+    public ICommand FindInListCommand { get; }
+
     /// <summary>Сбросить только выбранные теги фильтра.</summary>
     public ICommand ClearTagFiltersCommand { get; }
 

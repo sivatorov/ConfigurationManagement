@@ -78,6 +78,10 @@ namespace Configuration_Management
             // хоткей (issue #172); значение по умолчанию Ctrl+D задаётся в настройках.
             Add(_viewModel.HotkeyRightPanelDetails, _viewModel.ToggleRightPanelDetailsCommand);
 
+            // «Найти в списке» — переход к базе в общем списке (issue #285);
+            // значение по умолчанию Ctrl+T задаётся в настройках.
+            Add(_viewModel.HotkeyFindInList, _viewModel.FindInListCommand);
+
             // Смена пользователя — настраиваемый хоткей (issue #200);
             // значение по умолчанию не задано.
             Add(_viewModel.HotkeySwitchUser, _viewModel.SwitchUserCommand);

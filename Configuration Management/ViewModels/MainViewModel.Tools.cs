@@ -1879,6 +1879,7 @@ public partial class MainViewModel : ViewModelBase
         string? hotkeyClearSearch = null,
         string? hotkeyClearTags = null,
         string? hotkeyRightPanelDetails = null,
+        string? hotkeyFindInList = null,
         string? hotkeySwitchUser = null,
         string? hotkeySessionLock = null,
         string? hotkeyLockApp = null,
@@ -1908,6 +1909,7 @@ public partial class MainViewModel : ViewModelBase
         if (hotkeyClearSearch != null) _hotkeyClearSearch = hotkeyClearSearch.Trim();
         if (hotkeyClearTags != null) _hotkeyClearTags = hotkeyClearTags.Trim();
         if (hotkeyRightPanelDetails != null) _hotkeyRightPanelDetails = hotkeyRightPanelDetails.Trim();
+        if (hotkeyFindInList != null) _hotkeyFindInList = hotkeyFindInList.Trim();
         if (hotkeySwitchUser != null) _hotkeySwitchUser = hotkeySwitchUser.Trim();
         if (hotkeySessionLock != null) _hotkeySessionLock = hotkeySessionLock.Trim();
         if (hotkeyLockApp != null) _hotkeyLockApp = hotkeyLockApp.Trim();
@@ -1935,6 +1937,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyClearSearch));
         OnPropertyChanged(nameof(HotkeyClearTags));
         OnPropertyChanged(nameof(HotkeyRightPanelDetails));
+        OnPropertyChanged(nameof(HotkeyFindInList));
         OnPropertyChanged(nameof(HotkeySwitchUser));
         OnPropertyChanged(nameof(HotkeyCheckIntegrity));
         OnPropertyChanged(nameof(HotkeyServerConsole));

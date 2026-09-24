@@ -414,6 +414,7 @@ public partial class MainViewModel : ViewModelBase
     public string HotkeyClearSearch => _settings.HotkeyClearSearch;
     public string HotkeyClearTags => _settings.HotkeyClearTags;
     public string HotkeyRightPanelDetails => _settings.HotkeyRightPanelDetails;
+    public string HotkeyFindInList => _settings.HotkeyFindInList;
     public string HotkeySwitchUser => _settings.HotkeySwitchUser;
     public string HotkeyCheckUpdate => _settings.HotkeyCheckUpdate;
     public string HotkeyActualReleases => _settings.HotkeyActualReleases;
@@ -429,7 +430,7 @@ public partial class MainViewModel : ViewModelBase
         string favorite, string pin, string delete, string clearCache,
         string showAll, string showFavorites, string showRecent,
         string clearSearch, string clearTags, string rightPanelDetails, string switchUser,
-        string sessionLock = "", string lockApp = "",
+        string findInList = "", string sessionLock = "", string lockApp = "",
         string checkIntegrity = "", string serverConsole = "")
     {
         _settings.HotkeyEnterprise = enterprise ?? string.Empty;
@@ -446,6 +447,7 @@ public partial class MainViewModel : ViewModelBase
         _settings.HotkeyClearSearch = clearSearch ?? string.Empty;
         _settings.HotkeyClearTags = clearTags ?? string.Empty;
         _settings.HotkeyRightPanelDetails = rightPanelDetails ?? string.Empty;
+        _settings.HotkeyFindInList = findInList ?? string.Empty;
         _settings.HotkeySwitchUser = switchUser ?? string.Empty;
         // Блокировка сеансов ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
         _settings.HotkeySessionLock = sessionLock ?? string.Empty;
@@ -470,6 +472,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyClearSearch));
         OnPropertyChanged(nameof(HotkeyClearTags));
         OnPropertyChanged(nameof(HotkeyRightPanelDetails));
+        OnPropertyChanged(nameof(HotkeyFindInList));
         OnPropertyChanged(nameof(HotkeySwitchUser));
         OnPropertyChanged(nameof(HotkeySessionLock));
         OnPropertyChanged(nameof(HotkeyLockApp));

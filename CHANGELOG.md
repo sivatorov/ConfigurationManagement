@@ -9,6 +9,30 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.43] — 2026-09-24
+
+### Новое
+
+- **«Найти в списке» — переход к базе в общем списке (#285)** — из любой вкладки («Избранное»,
+  «Недавние», закреплённые) можно перейти к базе в общем списке «Все базы»: раскрываются группы
+  от корня до группы базы, база выделяется и попадает в видимую область.
+  1. **Команда `FindInListCommand`** в [`MainViewModel.Commands.cs`](Configuration%20Management/ViewModels/MainViewModel.Commands.cs)
+     и [`MainViewModel.Avalonia.Commands.cs`](Configuration%20Management/ViewModels/MainViewModel.Avalonia.Commands.cs):
+     переключает вкладку на «Все базы», сбрасывает поиск и фильтр тегов, принудительно раскрывает
+     цепочку групп-предков и выделяет базу (UI сам прокручивает список к строке). На обеих платформах.
+  2. **Горячая клавиша Ctrl+T** (настраиваемая в «Настройки → Клавиши») — новый ключ настроек
+     `HotkeyFindInList`; регистрация в [`MainWindow.Hotkeys.cs`](Configuration%20Management/Views/MainWindow.Hotkeys.cs)
+     и [`MainWindow.Avalonia.Hotkeys.cs`](Configuration%20Management/Views/MainWindow.Avalonia.Hotkeys.cs).
+  3. **Пункт контекстного меню базы «Найти в списке»** (иконка лупы) — в контекстном меню строки
+     базы Windows/WPF (`MainWindow.xaml`) и Linux/Avalonia (`MainWindow.Avalonia.Tree.cs`).
+  4. **Новые ключи локализации** `Main.FindInList`, `Settings.Hotkeys.FindInList` в ru/en.
+
+### Версия
+
+- **Версия поднята до `0.3.9.43`** во всех четырёх полях `<Version>`, `<AssemblyVersion>`,
+  `<FileVersion>`, `<InformationalVersion>` в
+  [`Configuration Management.csproj`](Configuration%20Management/Configuration%20Management.csproj).
+
 ## [0.3.9.42] — 2026-09-24
 
 ### Исправления

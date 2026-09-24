@@ -558,6 +558,7 @@ public partial class MainViewModel : ViewModelBase
             HotkeyClearSearch = _hotkeyClearSearch,
             HotkeyClearTags = _hotkeyClearTags,
             HotkeyRightPanelDetails = _hotkeyRightPanelDetails,
+            HotkeyFindInList = _hotkeyFindInList,
             HotkeySwitchUser = _hotkeySwitchUser,
             HotkeyCheckUpdate = _hotkeyCheckUpdate,
             HotkeyActualReleases = _hotkeyActualReleases,

@@ -1995,6 +1995,10 @@
                                 <MenuItem Header="{loc:Loc Main.CopyConnectionString}" Command="{Binding CopyConnectionStringCommand}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="ContentCopy" Width="16" Height="16" Foreground="#06B6D4"/></MenuItem.Icon>
                                 </MenuItem>
+                                <!-- «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285). -->
+                                <MenuItem Header="{loc:Loc Main.FindInList}" Command="{Binding FindInListCommand}" InputGestureText="{Binding HotkeyFindInList}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem.Icon><materialDesign:PackIcon Kind="Magnify" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{loc:Loc Main.OpenCatalog}" Command="{Binding OpenInfobaseFolderCommand}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
                                 </MenuItem>

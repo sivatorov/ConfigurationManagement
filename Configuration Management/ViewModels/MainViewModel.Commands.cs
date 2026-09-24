@@ -1246,6 +1246,17 @@ public string HotkeyEnterprise
         }
     }
 
+    /// <summary>Горячая клавиша «Найти в списке» — переход к базе в общем списке. По умолчанию Ctrl+T (issue #285).</summary>
+    public string HotkeyFindInList
+    {
+        get => _hotkeyFindInList;
+        set
+        {
+            if (SetProperty(ref _hotkeyFindInList, NormalizeHotkey(value, "Ctrl+T")))
+                ScheduleSaveSettings();
+        }
+    }
+
     /// <summary>Горячая клавиша переключения подробностей правой панели информации. Пусто — не назначена (issue #172).</summary>
     public string HotkeyRightPanelDetails
     {
@@ -1256,7 +1267,56 @@ public string HotkeyEnterprise
                 ScheduleSaveSettings();
         }
     }
- 
+
+    /// <summary>
+    /// «Найти в списке» (issue #285): переходит к базе в общем списке «Все базы».
+    /// Сбрасывает фильтры (вкладка/поиск/теги), принудительно раскрывает цепочку групп
+    /// от корня до группы базы и выделяет базу. UI после пересборки дерева сам прокрутит
+    /// список к строке (RevealAndSelectAfterRebuild).
+    /// </summary>
+    private void ExecuteFindInList(object? parameter)
+    {
+        var ib = parameter as Infobase ?? SelectedInfobase;
+        if (ib is null)
+            return;
+
+        // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
+        IsListModeAll = true;
+        if (!string.IsNullOrWhiteSpace(SearchText))
+            ClearSearch(null);
+        if (_activeTagFilters.Count > 0)
+            ClearTagFilters(null);
+
+        // Раскрываем группы-предки цели (в т.ч. свёрнутые пользователем), чтобы база
+        // гарантированно оказалась видимой в общем списке.
+        ExpandPathTo(ib);
+
+        SelectedInfobase = ib;
+        RebuildGroupTree();
+    }
+
+    /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно, с сохранением состояния коллапса).</summary>
+    private void ExpandPathTo(Infobase infobase)
+    {
+        if (string.IsNullOrWhiteSpace(infobase.Group))
+            return;
+        var leaf = FindGroupNodeByPath(infobase.Group);
+        if (leaf is null)
+            return;
+
+        var chain = new List<GroupNodeViewModel>();
+        for (var n = leaf; n is not null; n = n.Parent)
+            chain.Add(n);
+        chain.Reverse();
+        foreach (var n in chain)
+        {
+            n.SetExpandedSilent(true);
+            n.NotifyIsExpanded();
+            if (n.NodeKey is not null)
+                SetGroupCollapsed(n.NodeKey, false);
+        }
+    }
+
     private static string NormalizeHotkey(string? value, string fallback)
         => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 

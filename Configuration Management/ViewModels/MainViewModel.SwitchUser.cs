@@ -169,6 +169,7 @@ public partial class MainViewModel
             _hotkeyClearSearch = string.IsNullOrWhiteSpace(settings.HotkeyClearSearch) ? "Ctrl+Shift+C" : settings.HotkeyClearSearch.Trim();
             _hotkeyClearTags = string.IsNullOrWhiteSpace(settings.HotkeyClearTags) ? "Ctrl+Shift+T" : settings.HotkeyClearTags.Trim();
             _hotkeyRightPanelDetails = settings.HotkeyRightPanelDetails?.Trim() ?? "";
+            _hotkeyFindInList = string.IsNullOrWhiteSpace(settings.HotkeyFindInList) ? "Ctrl+T" : settings.HotkeyFindInList.Trim();
             _hotkeySwitchUser = settings.HotkeySwitchUser?.Trim() ?? "";
 
             // Тема и схема нового профиля.
@@ -208,6 +209,7 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(HotkeyClearSearch));
             OnPropertyChanged(nameof(HotkeyClearTags));
             OnPropertyChanged(nameof(HotkeyRightPanelDetails));
+            OnPropertyChanged(nameof(HotkeyFindInList));
             OnPropertyChanged(nameof(HotkeySwitchUser));
             FavoriteHotkeysChanged?.Invoke(this, EventArgs.Empty);
         }

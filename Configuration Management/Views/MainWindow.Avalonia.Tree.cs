@@ -1661,6 +1661,8 @@ namespace Configuration_Management
             menu.Items.Add(MenuAction("Main.Pin", _vm.TogglePinCommand, _vm.HotkeyPin, "IconPin", "#8B5CF6"));
             menu.Items.Add(cacheMenu);
             menu.Items.Add(MenuAction("Main.CopyConnectionString", _vm.CopyConnectionStringCommand, null, "IconCopy", "#06B6D4"));
+            // «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285).
+            menu.Items.Add(MenuAction("Main.FindInList", _vm.FindInListCommand, _vm.HotkeyFindInList, "IconSearch", "#3B82F6"));
             menu.Items.Add(MenuAction("Main.OpenCatalog", _vm.OpenInfobaseFolderCommand, null, "IconFolderOpen", "#0EA5E9"));
             menu.Items.Add(MenuAction("Main.DesktopShortcut", _vm.CreateDesktopShortcutCommand, null, "IconDesktopClassic", "#6366F1"));
             menu.Items.Add(MenuAction("Main.AddBase", _vm.AddInfobaseCommand, _vm.HotkeyAdd, "IconAdd", "#22C55E"));
