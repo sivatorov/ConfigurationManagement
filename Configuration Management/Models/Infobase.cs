@@ -494,6 +494,32 @@ public class Infobase : INotifyPropertyChanged
 
     private bool? _checkedAvailability;
 
+    private bool _isChecking;
+
+    /// <summary>
+    /// Идёт ли проверка доступности этой базы командой «Проверить доступность всех баз».
+    /// Пока проверка идёт, значок базы в списке показывается серым с индикатором ожидания
+    /// (часики), а в подсказке — текст «Проверка доступности…».
+    /// </summary>
+    public bool IsChecking => _isChecking;
+
+    /// <summary>
+    /// Помечает базу как «проверяется» (true) или возвращает обычное отображение (false).
+    /// Вызывается перед стартом проверки для всех баз; после завершения проверки конкретной
+    /// базы результат применяется через <see cref="SetCheckedAvailability"/>, который сам
+    /// сбрасывает признак проверки.
+    /// </summary>
+    public void SetChecking(bool checking)
+    {
+        if (_isChecking == checking)
+            return;
+        _isChecking = checking;
+        OnPropertyChanged(nameof(IsChecking));
+        OnPropertyChanged(nameof(StatusIconKey));
+        OnPropertyChanged(nameof(StatusColorHex));
+        OnPropertyChanged(nameof(StatusDisplay));
+    }
+
     /// <summary>
     /// Доступность базы. По умолчанию — расчёт по параметрам подключения: для файловых
     /// баз — наличие каталога/файла на диске, для клиент-серверных и веб-баз реальная
@@ -520,14 +546,18 @@ public class Infobase : INotifyPropertyChanged
 
     /// <summary>
     /// Задаёт результат фактической проверки доступности базы (или null — вернуть
-    /// расчётное значение по параметрам подключения). Обновляет статусные свойства,
-    /// влияющие на иконку базы в списке (ключ, цвет, подсказка).
+    /// расчётное значение по параметрам подключения). Сбрасывает признак «проверяется»
+    /// и обновляет статусные свойства, влияющие на иконку базы в списке (ключ, цвет, подсказка).
     /// </summary>
     public void SetCheckedAvailability(bool? available)
     {
-        if (_checkedAvailability == available)
+        var wasChecking = _isChecking;
+        if (_checkedAvailability == available && !wasChecking)
             return;
         _checkedAvailability = available;
+        _isChecking = false;
+        if (wasChecking)
+            OnPropertyChanged(nameof(IsChecking));
         OnPropertyChanged(nameof(IsAvailable));
         OnPropertyChanged(nameof(StatusIconKey));
         OnPropertyChanged(nameof(StatusColorHex));
@@ -545,43 +575,52 @@ public class Infobase : INotifyPropertyChanged
     /// которая по форме не совпадает с IconFolder.
     /// </para>
     /// </summary>
-    public string StatusIconKey => !IsAvailable
-        ? "IconError"
-        : Connection.Type switch
-        {
-            ConnectionType.File => "IconDatabase",
-            ConnectionType.WebServer => "IconWeb",
-            _ => "IconNetwork"
-        };
+    public string StatusIconKey => _isChecking
+        ? "IconInProgress"
+        : !IsAvailable
+            ? "IconError"
+            : Connection.Type switch
+            {
+                ConnectionType.File => "IconDatabase",
+                ConnectionType.WebServer => "IconWeb",
+                _ => "IconNetwork"
+            };
 
-    /// <summary>Подпись статуса базы для подсказки к иконке в списке.</summary>
-    public string StatusDisplay => !IsAvailable
-        ? Connection.Type switch
-        {
-            ConnectionType.File => LocalizationManager.T("Infobase.Unavailable.File"),
-            ConnectionType.WebServer => LocalizationManager.T("Infobase.Unavailable.Web"),
-            _ => LocalizationManager.T("Infobase.Unavailable.ClientServer")
-        }
-        : Connection.Type switch
-        {
-            ConnectionType.File => LocalizationManager.T("Infobase.Status.File"),
-            ConnectionType.WebServer => LocalizationManager.T("Infobase.Status.Web"),
-            _ => LocalizationManager.T("Infobase.Status.ClientServer")
-        };
+    /// <summary>
+    /// Подпись статуса базы для подсказки к иконке в списке.
+    /// Во время проверки доступности — «Проверка доступности…».
+    /// </summary>
+    public string StatusDisplay => _isChecking
+        ? LocalizationManager.T("Infobase.Checking")
+        : !IsAvailable
+            ? Connection.Type switch
+            {
+                ConnectionType.File => LocalizationManager.T("Infobase.Unavailable.File"),
+                ConnectionType.WebServer => LocalizationManager.T("Infobase.Unavailable.Web"),
+                _ => LocalizationManager.T("Infobase.Unavailable.ClientServer")
+            }
+            : Connection.Type switch
+            {
+                ConnectionType.File => LocalizationManager.T("Infobase.Status.File"),
+                ConnectionType.WebServer => LocalizationManager.T("Infobase.Status.Web"),
+                _ => LocalizationManager.T("Infobase.Status.ClientServer")
+            };
 
     /// <summary>
     /// Цвет иконки статуса базы (ARGB-строка) в зависимости от типа подключения
     /// и доступности: файловая — янтарный, веб-сервер — синий, клиент-серверная —
-    /// фиолетовый, недоступная — красный.
+    /// фиолетовый, недоступная — красный, во время проверки — серый.
     /// </summary>
-    public string StatusColorHex => !IsAvailable
-        ? "#E53935"
-        : Connection.Type switch
-        {
-            ConnectionType.File => "#E8A33D",
-            ConnectionType.WebServer => "#3B82F6",
-            _ => "#8B5CF6"
-        };
+    public string StatusColorHex => _isChecking
+        ? "#9E9E9E"
+        : !IsAvailable
+            ? "#E53935"
+            : Connection.Type switch
+            {
+                ConnectionType.File => "#E8A33D",
+                ConnectionType.WebServer => "#3B82F6",
+                _ => "#8B5CF6"
+            };
 
     /// <summary>
     /// Режим запуска для отображения (локализованный). Используется в колонке

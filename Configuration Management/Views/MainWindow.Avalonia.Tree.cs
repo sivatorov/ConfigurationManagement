@@ -258,20 +258,41 @@ namespace Configuration_Management
                 lead.Children.Add(pin);
             }
 
-            // Иконка статуса базы слева: тип подключения (папка / глобус / сеть)
-            // или «недоступна». Цвет зависит от статуса: янтарный — файловая,
-            // синий — веб, фиолетовый — клиент-сервер, красный — недоступна.
+            // Иконка статуса базы слева: тип подключения (папка / глобус / сеть),
+            // «недоступна» или «проверяется» (серые часики). Цвет зависит от статуса:
+            // янтарный — файловая, синий — веб, фиолетовый — клиент-сервер,
+            // красный — недоступна, серый — идёт проверка доступности (issue #289).
             var connectionIconKey = ib.StatusIconKey;
 
             // Значок идёт без подложки и рамки: в разметке это голый Path 14 на 14
             // с отступом 6 справа (MainWindow.xaml:1234). Коробка вокруг него была
             // нашей отсебятиной.
-            var iconBox = IconHelper.MakeIcon(connectionIconKey, UiMetrics.RowIcon,
-                new SolidColorBrush(Color.Parse(ib.StatusColorHex)));
+            var iconBox = IconHelper.MakeIcon(connectionIconKey, UiMetrics.RowIcon, out var statusPath);
+            statusPath.Fill = new SolidColorBrush(Color.Parse(ib.StatusColorHex));
             iconBox.HorizontalAlignment = HorizontalAlignment.Center;
             iconBox.VerticalAlignment = VerticalAlignment.Center;
             iconBox.Margin = new Thickness(0, 0, 6, 0);
             ToolTip.SetTip(iconBox, ib.StatusDisplay);
+
+            // Во время «Проверить доступность всех баз» статус меняется по мере
+            // готовности каждой базы: серый значок ожидания сменяется фактическим
+            // результатом. Строка подписывается на статусные свойства Infobase,
+            // чтобы обновлять иконку без пересборки всего дерева.
+            card.AddSubscription(() =>
+            {
+                void OnStatusChanged(object? _, PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(Infobase.StatusIconKey))
+                        statusPath.Data = IconHelper.Geometry(ib.StatusIconKey);
+                    if (e.PropertyName == nameof(Infobase.StatusColorHex))
+                        statusPath.Fill = new SolidColorBrush(Color.Parse(ib.StatusColorHex));
+                    if (e.PropertyName == nameof(Infobase.StatusDisplay))
+                        ToolTip.SetTip(iconBox, ib.StatusDisplay);
+                }
+
+                ib.PropertyChanged += OnStatusChanged;
+                return new ActionDisposable(() => ib.PropertyChanged -= OnStatusChanged);
+            });
 
             lead.Children.Add(iconBox);
 

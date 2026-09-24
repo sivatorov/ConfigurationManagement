@@ -677,10 +677,19 @@ public partial class MainViewModel : ViewModelBase
     /// запуске: старт не блокируется запросами ко всем базам. Доступность
     /// определяется по факту: для файловых баз — наличие каталога/файла базы по
     /// пути, для клиент-серверных — реальная попытка подключения, для веб-баз —
-    /// заполненность адреса. Проверки выполняются в фоне, чтобы не блокировать UI.
+    /// заполненность адреса.
+    /// <para>
+    /// Сразу после запуска все базы помечаются как «проверяется» (серый значок
+    /// ожидания). Результат каждой базы публикуется в строку состояния по мере
+    /// готовности, а значок обновляется через подписку строки на свойства базы.
+    /// Проверки идут в фоне с ограниченным параллелизмом, чтобы не блокировать UI.
+    /// </para>
     /// </summary>
     private void CheckAvailability()
     {
+        if (_availabilityCheckRunning)
+            return;
+
         var targets = Infobases.ToList();
         if (targets.Count == 0)
         {
@@ -688,28 +697,65 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        _availabilityCheckRunning = true;
         IsLoading = true;
         LoadingMessage = LocalizationManager.T("Main.CheckAvailabilityLabel");
-        _ = Task.Run(() =>
+        foreach (var ib in targets)
+            ib.SetChecking(true);
+        RebuildTree();
+        StatusBarInfo = string.Format(
+            LocalizationManager.T("Main.AvailabilityProgress"), 0, targets.Count);
+
+        _ = RunAvailabilityCheckAsync(targets);
+    }
+
+    /// <summary>Ограничение параллельных проверок доступности баз.</summary>
+    private const int AvailabilityParallelism = 4;
+
+    private bool _availabilityCheckRunning;
+
+    private async Task RunAvailabilityCheckAsync(List<Infobase> targets)
+    {
+        try
         {
-            // Результаты собираем заранее, чтобы не трогать модель из фонового потока.
             var results = new List<(Infobase Base, bool Available)>(targets.Count);
-            foreach (var ib in targets)
-                results.Add((ib, IsBaseAvailable(ib)));
+            var processed = 0;
+
+            await Task.Run(() => Parallel.ForEach(targets,
+                new ParallelOptions { MaxDegreeOfParallelism = AvailabilityParallelism },
+                ib =>
+                {
+                    var available = IsBaseAvailable(ib);
+                    var done = Interlocked.Increment(ref processed);
+                    lock (results)
+                        results.Add((ib, available));
+
+                    // Каждая завершённая база сразу публикуется в UI-потоке: иконка
+                    // строки меняется с серой на фактический статус (по PropertyChanged),
+                    // в строке состояния обновляется прогресс «i из N».
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        ib.SetCheckedAvailability(available);
+                        StatusBarInfo = string.Format(
+                            LocalizationManager.T("Main.AvailabilityProgress"), done, targets.Count);
+                    });
+                }));
 
             Dispatcher.UIThread.Post(() =>
             {
                 IsLoading = false;
-                foreach (var (ib, available) in results)
-                    ib.SetCheckedAvailability(available);
                 RebuildTree();
-
                 var total = results.Count;
                 var unavailable = results.Count(r => !r.Available);
                 ShowTemporaryStatusMessage(string.Format(
-                    LocalizationManager.T("Main.AvailabilityStatus"), total, unavailable));
+                    LocalizationManager.T("Main.AvailabilityStatus"),
+                    total, total - unavailable, unavailable));
             });
-        });
+        }
+        finally
+        {
+            _availabilityCheckRunning = false;
+        }
     }
 
     /// <summary>
