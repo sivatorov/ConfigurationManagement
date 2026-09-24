@@ -91,7 +91,14 @@ public partial class MainViewModel
         var win = new Configuration_Management.ActualReleasesWindow();
         // Настоящая модальность: блокируем владельца, окно поверх и по центру (issue #264).
         win.Owner = Application.Current.MainWindow;
-        win.ShowDialog();
+        // Открываем окно ОТЛОЖЕННО (DispatcherPriority.Input), как подменю «Утилиты»
+        // (см. OnUtilitiesMenuButton_Click): при вызове из пункта подменю контекстное меню
+        // ещё не успело закрыться, и его попап остаётся поверх нового модального диалога,
+        // перекрывая полосу заголовка с кнопками управления окна — кнопки «пропадали»
+        // (issue #288). После закрытия меню диалог показывается штатно.
+        Application.Current.Dispatcher.BeginInvoke(
+            new Action(() => win.ShowDialog()),
+            System.Windows.Threading.DispatcherPriority.Input);
     }
 
     /// <summary>Открывает окно настройки связи ИБ ↔ конфигурация для указанной базы.</summary>
@@ -109,7 +116,11 @@ public partial class MainViewModel
         var win = new Configuration_Management.ConfigTypesEditWindow();
         // Настоящая модальность: блокируем владельца, окно поверх и по центру (issue #265).
         win.Owner = Application.Current.MainWindow;
-        win.ShowDialog();
+        // Отложенное открытие — как в ExecuteShowActualReleases (issue #288): при вызове
+        // из подменю «Утилиты» меню должно закрыться до показа модального диалога.
+        Application.Current.Dispatcher.BeginInvoke(
+            new Action(() => win.ShowDialog()),
+            System.Windows.Threading.DispatcherPriority.Input);
     }
 }
 #endif
