@@ -56,16 +56,19 @@ public sealed class InfobaseAdminService : IInfobaseAdminService
     }
 
     /// <inheritdoc />
-    public bool OpenServerAdminConsole(Infobase infobase)
+    public bool OpenServerAdminConsole(Infobase? infobase)
     {
-        if (infobase?.Connection?.Type != ConnectionType.ClientServer)
-            return false;
+        // Консоль администрирования серверов 1С не связана с конкретной базой (issue #295):
+        // запускаем оснастку/rac всегда, какая бы строка ни была выбрана в списке (или вообще
+        // без выбора). База — только источник настроек платформы; если её нет или она файловая,
+        // используется новейшая установленная платформа нужной разрядности.
+        var baseLabel = infobase is null ? string.Empty : $" для базы «{infobase.Name}»";
 
         var binDir = ResolveBinDirectory(infobase);
         if (binDir is null)
         {
             _logger.Warn(
-                $"Консоль администрирования: не найден каталог платформы 1С для базы «{infobase.Name}».");
+                $"Консоль администрирования: не найден каталог платформы 1С{baseLabel}.");
             return false;
         }
 
@@ -75,7 +78,7 @@ public sealed class InfobaseAdminService : IInfobaseAdminService
         var snapIn = Path.Combine(binDir, "1CV8Servers.msc");
         if (File.Exists(snapIn))
             return Launch(snapIn, string.Empty,
-                $"Консоль администрирования серверов 1С для базы «{infobase.Name}»",
+                $"Консоль администрирования серверов 1С{baseLabel}",
                 shellExecute: true);
 #endif
 
@@ -90,19 +93,20 @@ public sealed class InfobaseAdminService : IInfobaseAdminService
         }
 
         return Launch(rac, string.Empty,
-            $"Консоль администрирования серверов 1С для базы «{infobase.Name}»");
+            $"Консоль администрирования серверов 1С{baseLabel}");
     }
 
     /// <summary>
-    /// Разрешает каталог <c>bin</c> установленной платформы нужной разрядности
-    /// для базы: сначала точная версия базы, затем новейшая установленная версия.
+    /// Разрешает каталог <c>bin</c> установленной платформы нужной разрядности:
+    /// при выбранной базе — по её настройкам (точная версия, затем новейшая
+    /// установленная), без базы — новейшая установленная версия (issue #295).
     /// </summary>
-    private static string? ResolveBinDirectory(Infobase infobase)
+    private static string? ResolveBinDirectory(Infobase? infobase)
     {
-        var arch = OneCLauncher.ResolveArchitecture(infobase.Architecture, infobase.PlatformVersion);
+        var arch = OneCLauncher.ResolveArchitecture(infobase?.Architecture, infobase?.PlatformVersion);
         var archKey = arch == OneCArchitecture.x64 ? "64" : "32";
 
-        PlatformVersionService.ParseVariant(infobase.PlatformVersion ?? string.Empty,
+        PlatformVersionService.ParseVariant(infobase?.PlatformVersion ?? string.Empty,
             out var cleanVersion, out _);
         if (!string.IsNullOrWhiteSpace(cleanVersion))
         {

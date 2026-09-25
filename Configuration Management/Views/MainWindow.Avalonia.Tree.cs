@@ -1593,7 +1593,8 @@ namespace Configuration_Management
 
             // Консоль администрирования серверов 1С не связана с конкретной базой, поэтому
             // перенесена из контекстного меню базы в «Утилиты», сразу после «Списка типовых
-            // конфигураций» и с разделителями вокруг (issue #287).
+            // конфигураций» и с разделителями вокруг (issue #287); активна при любой выбранной
+            // строке списка или без выбора (issue #295).
             menu.Items.Add(MenuSeparator());
             menu.Items.Add(MenuAction("Admin.ServerConsole", _vm.OpenServerConsoleCommand, _vm.HotkeyServerConsole, "IconServer", "#14B8A6"));
             menu.Items.Add(MenuSeparator());

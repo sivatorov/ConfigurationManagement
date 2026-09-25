@@ -29,11 +29,13 @@ public partial class MainViewModel
             ExecuteCheckIntegrity,
             () => SelectedInfobase?.Connection.Type == ConnectionType.File);
 
-    /// <summary>Команда открытия консоли администрирования серверов 1С (для клиент-серверных баз).</summary>
+    /// <summary>
+    /// Команда открытия консоли администрирования серверов 1С.
+    /// Консоль не связана с конкретной базой (issue #295), поэтому команда активна всегда —
+    /// доступность не зависит от выбранной строки списка (группа, база, пустая область).
+    /// </summary>
     public ICommand OpenServerConsoleCommand =>
-        _openServerConsoleCommand ??= new RelayCommand(
-            ExecuteOpenServerConsole,
-            () => SelectedInfobase?.Connection.Type == ConnectionType.ClientServer);
+        _openServerConsoleCommand ??= new RelayCommand(ExecuteOpenServerConsole);
 
     private void ExecuteCheckIntegrity()
     {
@@ -52,12 +54,11 @@ public partial class MainViewModel
 
     private void ExecuteOpenServerConsole()
     {
-        var infobase = SelectedInfobase;
-        if (infobase is null)
-            return;
-
+        // Консоль администрирования серверов не привязана к конкретной базе (issue #295):
+        // открывается при любой выбранной строке или вообще без выбора; база (если есть)
+        // используется только как источник настроек платформы.
         var service = AppServices.GetRequiredService<IInfobaseAdminService>();
-        if (!service.OpenServerAdminConsole(infobase))
+        if (!service.OpenServerAdminConsole(SelectedInfobase))
         {
             _dialog.ShowError(
                 LocalizationManager.T("Admin.ServerConsoleFailed"),

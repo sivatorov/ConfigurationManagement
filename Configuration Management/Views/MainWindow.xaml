@@ -615,7 +615,8 @@
                                         </MenuItem>
                                         <MenuItem Header="{loc:Loc Updates.ManageList}" Click="OnConfigTypesEditMenuClick" Style="{DynamicResource ModernMenuItem}"/>
                                         <!-- Консоль администрирования серверов не связана с конкретной базой,
-                                             поэтому перенесена из контекстного меню базы в «Утилиты» (issue #287). -->
+                                             поэтому перенесена из контекстного меню базы в «Утилиты» (issue #287)
+                                             и активна при любой выбранной строке списка (issue #295). -->
                                         <Separator/>
                                         <MenuItem Header="{loc:Loc Admin.ServerConsole}" Command="{Binding OpenServerConsoleCommand}" InputGestureText="{Binding HotkeyServerConsole}" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
