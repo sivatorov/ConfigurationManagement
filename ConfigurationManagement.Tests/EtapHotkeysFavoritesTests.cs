@@ -259,4 +259,53 @@ public sealed class EtapHotkeysFavoritesTests
         Assert.DoesNotContain(mid.NodeKey, collapsed);
         Assert.DoesNotContain(deep.NodeKey, collapsed);
     }
+
+    /// <summary>
+    /// Поиск строки «Найти в списке» (issue #285): домашний узел базы во «Все базы» —
+    /// настоящая группа, а не дубль в «Закреплённых», который в дереве стоит первым.
+    /// Иначе команда выделяла бы строку закреплений вместо строки общего списка
+    /// («Из избранного перешло в Закрепленные»).
+    /// </summary>
+    [Fact]
+    public void FindInfobaseHomeNode_SkipsPinnedDuplicateAndPrefersRealGroup()
+    {
+        var infobase = CreateInfobase("base-1", "Бухгалтерия");
+        infobase.IsPinned = true;
+
+        var group = new GroupNodeViewModel(null, marker: "GroupRoot");
+        group.Infobases.Add(infobase);
+
+        var pinned = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        pinned.Infobases.Add(infobase);
+
+        // Порядок корней как в RebuildGroupTree: закреплённые идут первыми.
+        var roots = new List<GroupNodeViewModel> { pinned, group };
+
+        var home = GroupNodeViewModel.FindInfobaseHomeNode(roots, infobase);
+
+        Assert.Same(group, home);
+    }
+
+    /// <summary>
+    /// База без группы во «Все базы» живёт в узле «Без группы»; дубль в «Закреплённых»
+    /// снова пропускается (issue #285).
+    /// </summary>
+    [Fact]
+    public void FindInfobaseHomeNode_NoGroupFallsBackToNoGroupNode()
+    {
+        var infobase = CreateInfobase("base-2", "База без группы");
+        infobase.IsPinned = true;
+
+        var noGroup = new GroupNodeViewModel(null, marker: GroupNodeViewModel.NoGroupMarker);
+        noGroup.Infobases.Add(infobase);
+
+        var pinned = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        pinned.Infobases.Add(infobase);
+
+        var roots = new List<GroupNodeViewModel> { pinned, noGroup };
+
+        var home = GroupNodeViewModel.FindInfobaseHomeNode(roots, infobase);
+
+        Assert.Same(noGroup, home);
+    }
 }

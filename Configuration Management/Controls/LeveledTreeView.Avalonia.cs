@@ -358,6 +358,36 @@ namespace Configuration_Management.Controls
             }
         }
 
+        /// <summary>
+        /// Контейнер строки ВНУТРИ конкретного узла (а не первое вхождение по всему дереву):
+        /// закреплённая база присутствует в дереве дважды, и общий <see cref="ContainerForItem"/>
+        /// всегда отдавал бы строку «Закреплённых» (они идут первыми). Команде «Найти в списке»
+        /// (issue #285) нужна строка во «Все базы» — внутри настоящей группы или «Без группы».
+        /// </summary>
+        public TreeViewItem? ContainerForItemWithin(GroupNodeViewModel node, object data)
+        {
+            var container = ContainerForItem(node);
+            return container is null ? null : FindWithin(container, data);
+
+            static TreeViewItem? FindWithin(ItemsControl parent, object data)
+            {
+                for (var i = 0; i < parent.ItemCount; i++)
+                {
+                    if (parent.ContainerFromIndex(i) is not TreeViewItem item)
+                        continue;
+                    if (ReferenceEquals(item.DataContext, data))
+                        return item;
+                    if (item.IsExpanded)
+                    {
+                        var found = FindWithin(item, data);
+                        if (found is not null)
+                            return found;
+                    }
+                }
+                return null;
+            }
+        }
+
         protected override void ClearContainerForItemOverride(Control container)
         {
             ReleaseExpandedBinding(container);

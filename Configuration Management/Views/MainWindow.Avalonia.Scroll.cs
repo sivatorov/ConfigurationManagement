@@ -7,6 +7,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Configuration_Management.Models;
+using Configuration_Management.ViewModels;
 
 namespace Configuration_Management
 {
@@ -160,9 +162,7 @@ namespace Configuration_Management
         /// «Найти в списке» (issue #285): команда переключила вкладку на «Все базы», раскрыла
         /// группы-предки и пересобрала дерево; цель уже выставлена во вьюмодели. Возврат
         /// прежней позиции прокрутки здесь отменяется (обнуляем offset, запомненный
-        /// RememberTreeScroll), а повторная установка выбора доводит строку до видимой
-        /// области через AutoScrollToSelectedItem. Post ставится ПОСЛЕ RestoreTreeSelection,
-        /// поэтому итоговое положение прокрутки — у цели, а не на старом месте.
+        /// RememberTreeScroll), а строка цели выделяется и доводится до видимой области.
         /// </summary>
         private void RevealFindInList()
         {
@@ -178,21 +178,49 @@ namespace Configuration_Management
                 var target = (object?)_vm.SelectedInfobase ?? _vm.SelectedGroupNode;
                 if (target is null)
                     return;
-                if (!ReferenceEquals(_tree.SelectedItem, target))
+
+                // Ищем строку во «Все базы»: для базы — внутри её настоящей группы (или узла
+                // «Без группы»), а не первую копию в «Закреплённых». Если контейнер ещё не
+                // создан (не прошёл проход компоновки) — дожимаем попытками ниже.
+                if (FindFindInListRow(target) is { } row)
                 {
-                    // Выбор ставится напрямую, без обработчика: он уже согласован
-                    // с вьюмоделью (тот же приём, что в RestoreTreeSelection).
-                    _tree.SelectionChanged -= OnTreeSelectionChanged;
-                    try { _tree.SelectedItem = target; }
-                    finally { _tree.SelectionChanged += OnTreeSelectionChanged; }
+                    SelectAndReveal(row);
+                    return;
                 }
 
-                // Явно доводим строку до видимой области: RestoreTreeSelection (Post Background,
-                // выполняется раньше) часто уже ставит SelectedItem, тогда блок выше пропускается,
-                // и остаётся лишь AutoScrollToSelectedItem, который для цели глубоко за вьюпортом
-                // ненадёжен (issue #285). Доводка через контейнер работает в любом случае.
                 RevealFindInListAttempt(target, 0);
             }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Строка-цель команды «Найти в списке»: для базы — контейнер внутри домашнего узла
+        /// во «Все базы» (настоящая группа или «Без группы»), для группы — первый найденный.
+        /// Общий поиск по данным для закреплённой базы вернул бы строку «Закреплённых»
+        /// (она первая в дереве), поэтому он используется только как запасной вариант.
+        /// </summary>
+        private TreeViewItem? FindFindInListRow(object target)
+        {
+            if (_vm is not null
+                && target is Infobase ib
+                && GroupNodeViewModel.FindInfobaseHomeNode(_vm.GroupNodes, ib) is { } home)
+            {
+                return _tree.ContainerForItemWithin(home, ib);
+            }
+            return _tree.ContainerForItem(target);
+        }
+
+        /// <summary>
+        /// Выделяет конкретный контейнер строки и доводит его до видимой области. Выделение
+        /// ставится на контейнер, а не через SelectedItem: закреплённая база есть в дереве
+        /// дважды, и SelectedItem всегда резолвился бы в первое вхождение вверху
+        /// («Закреплённые»). Из контейнера выбор поднимается штатно (тот же приём,
+        /// что в навигации клавишами LeveledTreeView).
+        /// </summary>
+        private static void SelectAndReveal(TreeViewItem row)
+        {
+            row.IsSelected = true;
+            row.BringIntoView();
+            row.Focus();
         }
 
         /// <summary>
@@ -205,9 +233,9 @@ namespace Configuration_Management
                 return;
             try
             {
-                if (_tree.ContainerForItem(target) is { } container && container is Control row)
+                if (FindFindInListRow(target) is { } row)
                 {
-                    row.BringIntoView();
+                    SelectAndReveal(row);
                     return;
                 }
             }

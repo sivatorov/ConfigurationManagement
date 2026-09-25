@@ -446,4 +446,39 @@ public class GroupNodeViewModel : ViewModelBase
 
         return roots;
     }
+
+    /// <summary>
+    /// Находит узел, в котором база показана в разделе «Все базы»: настоящая группа
+    /// (в т.ч. вложенная) или узел «Без группы». Дубль в «Закреплённых» пропускается —
+    /// команда «Найти в списке» (issue #285) должна выделять строку именно в общем
+    /// списке, а не первую попавшуюся копию в закреплениях.
+    /// </summary>
+    public static GroupNodeViewModel? FindInfobaseHomeNode(
+        IEnumerable<GroupNodeViewModel> roots, Infobase infobase)
+    {
+        foreach (var root in roots)
+        {
+            var found = FindInNode(root, infobase);
+            if (found is not null)
+                return found;
+        }
+        return null;
+
+        static GroupNodeViewModel? FindInNode(GroupNodeViewModel node, Infobase ib)
+        {
+            // Узел «Закреплённые» — дубль строк из общего списка: во «Все базы» база
+            // показана в своей группе (или «Без группы»), поэтому закрепления пропускаем.
+            if (string.Equals(node.Marker, PinnedMarker, StringComparison.Ordinal))
+                return null;
+            foreach (var child in node.Children)
+            {
+                var found = FindInNode(child, ib);
+                if (found is not null)
+                    return found;
+            }
+            if (node.Infobases.Any(ibRef => ReferenceEquals(ibRef, ib)))
+                return node;
+            return null;
+        }
+    }
 }

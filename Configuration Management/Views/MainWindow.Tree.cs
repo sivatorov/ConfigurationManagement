@@ -260,12 +260,21 @@ namespace Configuration_Management
                 if (target is null)
                     return;
 
+                // «Найти в списке» (issue #285): строка должна быть во «Все базы» — в настоящей
+                // группе базы или узле «Без группы», а НЕ первой копией в «Закреплённых».
+                // Закреплённая база присутствует в дереве дважды, и общий поиск всегда отдавал
+                // закрепления (они идут первыми), из-за чего команда «переходила» туда, а не
+                // к строке в общем списке. Обычные пересборки дерева не трогаем.
+                var revealToHome = _revealFindInListPending;
+
                 // Цепочка групп от корня к родителю цели (Group == null — спец-узлы «Без группы»/«Закреплённые»).
                 // Для цели-базы родитель — её группа; для цели-группы — её родитель. Раскрываем именно
                 // ПРЕДКОВ, чтобы отредактированная группа осталась свёрнутой, если была свёрнута.
                 GroupNodeViewModel? leaf = target switch
                 {
-                    Infobase ib => FindGroupNodeByInfobase(ib),
+                    Infobase ib => revealToHome
+                        ? GroupNodeViewModel.FindInfobaseHomeNode(_viewModel.GroupNodes, ib)
+                        : FindGroupNodeByInfobase(ib),
                     GroupNodeViewModel gn => gn.Parent,
                     _ => null
                 };
@@ -313,7 +322,7 @@ namespace Configuration_Management
                 // ApplicationIdle повторяет раскладку и поиск (issue #285).
                 MainTree.UpdateLayout();
 
-                var item = FindTreeViewItemForData(target);
+                var item = FindTargetContainer(target, revealToHome ? leaf : null);
                 if (item is null)
                 {
                     // Контейнер цели ещё не создан: строка ниже реализованного диапазона
@@ -549,6 +558,26 @@ namespace Configuration_Management
             if (node.Infobases.Any(ib => ReferenceEquals(ib, infobase)))
                 return node;
             return null;
+        }
+
+        /// <summary>
+        /// Возвращает контейнер строки цели. При «Найти в списке» (issue #285) строка ищется
+        /// ТОЛЬКО внутри домашнего узла во «Все базы» (настоящая группа или «Без группы»):
+        /// закреплённая база присутствует в дереве дважды, и общий поиск по данным вернул бы
+        /// первую копию в «Закреплённых» (они идут первыми), из-за чего переход «уезжал» туда.
+        /// Для обычных пересборок (homeNode == null) поведение прежнее — первый найденный.
+        /// </summary>
+        private TreeViewItem? FindTargetContainer(object target, GroupNodeViewModel? homeNode)
+        {
+            if (homeNode is not null)
+            {
+                // Контейнер домашнего узла уникален (объект узла один на дерево); затем ищем
+                // строку цели только в его поддереве, не выходя за пределы «Все базы».
+                if (FindTreeViewItemForData(homeNode) is { } groupItem)
+                    return FindTreeViewItemIn(groupItem, target);
+                return null;
+            }
+            return FindTreeViewItemForData(target);
         }
 
         /// <summary>
