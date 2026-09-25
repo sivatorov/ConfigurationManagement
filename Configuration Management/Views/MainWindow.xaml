@@ -628,13 +628,23 @@
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="CloseNetwork" Width="16" Height="16" Foreground="#F59E0B"/></MenuItem.Icon>
                                         </MenuItem>
                                         <Separator/>
-                                        <MenuItem Header="{loc:Loc Settings.About.CheckForUpdates}" Click="OnCheckForUpdatesMenuClick" Style="{DynamicResource ModernMenuItem}">
-                                            <MenuItem.Icon><materialDesign:PackIcon Kind="Update" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
-                                        </MenuItem>
                                         <!-- Задания по расписанию (issue #286): резервная копия, обновление
                                              конфигурации ИБ, «копия → обновление», обновление приложения. -->
                                         <MenuItem Header="{loc:Loc Schedule.Title}" Click="OnScheduledTasksMenuClick" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="CalendarClock" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
+                                        </MenuItem>
+                                        <!-- «Сценарии резервирования» и «Выполнить резервирование» не привязаны
+                                             к конкретной базе, поэтому перенесены из контекстного меню базы
+                                             в «Утилиты» (issue #293). -->
+                                        <MenuItem Header="{loc:Loc Backup.ScenariosTitle}" Command="{Binding ShowBackupScenariosCommand}" Style="{DynamicResource ModernMenuItem}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="Cog" Width="16" Height="16" Foreground="#F59E0B"/></MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem Header="{loc:Loc Backup.RunTitle}" Command="{Binding RunBackupScenarioCommand}" InputGestureText="{Binding HotkeyRunBackup}" Style="{DynamicResource ModernMenuItem}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
+                                        </MenuItem>
+                                        <Separator/>
+                                        <MenuItem Header="{loc:Loc Settings.About.CheckForUpdates}" Click="OnCheckForUpdatesMenuClick" Style="{DynamicResource ModernMenuItem}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="Update" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
                                         </MenuItem>
                                     </ContextMenu>
                                 </Button.ContextMenu>
@@ -2030,9 +2040,10 @@
                                         <MenuItem.Icon><materialDesign:PackIcon Kind="History" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
                                     </MenuItem>
                                 </MenuItem>
-                                <!-- Подменю «Резервирование»: выгрузки, сценарии и список выгрузок (issue #287).
-                                     Сценарии и «Список выгрузок» (функции №16/№18): Ctrl+Shift+F5 —
-                                     выполнить сценарий, Ctrl+Shift+F7 — список выгрузок. -->
+                                <!-- Подменю «Резервирование»: выгрузки и список выгрузок (issue #287).
+                                     «Сценарии резервирования» и «Выполнить резервирование» перенесены
+                                     в общее меню «Утилиты» (issue #293); «Список выгрузок» (функция
+                                     №18, Ctrl+Shift+F7) остаётся здесь. -->
                                 <MenuItem Header="{loc:Loc Menu.Backup}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#0EA5E9"/></MenuItem.Icon>
                                     <MenuItem Header="{loc:Loc Main.DumpToDt}" Command="{Binding DumpInfobaseDtCommand}" Style="{DynamicResource ModernMenuItem}">
@@ -2040,13 +2051,6 @@
                                     </MenuItem>
                                     <MenuItem Header="{loc:Loc Main.DumpConfigToCf}" Command="{Binding DumpConfigurationCfCommand}" Style="{DynamicResource ModernMenuItem}">
                                         <MenuItem.Icon><materialDesign:PackIcon Kind="FileExport" Width="16" Height="16" Foreground="#3B82F6"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <Separator/>
-                                    <MenuItem Header="{loc:Loc Backup.ScenariosTitle}" Command="{Binding ShowBackupScenariosCommand}" Style="{DynamicResource ModernMenuItem}">
-                                        <MenuItem.Icon><materialDesign:PackIcon Kind="Cog" Width="16" Height="16" Foreground="#F59E0B"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="{loc:Loc Backup.RunTitle}" Command="{Binding RunBackupScenarioCommand}" InputGestureText="{Binding HotkeyRunBackup}" Style="{DynamicResource ModernMenuItem}">
-                                        <MenuItem.Icon><materialDesign:PackIcon Kind="DatabaseExport" Width="16" Height="16" Foreground="#22C55E"/></MenuItem.Icon>
                                     </MenuItem>
                                     <Separator/>
                                     <MenuItem Header="{loc:Loc Restore.Title}" Command="{Binding ShowExportsListCommand}" InputGestureText="{Binding HotkeyExportsList}" Style="{DynamicResource ModernMenuItem}">

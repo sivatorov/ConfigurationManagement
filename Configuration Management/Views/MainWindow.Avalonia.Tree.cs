@@ -1620,6 +1620,26 @@ namespace Configuration_Management
 
             menu.Items.Add(MenuSeparator());
 
+            // Задания по расписанию (issue #286): резервная копия, обновление конфигурации
+            // ИБ, «копия → обновление», обновление приложения. Открывается отложенно,
+            // чтобы попап меню успел закрыться (та же проблема, что в issue #288).
+            var scheduleItem = new MenuItem { Header = LocalizationManager.T("Schedule.Title") };
+            scheduleItem.Styled(Themes.ControlThemes.ModernMenuItem);
+            scheduleItem.Icon = MenuIcon("IconScheduler", "#14B8A6");
+            scheduleItem.Click += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                var win = new ScheduledTasksWindow();
+                win.ShowSync(this);
+            });
+            menu.Items.Add(scheduleItem);
+
+            // «Сценарии резервирования» и «Выполнить резервирование» не привязаны к конкретной
+            // базе, поэтому перенесены из контекстного меню базы в «Утилиты» (issue #293).
+            menu.Items.Add(MenuAction("Backup.ScenariosTitle", _vm.ShowBackupScenariosCommand, null, "IconSettings", "#F59E0B"));
+            menu.Items.Add(MenuAction("Backup.RunTitle", _vm.RunBackupScenarioCommand, _vm.HotkeyRunBackup, "IconDatabaseExport", "#22C55E"));
+
+            menu.Items.Add(MenuSeparator());
+
             var checkUpdatesItem = new MenuItem { Header = LocalizationManager.T("Settings.About.CheckForUpdates") };
             checkUpdatesItem.Styled(Themes.ControlThemes.ModernMenuItem);
             // Значок как у кнопки проверки обновлений в окне настроек (возле версии): Update/#3B82F6 (issue #282).
@@ -1637,19 +1657,6 @@ namespace Configuration_Management
                 }
             };
             menu.Items.Add(checkUpdatesItem);
-
-            // Задания по расписанию (issue #286): резервная копия, обновление конфигурации
-            // ИБ, «копия → обновление», обновление приложения. Открывается отложенно,
-            // чтобы попап меню успел закрыться (та же проблема, что в issue #288).
-            var scheduleItem = new MenuItem { Header = LocalizationManager.T("Schedule.Title") };
-            scheduleItem.Styled(Themes.ControlThemes.ModernMenuItem);
-            scheduleItem.Icon = MenuIcon("IconScheduler", "#14B8A6");
-            scheduleItem.Click += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                var win = new ScheduledTasksWindow();
-                win.ShowSync(this);
-            });
-            menu.Items.Add(scheduleItem);
 
             return menu;
         }
@@ -1717,9 +1724,10 @@ namespace Configuration_Management
             adminMenu.Items.Add(MenuAction("Admin.CheckIntegrity", _vm.CheckIntegrityCommand, _vm.HotkeyCheckIntegrity, "IconDatabase", "#10B981"));
             menu.Items.Add(adminMenu);
 
-            // Подменю «Резервирование»: выгрузки, сценарии и список выгрузок (issue #287).
-            // Сценарии и «Список выгрузок» (функции №16/№18): Ctrl+Shift+F5 — выполнить
-            // сценарий, Ctrl+Shift+F7 — список выгрузок.
+            // Подменю «Резервирование»: выгрузки и список выгрузок (issue #287).
+            // «Сценарии резервирования» и «Выполнить резервирование» перенесены в общее
+            // меню «Утилиты» (issue #293); «Список выгрузок» (функция №18, Ctrl+Shift+F7)
+            // остаётся здесь.
             var backupMenu = new MenuItem
             {
                 Header = LocalizationManager.T("Menu.Backup"),
@@ -1728,9 +1736,6 @@ namespace Configuration_Management
             backupMenu.Styled(Themes.ControlThemes.ModernMenuItem);
             backupMenu.Items.Add(MenuAction("Main.DumpToDt", _vm.DumpInfobaseDtCommand, null, "IconDatabaseExport", "#0EA5E9"));
             backupMenu.Items.Add(MenuAction("Main.DumpConfigToCf", _vm.DumpConfigurationCfCommand, null, "IconFileExport", "#3B82F6"));
-            backupMenu.Items.Add(MenuSeparator());
-            backupMenu.Items.Add(MenuAction("Backup.ScenariosTitle", _vm.ShowBackupScenariosCommand, null, "IconSettings", "#F59E0B"));
-            backupMenu.Items.Add(MenuAction("Backup.RunTitle", _vm.RunBackupScenarioCommand, _vm.HotkeyRunBackup, "IconDatabaseExport", "#22C55E"));
             backupMenu.Items.Add(MenuSeparator());
             backupMenu.Items.Add(MenuAction("Restore.Title", _vm.ShowExportsListCommand, _vm.HotkeyExportsList, null, null));
             menu.Items.Add(backupMenu);
