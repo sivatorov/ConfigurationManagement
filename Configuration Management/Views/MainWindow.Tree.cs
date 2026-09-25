@@ -32,6 +32,17 @@ namespace Configuration_Management
         private bool _scrollQueued;
 
         /// <summary>
+        /// Идёт «Найти в списке» (issue #285): цель уже выставлена во вьюмодели, и при
+        /// восстановлении строки прокрутку нужно вести К ЦЕЛИ, а не возвращать прежнюю
+        /// позицию. Устанавливается обработчиком RevealFindInListRequested и сбрасывается
+        /// в RevealAndSelectAfterRebuild после применения.
+        /// </summary>
+        private bool _revealFindInListPending;
+
+        /// <summary>Максимум «добирающих» проходов при поиске контейнера цели после пересборки (issue #285).</summary>
+        private const int MaxRevealAttempts = 3;
+
+        /// <summary>
         /// Собирает контейнеры видимых строк дерева в порядке их отображения
         /// (сверху вниз), включая строки развёрнутых подгрупп. Навигация ведётся
         /// по контейнерам, а не по объектам данных: закреплённая база присутствует
@@ -224,6 +235,13 @@ namespace Configuration_Management
         }
 
         /// <summary>
+        /// Окно узнало, что выполняется «Найти в списке» (issue #285): цель уже выставлена
+        /// во вьюмодели, и при восстановлении строки прокрутку нужно вести К ЦЕЛИ, а не
+        /// возвращать прежнюю позицию. Флаг сбрасывается в RevealAndSelectAfterRebuild.
+        /// </summary>
+        private void OnFindInListRequested() => _revealFindInListPending = true;
+
+        /// <summary>
         /// Восстанавливает выделение и клавиатурный фокус выбранной строки после пересборки.
         /// С учётом виртуализации: при виртуализации контейнер дочерней строки существует только
         /// внутри раскрытой группы, поэтому сначала раскрывается цепочка групп-предков цели,
@@ -231,7 +249,7 @@ namespace Configuration_Management
         /// фокус. Цель читается в момент выполнения, поэтому порядок установки SelectedInfobase
         /// относительно пересборки не важен.
         /// </summary>
-        private void RevealAndSelectAfterRebuild()
+        private void RevealAndSelectAfterRebuild(int attempt = 0)
         {
             if (MainTree is null || _viewModel is null)
                 return;
@@ -291,13 +309,24 @@ namespace Configuration_Management
                 // Один проход разметки доводит каскад раскрытия до конца в пределах
                 // реализованного диапазона: виртуализация достраивает контейнеры раскрытых
                 // веток, и контейнер цели ниже уже существует. Строку далеко за вьюпортом
-                // это не создаёт — тогда поиск ниже вернёт null и метод тихо выйдет,
-                // как и до правки; второй проход по ApplicationIdle такой случай добирает.
+                // это не создаёт — тогда поиск ниже вернёт null, и «добирающий» проход по
+                // ApplicationIdle повторяет раскладку и поиск (issue #285).
                 MainTree.UpdateLayout();
 
                 var item = FindTreeViewItemForData(target);
                 if (item is null)
+                {
+                    // Контейнер цели ещё не создан: строка ниже реализованного диапазона
+                    // виртуализации либо ветка раскрылась после первого прохода разметки.
+                    // Запланированный ниже повтор (ApplicationIdle) ещё раз вызывает
+                    // UpdateLayout и поиск; при неудаче за отведённое число попыток выходим.
+                    if (attempt < MaxRevealAttempts)
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => RevealAndSelectAfterRebuild(attempt + 1)),
+                            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    }
                     return;
+                }
 
                 switch (target)
                 {
@@ -311,13 +340,26 @@ namespace Configuration_Management
                         return;
                 }
 
-                // Позицию прокрутки возвращаем в том же синхронном проходе, до отрисовки следующего
-                // кадра (issue #252). Промежуточный BringIntoView к цели не делаем: восстановление
-                // позиции (RestoreTreeScrollAfterRebuild) само приводит вьюпорт к сохранённому
-                // offset/якорю, а лишний сдвиг к строке давал двухфазный «скачок» списка «повыше» →
-                // к активной строке. Если группа и верхняя видимая строка не изменились —
-                // RestoreTreeScrollAfterRebuild вернёт управление, не тронув позицию вовсе.
-                RestoreTreeScrollAfterRebuild();
+                if (_revealFindInListPending)
+                {
+                    // «Найти в списке» (issue #285): доводим строку цели до видимой области.
+                    // Возврат прежней позиции здесь отменяется: RestoreTreeScrollAfterRebuild
+                    // вернул бы позицию предыдущей вкладки («Избранное»/«Закреплённые») и
+                    // «спрятал» целевую базу.
+                    _revealFindInListPending = false;
+                    ScrollSelectedIntoView(item);
+                }
+                else
+                {
+                    // Позицию прокрутки возвращаем в том же синхронном проходе, до отрисовки
+                    // следующего кадра (issue #252). Промежуточный BringIntoView к цели не делаем:
+                    // восстановление позиции (RestoreTreeScrollAfterRebuild) само приводит вьюпорт
+                    // к сохранённому offset/якорю, а лишний сдвиг к строке давал двухфазный «скачок»
+                    // списка «повыше» → к активной строке. Если группа и верхняя видимая строка
+                    // не изменились — RestoreTreeScrollAfterRebuild вернёт управление, не тронув
+                    // позицию вовсе.
+                    RestoreTreeScrollAfterRebuild();
+                }
 
                 // Клавиатурный фокус возвращаем строке. Защищаем только поле поиска: после закрытия
                 // модального окна настроек WPF может временно держать фокус на каком-либо контроле,

@@ -18,6 +18,9 @@ namespace Configuration_Management
         /// <summary>Позиция прокрутки списка, снятая перед пересборкой дерева.</summary>
         private Avalonia.Vector? _treeScrollOffset;
 
+        /// <summary>Максимум отложенных попыток довести строку до видимой области (issue #285).</summary>
+        private const int MaxRevealAttempts = 3;
+
         /// <summary>Внутренняя прокрутка дерева: вертикаль ведёт сам TreeView.</summary>
         private ScrollViewer? TreeScroll =>
             _tree?.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
@@ -163,13 +166,19 @@ namespace Configuration_Management
         /// </summary>
         private void RevealFindInList()
         {
+            // Возврат прежней позиции прокрутки здесь отменяется (обнуляем offset, запомненный
+            // RememberTreeScroll) — цель «Найти в списке» показать строку базы, а не старое место
+            // списка (issue #285; кейс #252 «возврат после „Нет“» не затрагивается — у него свой
+            // путь через RestoreTreeScrollAfterCancel).
             _treeScrollOffset = null;
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (_vm is null || _tree is null)
                     return;
                 var target = (object?)_vm.SelectedInfobase ?? _vm.SelectedGroupNode;
-                if (target is not null && !ReferenceEquals(_tree.SelectedItem, target))
+                if (target is null)
+                    return;
+                if (!ReferenceEquals(_tree.SelectedItem, target))
                 {
                     // Выбор ставится напрямую, без обработчика: он уже согласован
                     // с вьюмоделью (тот же приём, что в RestoreTreeSelection).
@@ -177,7 +186,43 @@ namespace Configuration_Management
                     try { _tree.SelectedItem = target; }
                     finally { _tree.SelectionChanged += OnTreeSelectionChanged; }
                 }
+
+                // Явно доводим строку до видимой области: RestoreTreeSelection (Post Background,
+                // выполняется раньше) часто уже ставит SelectedItem, тогда блок выше пропускается,
+                // и остаётся лишь AutoScrollToSelectedItem, который для цели глубоко за вьюпортом
+                // ненадёжен (issue #285). Доводка через контейнер работает в любом случае.
+                RevealFindInListAttempt(target, 0);
             }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Доводит контейнер строки цели до видимой области. Если контейнер ещё не создан
+        /// (не прошёл проход компоновки), повторяет отложенно с ограничением числа попыток.
+        /// </summary>
+        private void RevealFindInListAttempt(object target, int attempt)
+        {
+            if (_vm is null || _tree is null)
+                return;
+            try
+            {
+                if (_tree.ContainerForItem(target) is { } container && container is Control row)
+                {
+                    row.BringIntoView();
+                    return;
+                }
+            }
+            catch
+            {
+                // Контейнер мог отсоединиться во время пересборки — выходим.
+                return;
+            }
+
+            if (attempt < MaxRevealAttempts)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    () => RevealFindInListAttempt(target, attempt + 1),
+                    Avalonia.Threading.DispatcherPriority.Background);
+            }
         }
 
         /// <summary>

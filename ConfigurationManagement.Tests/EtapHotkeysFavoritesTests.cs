@@ -226,4 +226,37 @@ public sealed class EtapHotkeysFavoritesTests
         Assert.Same(all[0], favorites[0]);
         Assert.Same(all[0], pinned[0]);
     }
+
+    /// <summary>
+    /// Чистая логика «Найти в списке» (issue #285): раскрытие цепочки групп-предков
+    /// снимает их ключи из набора свёрнутых. Узлы дерева пересоздаются при пересборке
+    /// по набору свёрнутых групп, поэтому оставшийся ключ свёрнутой группы-предка
+    /// снова свернул бы её и спрятал целевую базу (см. ExpandChainToRoot).
+    /// </summary>
+    [Fact]
+    public void ExpandChainToRoot_UncollapsesAncestorsAndRemovesKeys()
+    {
+        var top = new GroupNodeViewModel(null, marker: "Top");
+        var mid = new GroupNodeViewModel(null, parent: top, marker: "Mid");
+        var deep = new GroupNodeViewModel(null, parent: mid, marker: "Deep");
+        top.SetExpandedSilent(false);
+        mid.SetExpandedSilent(false);
+        deep.SetExpandedSilent(false);
+
+        var collapsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            top.NodeKey,
+            mid.NodeKey,
+            deep.NodeKey
+        };
+
+        MainViewModel.ExpandChainToRoot(new[] { top, mid, deep }, collapsed);
+
+        Assert.True(top.IsExpanded);
+        Assert.True(mid.IsExpanded);
+        Assert.True(deep.IsExpanded);
+        Assert.DoesNotContain(top.NodeKey, collapsed);
+        Assert.DoesNotContain(mid.NodeKey, collapsed);
+        Assert.DoesNotContain(deep.NodeKey, collapsed);
+    }
 }

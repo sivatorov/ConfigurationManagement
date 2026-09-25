@@ -423,16 +423,6 @@
                                     </StackPanel>
                                 </Button>
                             </Grid>
-                            <!-- Выбор тега из списка существующих: не нужно вводить
-                                 название вручную и можно не ошибиться в букве (issue #283). -->
-                            <ComboBox x:Name="TagFilterCombo"
-                                      Margin="0,0,0,6"
-                                      MinHeight="32"
-                                      FontSize="12"
-                                      Style="{StaticResource ModernComboBox}"
-                                      ItemsSource="{Binding AvailableTags}"
-                                      SelectionChanged="OnTagFilterCombo_SelectionChanged"
-                                      ToolTip="{loc:Loc Main.TagFilterPick}"/>
                             <ItemsControl ItemsSource="{Binding TagFilterItems}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -1781,17 +1771,22 @@
                                                                Foreground="{DynamicResource TextSecondaryBrush}"/>
                                                 </StackPanel>
                                             </Button>
-                                            <TextBox x:Name="InlineTagBox" Visibility="Collapsed"
-                                                     Width="120" FontSize="12" Padding="6,3"
-                                                     MinHeight="24" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                     Background="{DynamicResource CardBackgroundBrush}"
-                                                     Foreground="{DynamicResource TextPrimaryBrush}"
-                                                     BorderBrush="{DynamicResource AccentBrush}"
-                                                     BorderThickness="1"
-                                                     CaretBrush="{DynamicResource TextPrimaryBrush}"
-                                                     KeyDown="OnInlineTagBox_KeyDown"
-                                                     LostFocus="OnInlineTagBox_LostFocus"
-                                                     ToolTip="{loc:Loc Main.EnterTagHint}"/>
+                                            <!-- Редактируемый список: выбор существующего тега из выпадающего
+                                                 списка или свободный ввод нового (issue #283). Локальные значения
+                                                 переопределяют сеттеры ModernComboBox (высоту, отступы, рамку). -->
+                                            <ComboBox x:Name="InlineTagBox" Visibility="Collapsed"
+                                                      Width="120" FontSize="12" Padding="6,3"
+                                                      MinHeight="24" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                      IsEditable="True" IsTextSearchEnabled="False"
+                                                      StaysOpenOnEdit="True"
+                                                      ItemsSource="{Binding DataContext.AvailableTags, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      BorderBrush="{DynamicResource AccentBrush}"
+                                                      BorderThickness="1"
+                                                      Style="{StaticResource ModernComboBox}"
+                                                      KeyDown="OnInlineTagBox_KeyDown"
+                                                      LostFocus="OnInlineTagBox_LostFocus"
+                                                      SelectionChanged="OnInlineTagBox_SelectionChanged"
+                                                      ToolTip="{loc:Loc Main.EnterTagHint}"/>
                                         </StackPanel>
                                     </Grid>
                                     </Grid>

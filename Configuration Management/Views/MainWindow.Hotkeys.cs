@@ -383,6 +383,7 @@ namespace Configuration_Management
             if (key is Key.Up or Key.Down or Key.Left or Key.Right &&
                 Keyboard.Modifiers == ModifierKeys.None &&
                 Keyboard.FocusedElement is not TextBox &&
+                !IsFocusInsideTagEditor() &&
                 IsFocusInsideMainTree())
             {
                 if (HandleArrowNavigation(key))
@@ -396,7 +397,7 @@ namespace Configuration_Management
             if (key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
             {
                 // Не перехватываем, если фокус в поле ввода тега — там свой обработчик
-                if (Keyboard.FocusedElement is TextBox { Name: "InlineTagBox" })
+                if (IsFocusInsideTagEditor())
                     return;
 
                 // Сначала закрываем открытую подсказку, открытые контекстные меню и пользовательские
@@ -514,6 +515,19 @@ namespace Configuration_Management
             }
         }
 
+        /// <summary>
+        /// True, если фокус ввода находится внутри inline-поля правки тега строки базы
+        /// (редактируемый ComboBox InlineTagBox или его внутреннее поле ввода). В этом
+        /// случае клавиши остаются полю: там свой обработчик Enter/Esc (issue #283).
+        /// </summary>
+        private bool IsFocusInsideTagEditor()
+        {
+            if (Keyboard.FocusedElement is not DependencyObject focused)
+                return false;
+
+            return focused is ComboBox { Name: "InlineTagBox" }
+                || FindAncestor<ComboBox>(focused) is { Name: "InlineTagBox" };
+        }
 
         /// <summary>Открытые контекстные меню главного окна (issue #261).</summary>
         private readonly HashSet<ContextMenu> _openContextMenus = new();

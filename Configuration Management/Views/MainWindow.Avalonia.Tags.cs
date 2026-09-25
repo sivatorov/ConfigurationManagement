@@ -190,34 +190,44 @@ namespace Configuration_Management
             ToolTip.SetTip(button, LocalizationManager.T("Main.AddTag"));
 
             // Поле ввода тега показывается на месте кнопки во время редактирования.
-            var input = new TextBox
+            // Это редактируемый список: существующий тег выбирается из выпадающего
+            // списка, новый — вводится свободно (issue #283).
+            var input = new ComboBox
             {
                 // Числа и кисти из разметки (MainWindow.xaml:1390): ширина 120,
                 // кегль 12, отступ 6,3, высота не меньше 24, поле 4 слева,
                 // акцентная рамка толщиной 1.
-                Watermark = LocalizationManager.T("Main.AddTag"),
+                PlaceholderText = LocalizationManager.T("Main.AddTag"),
                 Width = UiMetrics.Scaled(120),
                 FontSize = UiMetrics.ScaledFont(12),
                 Padding = new Thickness(6, 3),
                 MinHeight = UiMetrics.Scaled(24),
                 Margin = new Thickness(4, 0, 0, 0),
-                BorderThickness = new Thickness(1),
+                IsEditable = true,
+                IsTextSearchEnabled = false,
+                MaxDropDownHeight = UiMetrics.Scaled(240),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 IsVisible = false
             };
             ThemeBrushes.Bind(input, TemplatedControl.BackgroundProperty, "CardBackgroundBrush");
             ThemeBrushes.Bind(input, TemplatedControl.ForegroundProperty, "TextPrimaryColorBrush");
             ThemeBrushes.Bind(input, TemplatedControl.BorderBrushProperty, "AccentBrush");
-            ThemeBrushes.Bind(input, TextBox.CaretBrushProperty, "TextPrimaryColorBrush");
             ToolTip.SetTip(input, LocalizationManager.T("Main.EnterTagHint"));
 
             void ShowEditor()
             {
                 button.IsVisible = false;
                 input.Text = string.Empty;
+                input.SelectedItem = null;
+                // Список существующих тегов перечитываем при каждом показе: новые
+                // теги (добавленные, например, в окне свойств базы) видны сразу.
+                // Источник — чипы панели фильтра: уникальные теги всех баз.
+                input.ItemsSource = _vm?.TagFilterItems.Select(t => t.Name).ToList()
+                    ?? new List<string>();
                 input.IsVisible = true;
                 input.Focus();
-                input.SelectAll();
+                // Список виден сразу — пользователю не нужно нажимать стрелку.
+                input.IsDropDownOpen = true;
             }
 
             void HideEditor()
@@ -234,6 +244,7 @@ namespace Configuration_Management
                 var tag = input.Text?.Trim() ?? string.Empty;
                 HideEditor();
                 input.Text = string.Empty;
+                input.SelectedItem = null;
 
                 if (tag.Length == 0)
                     return;
@@ -248,6 +259,7 @@ namespace Configuration_Management
                     return;
 
                 input.Text = string.Empty;
+                input.SelectedItem = null;
                 HideEditor();
             }
 
@@ -265,6 +277,24 @@ namespace Configuration_Management
                     Commit();
                     e.Handled = true;
                 }
+            };
+
+            // Выбор существующего тега из списка — коммит сразу. Навигация стрелками
+            // по открытому списку коммит не даёт (IsDropDownOpen ещё true), а Esc
+            // откатывает выделение к прежнему (SelectedItem становится null).
+            input.SelectionChanged += (_, _) =>
+            {
+                if (input.SelectedItem is not string)
+                    return;
+
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (!input.IsVisible || input.IsDropDownOpen)
+                        return;
+
+                    if (input.SelectedItem is string)
+                        Commit();
+                });
             };
 
             // Потеря фокуса сохраняет введённый тег, как в WPF-версии. Откладываем
@@ -328,34 +358,8 @@ namespace Configuration_Management
             header.Children.Add(hintRow);
             header.Children.Add(_tagClearButton);
 
-            // Выбор тега из выпадающего списка существующих: не нужно вводить
-            // название вручную и можно не ошибиться в букве (issue #283).
-            _tagFilterCombo = new ComboBox
-            {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                MinHeight = UiMetrics.Scaled(32),
-                FontSize = UiMetrics.ScaledFont(12),
-                PlaceholderText = LocalizationManager.T("Main.TagFilterPick")
-            };
-            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.BackgroundProperty, "CardBackgroundBrush");
-            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.ForegroundProperty, "TextPrimaryColorBrush");
-            ThemeBrushes.Bind(_tagFilterCombo, TemplatedControl.BorderBrushProperty, "BorderColorBrush");
-            ToolTip.SetTip(_tagFilterCombo, LocalizationManager.T("Main.TagFilterPick"));
-            _tagFilterCombo.SelectionChanged += (_, _) =>
-            {
-                if (_tagFilterCombo?.SelectedItem is not string tag)
-                    return;
-
-                // Сбрасываем выделение до выполнения команды: иначе повторный выбор
-                // того же тега не сработал бы (SelectedItem уже равен ему).
-                _tagFilterCombo.SelectedItem = null;
-                _vm?.SearchByTagCommand.Execute(tag);
-            };
-
             var rows = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6 };
             rows.Children.Add(header);
-            rows.Children.Add(_tagFilterCombo);
             rows.Children.Add(_tagPanelItems);
 
             // Карточка с полем 4,0,4,8, отступом 8,6, рамкой и скруглением 8
@@ -377,7 +381,7 @@ namespace Configuration_Management
         /// <summary>Пересобирает кнопки тегов и обновляет видимость панели.</summary>
         private void RefreshTagFilterPanel()
         {
-            if (_vm is null || _tagPanelItems is null || _tagPanel is null || _tagClearButton is null || _tagFilterCombo is null)
+            if (_vm is null || _tagPanelItems is null || _tagPanel is null || _tagClearButton is null)
                 return;
 
             // Старые кнопки держат подписки на ресурсы темы, поэтому освобождаются
@@ -407,9 +411,6 @@ namespace Configuration_Management
                 button.Click += (_, _) => _vm.SearchByTagCommand.Execute(item.Name);
                 _tagPanelItems.Children.Add(button);
             }
-
-            // Список выбора тега всегда совпадает с чипами панели (включая новые теги).
-            _tagFilterCombo.ItemsSource = _vm.TagFilterItems.Select(t => t.Name).ToList();
 
             _tagClearButton.IsVisible = _vm.HasActiveTagFilter;
             _tagPanel.IsVisible = _vm.ShowTagFilterPanel;

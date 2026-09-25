@@ -1269,6 +1269,13 @@ public string HotkeyEnterprise
     }
 
     /// <summary>
+    /// «Найти в списке» (issue #285): команда перешла во «Все базы» и выставила цель —
+    /// окну нужно показать строку базы в видимой области, а не возвращать прежнюю позицию
+    /// прокрутки (флаг читается в RevealAndSelectAfterRebuild; см. OnFindInListRequested).
+    /// </summary>
+    public event Action? RevealFindInListRequested;
+
+    /// <summary>
     /// «Найти в списке» (issue #285): переходит к базе в общем списке «Все базы».
     /// Сбрасывает фильтры (вкладка/поиск/теги), принудительно раскрывает цепочку групп
     /// от корня до группы базы и выделяет базу. UI после пересборки дерева сам прокрутит
@@ -1288,7 +1295,10 @@ public string HotkeyEnterprise
             ClearTagFilters(null);
 
         // Раскрываем группы-предки цели (в т.ч. свёрнутые пользователем), чтобы база
-        // гарантированно оказалась видимой в общем списке.
+        // гарантированно оказалась видимой в общем списке. В режимах «Избранное»/
+        // «Закреплённые» дерево плоское (одна корневая папка без реальных групп,
+        // см. RebuildGroupTree), поэтому здесь цепочка групп по пути может не найтись —
+        // ключи свёрнутых групп снимает повторный ExpandPathTo ниже, уже по настоящему дереву.
         ExpandPathTo(ib);
 
         // RebuildGroupTree пересоздаёт узлы и сбрасывает выделение дерева (обработчик
@@ -1296,7 +1306,34 @@ public string HotkeyEnterprise
         // пересборки: RevealAndSelectAfterRebuild читает её отложенно и выделит/прокрутит
         // строку (тот же приём, что в EditInfobase).
         RebuildGroupTree();
+
+        // Повторный проход после пересборки: теперь дерево настоящее («Все базы»), цепочка
+        // групп находится и ключи свёрнутых групп снимаются. Иначе ApplyExpandedState внутри
+        // RebuildGroupTree применил бы сохранённую свёрнутость, группа осталась бы свёрнутой,
+        // контейнер базы не создался бы и RevealAndSelectAfterRebuild не нашёл бы строку
+        // (issue #285).
+        ExpandPathTo(ib);
+
         SelectedInfobase = ib;
+        RevealFindInListRequested?.Invoke();
+    }
+
+    /// <summary>
+    /// Раскрывает цепочку групп от корня к листу и снимает их ключи из набора свёрнутых.
+    /// Чистая логика команд «Найти в списке» и переходов по закладкам (issue #285): узлы
+    /// дерева пересоздаются при пересборке по набору свёрнутых групп, поэтому ключи
+    /// предков нужно снять — иначе группа останется свёрнутой, а база — скрытой.
+    /// </summary>
+    internal static void ExpandChainToRoot(
+        IEnumerable<GroupNodeViewModel> chain, ISet<string> collapsedGroups)
+    {
+        foreach (var n in chain)
+        {
+            n.SetExpandedSilent(true);
+            n.NotifyIsExpanded();
+            if (!string.IsNullOrEmpty(n.NodeKey))
+                collapsedGroups.Remove(n.NodeKey);
+        }
     }
 
     /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно, с сохранением состояния коллапса).</summary>
@@ -1312,13 +1349,14 @@ public string HotkeyEnterprise
         for (var n = leaf; n is not null; n = n.Parent)
             chain.Add(n);
         chain.Reverse();
-        foreach (var n in chain)
-        {
-            n.SetExpandedSilent(true);
-            n.NotifyIsExpanded();
-            if (n.NodeKey is not null)
-                SetGroupCollapsed(n.NodeKey, false);
-        }
+
+        // Раскрываем узлы и снимаем ключи свёрнутых групп (общая логика, покрытая тестами).
+        ExpandChainToRoot(chain, _collapsedGroups);
+
+        // Снятие ключей меняет сохранённое состояние развёрнутости: помечаем список
+        // «грязным» и сохраняем настройки отложенно (как в «Развернуть всё»).
+        MarkListStateDirty();
+        ScheduleSaveSettings();
     }
 
     private static string NormalizeHotkey(string? value, string fallback)

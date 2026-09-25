@@ -38,16 +38,26 @@ namespace Configuration_Management
             // InlineTagBox находится в том же StackPanel, что и кнопка «+ тег»,
             // поэтому ищем его через общий предок TreeViewItem.
             var treeViewItem = FindAncestor<TreeViewItem>(button);
-            var tagBox = treeViewItem is null ? null : FindVisualChild<TextBox>(treeViewItem);
+            var tagBox = treeViewItem is null ? null : FindVisualChild<ComboBox>(treeViewItem);
             if (tagBox is null)
                 return;
 
             // Скрываем кнопку «+ тег» и показываем поле ввода на её месте.
             button.Visibility = Visibility.Collapsed;
             tagBox.Text = string.Empty;
+            tagBox.SelectedItem = null;
             tagBox.Visibility = Visibility.Visible;
             tagBox.Focus();
             Keyboard.Focus(tagBox);
+
+            // Текст всегда пуст, но выделение во внутреннем поле — единый вид при
+            // повторных открытиях. Шаблон ComboBox применяется уже после показа,
+            // поэтому SelectAll откладываем до обработки разметки.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (tagBox.Template?.FindName("PART_EditableTextBox", tagBox) is TextBox editBox)
+                    editBox.SelectAll();
+            }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         /// <summary>
@@ -80,7 +90,7 @@ namespace Configuration_Management
         {
             if (e.Key == Key.Escape)
             {
-                CancelInlineTag(sender as TextBox);
+                CancelInlineTag(sender as ComboBox);
                 e.Handled = true;
                 return;
             }
@@ -88,8 +98,28 @@ namespace Configuration_Management
             if (e.Key != Key.Enter)
                 return;
 
-            CommitInlineTag(sender as TextBox);
+            CommitInlineTag(sender as ComboBox);
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// Выбор существующего тега из выпадающего списка: добавляет тег сразу.
+        /// При навигации стрелками список остаётся открытым, а Esc откатывает
+        /// выделение — коммитим только завершённый выбор (список уже закрыт).
+        /// </summary>
+        private void OnInlineTagBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender is not ComboBox { Visibility: Visibility.Visible } combo)
+                return;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (combo.Visibility != Visibility.Visible || combo.IsDropDownOpen)
+                    return;
+
+                if (combo.SelectedItem is string tag && !string.IsNullOrWhiteSpace(tag))
+                    CommitInlineTag(combo);
+            }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         /// <summary>
@@ -100,20 +130,21 @@ namespace Configuration_Management
             // Dispatcher: клик вне поля сначала переводит фокус, затем обрабатываем.
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (sender is TextBox { Visibility: Visibility.Visible } box)
+                if (sender is ComboBox { Visibility: Visibility.Visible } box)
                     CommitInlineTag(box);
             }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         /// <summary>Скрывает поле тега без добавления (Esc).</summary>
-        private void CancelInlineTag(TextBox? tagBox)
+        private void CancelInlineTag(ComboBox? tagBox)
         {
             if (tagBox is null) return;
             tagBox.Text = string.Empty;
+            tagBox.SelectedItem = null;
             HideInlineTagBox(tagBox);
         }
 
-        private void HideInlineTagBox(TextBox tagBox)
+        private void HideInlineTagBox(ComboBox tagBox)
         {
             tagBox.Visibility = Visibility.Collapsed;
             var treeViewItem = FindAncestor<TreeViewItem>(tagBox);
@@ -125,9 +156,10 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Добавляет введённый тег к базе и скрывает поле ввода.
+        /// Добавляет введённый тег к базе и скрывает поле ввода. Текст берётся
+        /// из свободного ввода (Text): выбранный из списка тег туда уже попал.
         /// </summary>
-        private void CommitInlineTag(TextBox? tagBox)
+        private void CommitInlineTag(ComboBox? tagBox)
         {
             if (tagBox is null || tagBox.Visibility != Visibility.Visible)
                 return;
@@ -137,6 +169,7 @@ namespace Configuration_Management
 
             HideInlineTagBox(tagBox);
             tagBox.Text = string.Empty;
+            tagBox.SelectedItem = null;
 
             if (string.IsNullOrEmpty(tag) || infobase is null)
                 return;
@@ -145,23 +178,6 @@ namespace Configuration_Management
             {
                 _viewModel.AddTagInlineCommand.Execute(new object[] { infobase, tag });
             }
-        }
-
-        /// <summary>
-        /// Выбор тега из выпадающего списка панели фильтров: включает отбор по тегу
-        /// и сбрасывает выделение, чтобы тот же тег можно было выбрать снова (issue #283).
-        /// </summary>
-        private void OnTagFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (sender is not ComboBox combo || combo.SelectedItem is not string tag)
-                return;
-
-            // Сбрасываем выделение до выполнения команды: иначе повторный выбор
-            // того же тега не сработал бы (SelectedItem уже равен ему).
-            combo.SelectedItem = null;
-
-            if (!string.IsNullOrWhiteSpace(tag) && _viewModel.SearchByTagCommand.CanExecute(tag))
-                _viewModel.SearchByTagCommand.Execute(tag);
         }
 
         /// <summary>

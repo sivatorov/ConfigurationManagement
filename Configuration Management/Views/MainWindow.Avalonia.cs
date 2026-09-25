@@ -100,8 +100,6 @@ namespace Configuration_Management
         private Border? _tagPanel;
         private WrapPanel? _tagPanelItems;
         private Button? _tagClearButton;
-        /// <summary>Выпадающий список выбора тега из существующих (issue #283).</summary>
-        private ComboBox? _tagFilterCombo;
         private TextBlock _emptyHint = null!;
 
         /// <summary>

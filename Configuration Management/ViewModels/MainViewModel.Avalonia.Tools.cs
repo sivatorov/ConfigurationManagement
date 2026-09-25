@@ -796,7 +796,7 @@ public partial class MainViewModel : ViewModelBase
     /// Для клиент-серверных баз выполняется реальная попытка подключения через
     /// COM-коннектор (на Linux недоступна, поэтому такие базы считаются недоступными).
     /// </summary>
-    private static bool IsBaseAvailable(Infobase ib)
+    private bool IsBaseAvailable(Infobase ib)
     {
         try
         {

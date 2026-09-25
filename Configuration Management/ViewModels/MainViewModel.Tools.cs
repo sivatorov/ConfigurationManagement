@@ -1039,8 +1039,10 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>
     /// Доступность отдельной базы. Файловая — есть ли каталог/файл по пути;
     /// клиент-серверная — удалось ли подключиться; веб-база — заполнен ли адрес.
+    /// Для клиент-серверных баз таймаут подключения берётся из настройки
+    /// «Таймаут определения свойств конфигурации» (ComDetectTimeoutMs, issue #289).
     /// </summary>
-    private static bool IsBaseAvailable(Infobase ib)
+    private bool IsBaseAvailable(Infobase ib)
     {
         try
         {
@@ -1054,8 +1056,12 @@ public partial class MainViewModel : ViewModelBase
                     // Проверка доступности — через безопасный путь процесс-агента (ComReadHost).
                     // Прямой Connect у comcntr.dll под CoreCLR обрывает процесс нативным
                     // fast-fail (0xC0000409), поэтому метод помечен [Obsolete] и здесь не используется.
+                    // Таймаут берётся из настройки ComDetectTimeoutMs (по умолчанию 30000 мс),
+                    // минимум 1000 мс — по аналогии с ConfigurationInfoService.ResolveTimeoutMs
+                    // (issue #174/#289).
                     var connector = AppServices.GetRequiredService<IOneCComConnector>();
-                    return connector.ReadConfigurationInfo(ib, timeoutMs: 8000) is not null;
+                    return connector.ReadConfigurationInfo(ib,
+                        timeoutMs: Math.Max(1000, ComDetectTimeoutMs)) is not null;
                 }
 
                 case ConnectionType.WebServer:

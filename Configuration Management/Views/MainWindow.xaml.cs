@@ -188,6 +188,12 @@ namespace Configuration_Management
                 // раскладки (тот же приём, что в RevealAndSelectAfterRebuild).
                 QueueHeaderAlign();
             };
+            // «Найти в списке» (issue #285): цель выставлена во вьюмодели, и при восстановлении
+            // строки прокрутку нужно вести к цели, а не возвращать прежнюю позицию. Флаг читает
+            // RevealAndSelectAfterRebuild (RevealFindInListRequested приходит синхронно из
+            // ExecuteFindInList ПОСЛЕ планирования RevealAndSelectAfterRebuild на Render, поэтому
+            // флаг успевает установиться до исполнения отложенного вызова).
+            _viewModel.RevealFindInListRequested += OnFindInListRequested;
 
             // Пересчитываем выравнивание колонок заголовка после переключения компактного
             // режима: ApplyCompact масштабирует отступы/шрифты/компенсатор заголовка,
