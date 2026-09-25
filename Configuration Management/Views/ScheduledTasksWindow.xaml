@@ -3,7 +3,26 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Задания по расписанию"
         Width="760" Height="560" MinWidth="620" MinHeight="440"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <!-- Темизация окна «Задания по расписанию» (issue #291): стили из LightTheme/DarkTheme,
+             как у остальных окон (ConnectionSettingsWindow, AppLockWindow и др.). -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
+        <Style TargetType="ListBoxItem" BasedOn="{StaticResource ModernListBoxItem}"/>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        </Style>
+    </Window.Resources>
+
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="RunButton" Content="Выполнить сейчас" Width="130" Margin="0,0,8,0" Padding="6,4" Click="Run_Click"/>
@@ -20,10 +39,10 @@
                     <StackPanel Margin="3">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                         <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                            <TextBlock Text="{Binding KindText}" Foreground="Gray" Margin="0,0,12,0"/>
-                            <TextBlock Text="{Binding ScheduleSummary}" Foreground="Gray"/>
+                            <TextBlock Text="{Binding KindText}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,0"/>
+                            <TextBlock Text="{Binding ScheduleSummary}" Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding LastRunSummary}" Foreground="Gray" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding LastRunSummary}" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>

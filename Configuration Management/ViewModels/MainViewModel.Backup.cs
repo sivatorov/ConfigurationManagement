@@ -60,6 +60,9 @@ public partial class MainViewModel
     private void ExecuteShowBackupScenarios()
     {
         var win = new Configuration_Management.BackupScenariosWindow(SelectedInfobase, this);
+        // Настоящая модальность (issue #291): владелец — главное окно, иначе повторный
+        // запуск программы с ярлыка ставил главное окно поверх диалога, блокируя ввод.
+        win.Owner = System.Windows.Application.Current.MainWindow;
         win.ShowDialog();
     }
 
@@ -94,6 +97,9 @@ public partial class MainViewModel
         }
 
         var win = new Configuration_Management.BackupScenariosWindow(infobase, this);
+        // Настоящая модальность (issue #291): владелец — главное окно, как в
+        // ExecuteShowBackupScenarios.
+        win.Owner = System.Windows.Application.Current.MainWindow;
         win.ShowDialog();
     }
 

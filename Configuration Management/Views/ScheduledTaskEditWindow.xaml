@@ -4,7 +4,23 @@
         Title="Задание по расписанию"
         Width="560" Height="520" MinWidth="500" MinHeight="460"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13"
+        Background="{DynamicResource ContentBackgroundBrush}"
         PreviewKeyDown="OnPreviewKeyDown">
+
+    <Window.Resources>
+        <!-- Темизация окна «Задание по расписанию» (issue #291): стили из LightTheme/DarkTheme,
+             как у остальных окон (ConnectionSettingsWindow, AppLockWindow и др.). -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
+        <Style TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}"/>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource ModernComboBox}"/>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource ModernMaterialCheckBox}">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
+using Configuration_Management.Themes;
 using Configuration_Management.ViewModels;
 
 namespace Configuration_Management;
@@ -18,15 +19,15 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
     private readonly BackupScenarioEditViewModel _vm;
     private readonly IDialogService _dialogs = AppServices.GetRequiredService<IDialogService>();
 
-    private readonly TextBox _nameBox = new();
-    private readonly TextBox _templateBox = new();
-    private readonly CheckBox _timestampCheck = new();
-    private readonly ComboBox _formatCombo = new();
-    private readonly TextBox _prefixBox = new();
+    private readonly TextBox _nameBox = new TextBox().Styled(ControlThemes.ModernTextBox);
+    private readonly TextBox _templateBox = new TextBox().Styled(ControlThemes.ModernTextBox);
+    private readonly CheckBox _timestampCheck = new CheckBox().Styled(ControlThemes.CacheCleanCheckBox);
+    private readonly ComboBox _formatCombo = new ComboBox().Styled(ControlThemes.ModernComboBox);
+    private readonly TextBox _prefixBox = new TextBox().Styled(ControlThemes.ModernTextBox);
     private readonly ListBox _dirList = new();
-    private readonly CheckBox _useAuthCheck = new();
-    private readonly TextBox _userBox = new();
-    private readonly TextBox _passwordBox = new() { PasswordChar = '\u25CF' };
+    private readonly CheckBox _useAuthCheck = new CheckBox().Styled(ControlThemes.CacheCleanCheckBox);
+    private readonly TextBox _userBox = new TextBox().Styled(ControlThemes.ModernTextBox);
+    private readonly TextBox _passwordBox = new TextBox { PasswordChar = '\u25CF' }.Styled(ControlThemes.ModernTextBox);
 
     /// <summary>Готовый сценарий при подтверждении, иначе <c>null</c>.</summary>
     public BackupScenario? Result { get; private set; }
@@ -49,11 +50,24 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
 
     private static string T(string key) => LocalizationManager.T(key);
 
-    private static Control Label(string text) => new TextBlock
+    private static Control Label(string text)
     {
-        Text = text,
-        FontWeight = Avalonia.Media.FontWeight.SemiBold
-    };
+        var label = new TextBlock
+        {
+            Text = text,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold
+        };
+        // Цвет подписи из темы (issue #291), как в остальных окнах Avalonia.
+        ThemeBrushes.Bind(label, TextBlock.ForegroundProperty, "TextPrimaryColorBrush");
+        return label;
+    }
+
+    private static Control HintLabel(string text)
+    {
+        var hint = new TextBlock { Text = text, FontSize = 11 };
+        ThemeBrushes.Bind(hint, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
+        return hint;
+    }
 
     private Control BuildRoot()
     {
@@ -66,12 +80,7 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
         panel.Children.Add(Label(T("Backup.FileNameTemplate")));
         _templateBox.Text = _vm.FileNameTemplate;
         panel.Children.Add(_templateBox);
-        panel.Children.Add(new TextBlock
-        {
-            Text = T("Backup.TemplateHint"),
-            Foreground = Avalonia.Media.Brushes.Gray,
-            FontSize = 11
-        });
+        panel.Children.Add(HintLabel(T("Backup.TemplateHint")));
 
         _timestampCheck.Content = T("Backup.IncludeTimestamp");
         _timestampCheck.IsChecked = _vm.IncludeTimestamp;
@@ -90,9 +99,9 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
 
         panel.Children.Add(Label(T("Backup.TargetDirectories")));
         var dirButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var addDir = new Button { Content = T("Common.Browse"), Width = 110 };
+        var addDir = new Button { Content = T("Common.Browse"), Width = 110 }.Styled(ControlThemes.SecondaryButton);
         addDir.Click += (_, _) => AddDirectory();
-        var removeDir = new Button { Content = T("Common.Delete"), Width = 96 };
+        var removeDir = new Button { Content = T("Common.Delete"), Width = 96 }.Styled(ControlThemes.SecondaryButton);
         removeDir.Click += (_, _) => RemoveDirectory();
         dirButtons.Children.Add(addDir);
         dirButtons.Children.Add(removeDir);
@@ -107,11 +116,11 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
         _useAuthCheck.IsChecked = _vm.UseInfobaseAuth;
         panel.Children.Add(_useAuthCheck);
 
-        panel.Children.Add(new TextBlock { Text = T("Backup.User") });
+        panel.Children.Add(Label(T("Backup.User")));
         _userBox.Text = _vm.User;
         panel.Children.Add(_userBox);
 
-        panel.Children.Add(new TextBlock { Text = T("Backup.Password") });
+        panel.Children.Add(Label(T("Backup.Password")));
         _passwordBox.Text = _vm.Password;
         panel.Children.Add(_passwordBox);
 
@@ -122,9 +131,9 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
             Spacing = 8,
             Margin = new Avalonia.Thickness(0, 10, 0, 0)
         };
-        var ok = new Button { Content = T("Common.Save"), Width = 90 };
+        var ok = new Button { Content = T("Common.Save"), Width = 90 }.Styled(ControlThemes.DialogConfirmButton);
         ok.Click += (_, _) => OkClicked();
-        var cancel = new Button { Content = T("Common.Cancel"), Width = 90 };
+        var cancel = new Button { Content = T("Common.Cancel"), Width = 90 }.Styled(ControlThemes.DialogCancelButton);
         cancel.Click += (_, _) => { DialogResult = false; Close(); };
         bottom.Children.Add(ok);
         bottom.Children.Add(cancel);

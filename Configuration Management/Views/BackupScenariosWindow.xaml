@@ -3,7 +3,26 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Сценарии резервирования"
         Width="720" Height="540" MinWidth="580" MinHeight="430"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <!-- Темизация окна «Сценарии резервирования» (issue #291): стили из LightTheme/DarkTheme,
+             как у остальных окон (ConnectionSettingsWindow, AppLockWindow и др.). -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
+        <Style TargetType="ListBoxItem" BasedOn="{StaticResource ModernListBoxItem}"/>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        </Style>
+    </Window.Resources>
+
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="RunButton" Content="Выполнить" Width="100" Margin="0,0,8,0" Padding="6,4" Click="Run_Click"/>
@@ -20,8 +39,8 @@
                     <StackPanel Margin="3">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                         <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                            <TextBlock Text="{Binding FormatText}" Foreground="Gray" Margin="0,0,12,0"/>
-                            <TextBlock Text="{Binding TargetSummary}" Foreground="Gray" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding FormatText}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,0"/>
+                            <TextBlock Text="{Binding TargetSummary}" Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                     </StackPanel>
                 </DataTemplate>

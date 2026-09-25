@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Configuration_Management.Localization;
 using Configuration_Management.Services;
+using Configuration_Management.Themes;
 using Configuration_Management.ViewModels;
 
 namespace Configuration_Management;
@@ -59,8 +60,13 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         var close = new Button { Content = T("Common.Close"), Width = 90 };
         close.Click += (_, _) => Close();
 
+        // Темизация кнопок окна (issue #291): стили берутся из Controls.axaml/тем
+        // Light-Dark, как у остальных окон приложения, а не штатный вид Fluent.
         foreach (var b in new Control[] { run, add, edit, del, close })
+        {
+            b.Styled(ControlThemes.ModernButton);
             b.MinWidth = b.Width;
+        }
 
         bottom.Children.Add(run);
         bottom.Children.Add(add);

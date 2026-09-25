@@ -36,6 +36,9 @@ namespace Configuration_Management.Themes
         /// <summary>Поле ввода: карточный фон, скругление 6, акцентный контур при наведении и фокусе.</summary>
         public const string ModernTextBox = "ModernTextBox";
 
+        /// <summary>Выпадающий список: карточный фон, скругление 6, акцентный контур при наведении и фокусе.</summary>
+        public const string ModernComboBox = "ModernComboBox";
+
         /// <summary>Колонка вертикальных вкладок окна настроек.</summary>
         public const string SettingsTabControl = "SettingsTabControl";
 

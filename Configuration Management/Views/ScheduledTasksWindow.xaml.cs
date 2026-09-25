@@ -54,6 +54,9 @@ public partial class ScheduledTasksWindow : Window
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         var edit = new ScheduledTaskEditWindow();
+        // Модальность относительно списка заданий (issue #291): без владельца окно
+        // редактирования могло оказаться под активированным извне главным окном.
+        edit.Owner = this;
         if (edit.ShowDialog() == true && edit.Result is { } task)
         {
             _store.Save(task);
@@ -66,6 +69,7 @@ public partial class ScheduledTasksWindow : Window
         if (Selected is not { } item)
             return;
         var edit = new ScheduledTaskEditWindow(item.Task);
+        edit.Owner = this;
         if (edit.ShowDialog() == true && edit.Result is { } updated)
         {
             _store.Save(updated);

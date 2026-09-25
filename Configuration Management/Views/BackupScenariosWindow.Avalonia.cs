@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
+using Configuration_Management.Themes;
 using Configuration_Management.ViewModels;
 
 namespace Configuration_Management;
@@ -68,8 +69,13 @@ public sealed class BackupScenariosWindow : ModalWindowBase
         var close = new Button { Content = T("Common.Close") };
         close.Click += (_, _) => Close();
 
+        // Темизация кнопок окна (issue #291): стили берутся из Controls.axaml/тем
+        // Light-Dark, как у остальных окон приложения, а не штатный вид Fluent.
         foreach (var b in new Control[] { _runButton, add, edit, del, close })
+        {
+            b.Styled(ControlThemes.ModernButton);
             b.Width = 100;
+        }
 
         bottom.Children.Add(_runButton);
         bottom.Children.Add(add);

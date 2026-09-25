@@ -3,7 +3,53 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Сценарий резервирования"
         Width="620" Height="640" MinWidth="540" MinHeight="560"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" FontSize="13"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <!-- Темизация окна «Сценарий резервирования» (issue #291): стили из LightTheme/DarkTheme,
+             как у остальных окон (ConnectionSettingsWindow, AppLockWindow и др.). -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
+        <Style TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}"/>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource ModernComboBox}"/>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource ModernMaterialCheckBox}">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button x:Name="OkButton" Content="OK" Width="90" Margin="0,0,8,0" Padding="6,4" IsDefault="True" Click="Ok_Click"/>
@@ -17,7 +63,7 @@
 
                 <TextBlock x:Name="TemplateLabel" Text="Шаблон имени файла" FontWeight="SemiBold" Margin="0,0,0,4"/>
                 <TextBox x:Name="TemplateBox" Text="{Binding FileNameTemplate, UpdateSourceTrigger=PropertyChanged}" Padding="4" Margin="0,0,0,2"/>
-                <TextBlock x:Name="TemplateHint" Text="" Foreground="Gray" FontSize="11" Margin="2,0,0,10"/>
+                <TextBlock x:Name="TemplateHint" Text="" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" Margin="2,0,0,10"/>
 
                 <CheckBox x:Name="TimestampCheck" Content="Добавлять отметку даты-времени в имя" IsChecked="{Binding IncludeTimestamp}" Margin="0,0,0,10"/>
 

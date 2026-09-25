@@ -1,10 +1,12 @@
 #if LINUX
 using System;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
+using Configuration_Management.Themes;
 using Configuration_Management.ViewModels;
 
 namespace Configuration_Management;
@@ -19,18 +21,18 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
     private readonly ScheduledTaskEditViewModel _vm;
     private readonly IDialogService _dialogs = AppServices.GetRequiredService<IDialogService>();
 
-    private readonly TextBox _nameBox = new();
-    private readonly CheckBox _enabledCheck = new();
-    private readonly ComboBox _kindCombo = new();
-    private readonly TextBox _timeBox = new();
+    private readonly TextBox _nameBox = new TextBox().Styled(ControlThemes.ModernTextBox);
+    private readonly CheckBox _enabledCheck = new CheckBox().Styled(ControlThemes.CacheCleanCheckBox);
+    private readonly ComboBox _kindCombo = new ComboBox().Styled(ControlThemes.ModernComboBox);
+    private readonly TextBox _timeBox = new TextBox().Styled(ControlThemes.ModernTextBox);
     private readonly StackPanel _daysPanel = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
     private readonly CheckBox[] _dayChecks = new CheckBox[7];
     private readonly StackPanel _scenarioPanel = new() { Spacing = 6 };
-    private readonly ComboBox _scenarioCombo = new();
+    private readonly ComboBox _scenarioCombo = new ComboBox().Styled(ControlThemes.ModernComboBox);
     private readonly StackPanel _infobasePanel = new() { Spacing = 6 };
-    private readonly ComboBox _infobaseCombo = new();
+    private readonly ComboBox _infobaseCombo = new ComboBox().Styled(ControlThemes.ModernComboBox);
     private readonly StackPanel _cfgPanel = new() { Spacing = 6 };
-    private readonly TextBox _cfgPathBox = new();
+    private readonly TextBox _cfgPathBox = new TextBox().Styled(ControlThemes.ModernTextBox);
 
     /// <summary>Готовое задание при подтверждении, иначе <c>null</c>.</summary>
     public ScheduledTask? Result { get; private set; }
@@ -57,11 +59,17 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
 
     private static string T(string key) => LocalizationManager.T(key);
 
-    private static Control Label(string text) => new TextBlock
+    private static Control Label(string text)
     {
-        Text = text,
-        FontWeight = Avalonia.Media.FontWeight.SemiBold
-    };
+        var label = new TextBlock
+        {
+            Text = text,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold
+        };
+        // Цвет подписи из темы (issue #291), как в остальных окнах Avalonia.
+        ThemeBrushes.Bind(label, TextBlock.ForegroundProperty, "TextPrimaryColorBrush");
+        return label;
+    }
 
     private Control BuildRoot()
     {
@@ -109,7 +117,7 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
 
         // Файл конфигурации .cf.
         _cfgPathBox.Text = _vm.ConfigFilePath;
-        var browse = new Button { Content = T("Schedule.Browse"), Width = 100 };
+        var browse = new Button { Content = T("Schedule.Browse"), Width = 100 }.Styled(ControlThemes.SecondaryButton);
         browse.Click += (_, _) => BrowseCfgFile();
         var cfgRow = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(browse, Dock.Right);
@@ -126,9 +134,9 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
             Spacing = 8,
             Margin = new Avalonia.Thickness(0, 10, 0, 0)
         };
-        var ok = new Button { Content = T("Common.Save"), Width = 110 };
+        var ok = new Button { Content = T("Common.Save"), Width = 110 }.Styled(ControlThemes.DialogConfirmButton);
         ok.Click += (_, _) => OkClicked();
-        var cancel = new Button { Content = T("Common.Cancel"), Width = 100 };
+        var cancel = new Button { Content = T("Common.Cancel"), Width = 100 }.Styled(ControlThemes.DialogCancelButton);
         cancel.Click += (_, _) => { DialogResult = false; Close(); };
         bottom.Children.Add(ok);
         bottom.Children.Add(cancel);
@@ -151,7 +159,8 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
         };
         for (var i = 0; i < days.Length; i++)
         {
-            var check = new CheckBox { Content = T(days[i].Item2) };
+            // Флажки дней недели темизируются (issue #291), как и остальные элементы окна.
+            var check = new CheckBox { Content = T(days[i].Item2) }.Styled(ControlThemes.CacheCleanCheckBox);
             check.IsChecked = days[i].Item3 switch
             {
                 DayOfWeek.Monday => _vm.IsMonday,
