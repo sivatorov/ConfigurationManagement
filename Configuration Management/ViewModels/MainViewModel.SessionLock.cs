@@ -65,6 +65,10 @@ public partial class MainViewModel
         // Если пароль ещё не задан — предложить его установить.
         var setupMode = !HasAppLockPassword;
         var win = new Configuration_Management.AppLockWindow(this, setupMode);
+        // Окно блокировки открывается модально относительно главного окна (issue #294):
+        // без владельца повторный запуск приложения ставил главное окно поверх диалога,
+        // и блокировка визуально «не срабатывала».
+        win.Owner = System.Windows.Application.Current.MainWindow;
         win.ShowDialog();
     }
 

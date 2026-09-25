@@ -36,6 +36,8 @@ namespace Configuration_Management
                 PromptLabel.Text = LocalizationManager.T("AppLock.SetupPrompt");
                 OkTextBlock.Text = LocalizationManager.T("Common.Save");
                 CancelTextBlock.Text = LocalizationManager.T("Common.Cancel");
+                NewPasswordLabel.Text = LocalizationManager.T("AppLock.NewPassword");
+                ConfirmLabel.Text = LocalizationManager.T("AppLock.ConfirmPassword");
                 PasswordBox2.Visibility = Visibility.Visible;
                 ConfirmLabel.Visibility = Visibility.Visible;
             }
@@ -45,23 +47,19 @@ namespace Configuration_Management
                 TitleLabel.Text = LocalizationManager.T("AppLock.LockTitle");
                 PromptLabel.Text = LocalizationManager.T("AppLock.UnlockPrompt");
                 OkTextBlock.Text = LocalizationManager.T("AppLock.Unlock");
-                NewPasswordLabel.Visibility = Visibility.Collapsed;
-                PasswordBox1.Visibility = Visibility.Collapsed;
+                // Режим разблокировки: одно видимое поле с подписью «Пароль».
+                NewPasswordLabel.Text = LocalizationManager.T("AppLock.Password");
+                NewPasswordLabel.Visibility = Visibility.Visible;
+                PasswordBox1.Visibility = Visibility.Visible;
                 ConfirmLabel.Visibility = Visibility.Collapsed;
                 PasswordBox2.Visibility = Visibility.Collapsed;
             }
 
             Loaded += (_, _) =>
             {
-                if (!_setupMode)
-                {
-                    // В режиме разблокировки поле пароля — первое (видимое переиспользуем).
-                    PasswordBox2.Focus();
-                }
-                else
-                {
-                    PasswordBox1.Focus();
-                }
+                // Фокус на первое (видимое) поле пароля: при установке — «Новый пароль»,
+                // при разблокировке — единственное поле ввода.
+                PasswordBox1.Focus();
             };
         }
 
@@ -88,7 +86,7 @@ namespace Configuration_Management
                 return;
             }
 
-            var entered = PasswordBox2.Password ?? string.Empty;
+            var entered = PasswordBox1.Password ?? string.Empty;
             if (_vm.VerifyAppLockPassword(entered))
             {
                 Unlocked = true;
@@ -98,8 +96,8 @@ namespace Configuration_Management
             {
                 MessageBox.Show(LocalizationManager.T("AppLock.WrongPassword"),
                     Title, MessageBoxButton.OK, MessageBoxImage.Error);
-                PasswordBox2.Clear();
-                PasswordBox2.Focus();
+                PasswordBox1.Clear();
+                PasswordBox1.Focus();
             }
         }
 

@@ -2019,7 +2019,7 @@
                                     <MenuItem Header="{loc:Loc SessionLock.Title}" Command="{Binding ShowSessionLockCommand}" InputGestureText="{Binding HotkeySessionLock}" Style="{DynamicResource ModernMenuItem}">
                                         <MenuItem.Icon><materialDesign:PackIcon Kind="ShieldLockOutline" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}">
+                                    <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}" ToolTip="{loc:Loc AppLock.MenuTooltip}">
                                         <MenuItem.Icon><materialDesign:PackIcon Kind="Lock" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
                                     </MenuItem>
                                     <Separator/>

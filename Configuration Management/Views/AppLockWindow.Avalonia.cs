@@ -20,8 +20,10 @@ public sealed class AppLockWindow : ModalWindowBase
 {
     private readonly MainViewModel _vm;
     private readonly bool _setupMode;
-    private readonly Controls.PasswordBox _pwd1 = new();
-    private readonly Controls.PasswordBox _pwd2 = new();
+    // Поля стилизуются как остальные поля ввода приложения (ModernPasswordBox):
+    // карточный фон темы, скругление 8 и акцентный контур при фокусе (issue #294).
+    private readonly Controls.PasswordBox _pwd1 = new Controls.PasswordBox().Styled(ControlThemes.ModernPasswordBox);
+    private readonly Controls.PasswordBox _pwd2 = new Controls.PasswordBox().Styled(ControlThemes.ModernPasswordBox);
     private readonly TextBlock _pwd1Label = new();
     private readonly TextBlock _pwd2Label = new();
 
@@ -33,10 +35,10 @@ public sealed class AppLockWindow : ModalWindowBase
         _vm = vm;
         _setupMode = setupMode;
 
-        Width = 420;
-        Height = 300;
-        MinWidth = 400;
-        MinHeight = 280;
+        Width = 460;
+        Height = 340;
+        MinWidth = 440;
+        MinHeight = 320;
         FontSize = 13;
         Content = BuildRoot();
 
@@ -54,13 +56,18 @@ public sealed class AppLockWindow : ModalWindowBase
             TitleLabel.Text = T("AppLock.LockTitle");
             PromptLabel.Text = T("AppLock.UnlockPrompt");
             OkText.Text = T("AppLock.Unlock");
-            _pwd1Label.IsVisible = false;
-            _pwd1.IsVisible = false;
+            // Режим разблокировки: одно видимое поле с подписью «Пароль».
+            _pwd1Label.Text = T("AppLock.Password");
+            _pwd1Label.IsVisible = true;
+            _pwd1.IsVisible = true;
             _pwd2Label.IsVisible = false;
             _pwd2.IsVisible = false;
-            // Для разблокировки используем первое видимое поле пароля.
             UnlockField = _pwd1;
         }
+
+        // Фокус на первое (видимое) поле пароля при открытии окна (issue #294):
+        // в режиме установки — «Новый пароль», при разблокировке — единственное поле.
+        Opened += (_, _) => _pwd1.Focus();
     }
 
     private static string T(string key) => LocalizationManager.T(key);
@@ -113,7 +120,7 @@ public sealed class AppLockWindow : ModalWindowBase
         };
         var cancel = new Button { Content = CancelText, Width = 110, Margin = new Thickness(0, 0, 8, 0) };
         cancel.Click += OnCancel_Click;
-        var ok = new Button { Content = OkText, Width = 130 };
+        var ok = new Button { Content = OkText, Width = 160, MinHeight = 36 };
         ok.Click += OnOk_Click;
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);

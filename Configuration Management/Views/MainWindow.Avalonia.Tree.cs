@@ -1598,7 +1598,7 @@ namespace Configuration_Management
             menu.Items.Add(MenuAction("Admin.ServerConsole", _vm.OpenServerConsoleCommand, _vm.HotkeyServerConsole, "IconServer", "#14B8A6"));
             menu.Items.Add(MenuSeparator());
 
-            menu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6"));
+            menu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6", "AppLock.MenuTooltip"));
             menu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
 
             // Обслуживание списка и приложения (issue #279): удаление отсутствующих
@@ -1716,7 +1716,7 @@ namespace Configuration_Management
             adminMenu.Styled(Themes.ControlThemes.ModernMenuItem);
             // Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
             adminMenu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
-            adminMenu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6"));
+            adminMenu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6", "AppLock.MenuTooltip"));
             adminMenu.Items.Add(MenuSeparator());
             adminMenu.Items.Add(MenuAction("Main.OpenCatalog", _vm.OpenInfobaseFolderCommand, null, "IconFolderOpen", "#0EA5E9"));
             // Администрирование ИБ (Этап 6, функция №29): проверка целостности файловой ИБ
@@ -1778,7 +1778,7 @@ namespace Configuration_Management
 
         /// <summary>Пункт меню с подписью из словаря, командой и подсказкой сочетания клавиш.</summary>
         private static MenuItem MenuAction(string textKey, System.Windows.Input.ICommand command, string? gesture = null,
-            string? iconKey = null, string? iconColor = null)
+            string? iconKey = null, string? iconColor = null, string? tooltipKey = null)
         {
             var item = new MenuItem
             {
@@ -1790,6 +1790,8 @@ namespace Configuration_Management
                 item.Icon = MenuIcon(iconKey, iconColor);
             if (Controls.HotkeyBox.TryParse(gesture, out var parsed) && parsed is not null)
                 item.InputGesture = parsed;
+            if (tooltipKey is not null)
+                ToolTip.SetTip(item, LocalizationManager.T(tooltipKey));
             return item;
         }
 

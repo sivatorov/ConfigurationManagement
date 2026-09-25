@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="{loc:Loc AppLock.LockTitle}"
         Icon="{StaticResource AppIcon}"
-        Height="300" Width="420"
+        Height="340" Width="460"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         FontFamily="Segoe UI"
@@ -19,9 +19,9 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
-        <Style TargetType="PasswordBox">
-            <Setter Property="Padding" Value="8,6"/>
-        </Style>
+        <!-- Стиль PasswordBox НЕ переопределяем: неявный стиль из LightTheme/DarkTheme
+             даёт «родной» вид полей (карточный фон, скругление 8, акцентный контур
+             при фокусе). Локальный стиль без BasedOn полностью заменил бы темизированный. -->
         <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
     </Window.Resources>
 
@@ -44,7 +44,7 @@
                     <TextBlock x:Name="CancelTextBlock" Text="{loc:Loc Common.Cancel}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-            <Button x:Name="OkButton" Width="130" IsDefault="True" Click="OnOk_Click">
+            <Button x:Name="OkButton" Width="160" MinHeight="36" IsDefault="True" Click="OnOk_Click">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="✔" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="OkTextBlock" Text="{loc:Loc Common.Ok}" VerticalAlignment="Center"/>
