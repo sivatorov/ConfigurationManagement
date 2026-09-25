@@ -12,18 +12,29 @@ namespace Configuration_Management.Services;
 
 /// <summary>
 /// Многопоточная загрузка файла по HTTP Range (по аналогии с менеджерами загрузок).
-/// Файл делится на N сегментов; каждый сегмент скачивается отдельным GET-запросом с
-/// заголовком Range в собственный частичный файл <c><dest>.<i>.part</c>, после
-/// чего сегменты последовательно склеиваются в итоговый файл, а части удаляются.
+/// Файл делится на N сегментов (зон); каждый сегмент скачивается отдельным GET-запросом
+/// с заголовком Range в собственный частичный файл <c><dest>.<i>.part</c>, после чего
+/// сегменты последовательно склеиваются в итоговый файл, а части удаляются.
 /// Используется для ускорения загрузки обновления, когда провайдер режет скорость
 /// на одно соединение (issue #284): браузер однопоточно даёт низкую скорость, а менеджер
 /// с несколькими потоками — максимум.
 /// <para>
+/// Начиная с 0.3.9.62 работа между сегментами распределяется динамически
+/// (work stealing): каждый сегмент качает свою стартовую зону небольшими кусками
+/// (~1 МБ), а завершив её — берёт следующий незанятый кусок из любой незавершённой
+/// зоны, дописывая его в ЕЁ .part-файл. Благодаря этому все соединения работают до
+/// самого конца файла, «хвост» докачивается несколькими потоками одновременно, а не
+/// одним (раньше после ~50% скорость падала, а на 90–95% загрузка «замирала»).
+/// Непрерывность каждого .part сохраняется: куски одной зоны выдаются строго по
+/// одному и всегда начинаются с текущего конца её .part.
+/// </para>
+/// <para>
 /// Класс не имеет платформенных зависимостей и собирается в обеих версиях приложения
-/// (Windows/WPF и Linux/Avalonia). Чистые функции разбиения на диапазоны, выбора режима
-/// и агрегации прогресса покрыты юнит-тестами в ConfigurationManagement.Tests.
-/// При любом сбое параллельного режима <see cref="TryDownloadAsync"/> возвращает null —
-/// вызывающий код переходит к обычной однопоточной загрузке с докачкой.
+/// (Windows/WPF и Linux/Avalonia). Чистые функции разбиения на диапазоны, выбора режима,
+/// агрегации прогресса и динамического распределения работы покрыты юнит-тестами
+/// в ConfigurationManagement.Tests. При любом сбое параллельного режима
+/// <see cref="TryDownloadAsync"/> возвращает null — вызывающий код переходит к обычной
+/// однопоточной загрузке с докачкой.
 /// </para>
 /// </summary>
 internal static class ParallelDownloader
@@ -32,9 +43,10 @@ internal static class ParallelDownloader
     internal const int DefaultMaxParallelism = 8;
 
     /// <summary>
-    /// Минимальный размер сегмента. При меньшем размере файла многопоточность не даёт
-    /// выигрыша (накладные расходы на соединения больше пользы) — остаётся один сегмент,
-    /// и вызывающий код использует однопоточную загрузку.
+    /// Минимальный размер сегмента (он же размер окна динамической балансировки).
+    /// При меньшем размере файла многопоточность не даёт выигрыша (накладные расходы
+    /// на соединения больше пользы) — остаётся один сегмент, и вызывающий код использует
+    /// однопоточную загрузку.
     /// </summary>
     internal const long MinSegmentBytes = 1024 * 1024; // 1 МБ
 
@@ -168,6 +180,163 @@ internal static class ParallelDownloader
     }
 
     /// <summary>
+    /// Координатор динамического распределения работы между сегментами (work stealing,
+    /// фикс 0.3.9.62, issue #284). Файл разбит на N стартовых зон (как раньше), но каждая
+    /// зона качается небольшими кусками-окнами (~1 МБ). Рабочий поток сначала качает свою
+    /// зону, а завершив её — берёт следующий незанятый кусок из любой незавершённой зоны,
+    /// дописывая его в ЕЁ .part-файл. Так все соединения работают до самого конца файла,
+    /// а «хвост» докачивается сразу несколькими потоками (раньше после ~50% скорость падала,
+    /// а на 90–95% загрузка «замирала» на одном соединении).
+    /// <para>
+    /// Инварианты: куски одной зоны выдаются строго по одному (в любой момент максимум один
+    /// поток пишет в её .part) и всегда начинаются с текущего конца её .part — непрерывность
+    /// каждой части сохраняется, последовательная склейка .part не меняется. Поток, которому
+    /// не досталось куска (все зоны временно заняты чужими кусками), ждёт освобождения.
+    /// </para>
+    /// </summary>
+    internal sealed class SegmentWorkCoordinator
+    {
+        private readonly object _gate = new();
+        private readonly long _windowBytes;
+        private readonly DownloadRange[] _zones;
+        private readonly long[] _progress;     // байт, уже записанных в .part зоны
+        private readonly long[] _issuedLength; // длина выданного куска или -1 (кусок не выдан)
+        private int _completedZones;
+
+        public SegmentWorkCoordinator(IReadOnlyList<DownloadRange> zones, long windowBytes)
+        {
+            _zones = zones.ToArray();
+            _windowBytes = Math.Max(1, windowBytes);
+            _progress = new long[_zones.Length];
+            _issuedLength = Enumerable.Repeat(-1L, _zones.Length).ToArray();
+        }
+
+        /// <summary>Число зон (стартовых сегментов).</summary>
+        public int ZoneCount => _zones.Length;
+
+        /// <summary>Все ли зоны полностью скачаны.</summary>
+        public bool IsComplete
+        {
+            get { lock (_gate) { return _completedZones == _zones.Length; } }
+        }
+
+        /// <summary>
+        /// Устанавливает фактический прогресс зоны (размер существующего .part при докачке
+        /// между запусками). Байты, уже скачанные ранее, в агрегированный прогресс добавляет
+        /// вызывающий код.
+        /// </summary>
+        public void SetProgress(int zoneIndex, long bytesWritten)
+        {
+            lock (_gate)
+            {
+                var clamped = Math.Clamp(bytesWritten, 0, _zones[zoneIndex].Length);
+                _progress[zoneIndex] = clamped;
+                if (clamped >= _zones[zoneIndex].Length)
+                    _completedZones++;
+            }
+        }
+
+        /// <summary>
+        /// Выдаёт рабочему потоку <paramref name="workerId"/> следующий кусок: сначала из
+        /// предпочитаемой зоны (свой сегмент), затем — из любой незавершённой (work stealing).
+        /// Возвращает false, когда свободной работы нет (все зоны завершены либо их куски
+        /// временно заняты другими потоками).
+        /// </summary>
+        public bool TryGetChunk(int workerId, int preferredZone, out int zoneIndex, out DownloadRange range)
+        {
+            lock (_gate)
+            {
+                if (TryTakeFromZone(preferredZone, out zoneIndex, out range))
+                    return true;
+                for (var z = 0; z < _zones.Length; z++)
+                {
+                    if (z == preferredZone)
+                        continue;
+                    if (TryTakeFromZone(z, out zoneIndex, out range))
+                        return true;
+                }
+            }
+            zoneIndex = -1;
+            range = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Фиксирует запись куска в .part зоны (размер куска в байтах) и освобождает зону
+        /// для следующего куска. Пробуждает потоки, ожидающие свободной работы.
+        /// </summary>
+        public void CommitChunk(int zoneIndex, long writtenBytes)
+        {
+            lock (_gate)
+            {
+                _progress[zoneIndex] += writtenBytes;
+                _issuedLength[zoneIndex] = -1;
+                if (_progress[zoneIndex] >= _zones[zoneIndex].Length
+                    && _progress[zoneIndex] - writtenBytes < _zones[zoneIndex].Length)
+                {
+                    _completedZones++;
+                }
+                Monitor.PulseAll(_gate);
+            }
+        }
+
+        /// <summary>
+        /// Ждёт появления свободной работы (когда все зоны заняты кусками других потоков).
+        /// Возвращает true, если работу можно запросить заново; false при отмене.
+        /// </summary>
+        public bool WaitForWork(CancellationToken ct)
+        {
+            lock (_gate)
+            {
+                while (true)
+                {
+                    if (_completedZones == _zones.Length || HasFreeWork())
+                        return true;
+                    if (ct.IsCancellationRequested)
+                    {
+                        // Единообразно с сетевыми операциями: отмена прерывает загрузку.
+                        ct.ThrowIfCancellationRequested();
+                        return false;
+                    }
+                    // В .NET Core Monitor.Wait не принимает CancellationToken — ждём
+                    // короткими интервалами и перепроверяем токен и наличие работы.
+                    Monitor.Wait(_gate, 200);
+                }
+            }
+        }
+
+        /// <summary>Есть ли зона, у которой можно взять кусок прямо сейчас.</summary>
+        private bool HasFreeWork()
+        {
+            for (var z = 0; z < _zones.Length; z++)
+            {
+                if (_issuedLength[z] < 0 && _progress[z] < _zones[z].Length)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Пытается выдать кусок из конкретной зоны (под lock вызывающего).</summary>
+        private bool TryTakeFromZone(int zoneIndex, out int resultZone, out DownloadRange range)
+        {
+            resultZone = zoneIndex;
+            if (_issuedLength[zoneIndex] >= 0 || _progress[zoneIndex] >= _zones[zoneIndex].Length)
+            {
+                range = default;
+                return false;
+            }
+
+            var startInZone = _progress[zoneIndex];
+            var chunkLength = Math.Min(_windowBytes, _zones[zoneIndex].Length - startInZone);
+            _issuedLength[zoneIndex] = chunkLength;
+            range = new DownloadRange(
+                _zones[zoneIndex].Start + startInZone,
+                _zones[zoneIndex].Start + startInZone + chunkLength - 1);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Пытается скачать файл многопоточно. При успехе возвращает путь к итоговому файлу;
     /// при любом сбое — null: сервер не поддерживает Range (200 вместо 206), размер файла
     /// неизвестен, файл слишком мал, ошибка сегмента после всех повторов или несовпадение
@@ -175,6 +344,12 @@ internal static class ParallelDownloader
     /// загрузке с докачкой. Прогресс (проценты 0–100) передаётся через
     /// <paramref name="reportProgress"/> — интерфейс не меняется по сравнению с событием
     /// <c>DownloadProgressChanged</c> однопоточной загрузки.
+    /// <para>
+    /// Работа между сегментами распределяется динамически через
+    /// <see cref="SegmentWorkCoordinator"/>: завершивший свою зону сегмент берёт следующий
+    /// незанятый кусок из любой незавершённой зоны (фикс 0.3.9.62, issue #284), поэтому все
+    /// соединения заняты до самого конца загрузки.
+    /// </para>
     /// </summary>
     internal static async Task<string?> TryDownloadAsync(
         HttpClient http, string url, string destPath,
@@ -184,8 +359,8 @@ internal static class ParallelDownloader
         if (probe is null)
             return null;
 
-        var ranges = SplitRanges(probe.TotalBytes, DefaultMaxParallelism, MinSegmentBytes);
-        if (ranges.Count < 2)
+        var zones = SplitRanges(probe.TotalBytes, DefaultMaxParallelism, MinSegmentBytes);
+        if (zones.Count < 2)
             return null; // маленький файл — многопоточность не даёт выигрыша.
 
         var dir = Path.GetDirectoryName(destPath);
@@ -194,16 +369,18 @@ internal static class ParallelDownloader
 
         // Прогресс стартует с учётом уже скачанных ранее частей (докачка между запусками).
         var progress = new ParallelProgressAggregator(probe.TotalBytes, reportProgress);
-        for (var i = 0; i < ranges.Count; i++)
+        var coordinator = new SegmentWorkCoordinator(zones, MinSegmentBytes);
+        for (var i = 0; i < zones.Count; i++)
         {
             var partPath = PartPath(destPath, i);
             var len = SafeFileLength(partPath);
-            if (len > ranges[i].Length)
+            if (len > zones[i].Length)
             {
-                // Часть повреждена (длиннее диапазона) — начинаем сегмент заново.
+                // Часть повреждена (длиннее зоны) — начинаем сегмент заново.
                 TryDelete(partPath);
                 continue;
             }
+            coordinator.SetProgress(i, len);
             progress.Add(len);
         }
         progress.Publish();
@@ -211,18 +388,31 @@ internal static class ParallelDownloader
         using var sharedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var semaphore = new SemaphoreSlim(DefaultMaxParallelism);
 
-        var tasks = new List<Task>(ranges.Count);
-        for (var i = 0; i < ranges.Count; i++)
+        var tasks = new List<Task>(zones.Count);
+        for (var i = 0; i < zones.Count; i++)
         {
-            var index = i;
-            var partPath = PartPath(destPath, i);
+            var workerId = i;
             tasks.Add(Task.Run(async () =>
             {
                 await semaphore.WaitAsync(sharedCts.Token).ConfigureAwait(false);
                 try
                 {
-                    await DownloadSegmentAsync(http, probe.Uri, partPath, ranges[index], progress, sharedCts.Token)
-                        .ConfigureAwait(false);
+                    while (!coordinator.IsComplete)
+                    {
+                        if (!coordinator.TryGetChunk(workerId, workerId, out var zoneIndex, out var chunk))
+                        {
+                            // Все зоны временно заняты кусками других потоков — ждём освобождения.
+                            if (!coordinator.WaitForWork(sharedCts.Token))
+                                break;
+                            continue;
+                        }
+
+                        var partPath = PartPath(destPath, zoneIndex);
+                        await DownloadChunkAsync(
+                                http, probe.Uri, partPath, zones[zoneIndex], chunk, progress, sharedCts.Token)
+                            .ConfigureAwait(false);
+                        coordinator.CommitChunk(zoneIndex, chunk.Length);
+                    }
                 }
                 catch
                 {
@@ -243,13 +433,13 @@ internal static class ParallelDownloader
         }
         catch
         {
-            CleanupParts(destPath, ranges.Count);
+            CleanupParts(destPath, zones.Count);
             return null;
         }
 
-        if (!await TryMergeAsync(destPath, ranges, probe.TotalBytes, cancellationToken).ConfigureAwait(false))
+        if (!await TryMergeAsync(destPath, zones, probe.TotalBytes, cancellationToken).ConfigureAwait(false))
         {
-            CleanupParts(destPath, ranges.Count);
+            CleanupParts(destPath, zones.Count);
             return null;
         }
 
@@ -299,44 +489,41 @@ internal static class ParallelDownloader
     }
 
     /// <summary>
-    /// Скачивает один сегмент в свой .part-файл с докачкой: при каждом повторе Range
-    /// запрашивается от текущего размера части (устойчивость к обрывам, как в однопоточной
-    /// загрузке). Число попыток — <see cref="MaxAttemptsPerSegment"/>, пауза между ними
+    /// Скачивает один кусок (окно ~1 МБ) зоны в её .part-файл с докачкой: при каждом повторе
+    /// Range запрашивается от фактического размера части (устойчивость к обрывам, как
+    /// в однопоточной загрузке). Куски одной зоны выдаются строго по одному и следуют друг
+    /// за другом, поэтому .part зоны остаётся непрерывным, а докачка между запусками
+    /// сохраняется. Число попыток — <see cref="MaxAttemptsPerSegment"/>, пауза между ними
     /// растёт с номером попытки. Ответ 200 (сервер игнорирует Range) считается фатальным
     /// для параллельного режима — исключение прерывает остальные сегменты.
     /// </summary>
-    private static async Task DownloadSegmentAsync(
-        HttpClient http, Uri uri, string partPath, DownloadRange range,
+    private static async Task DownloadChunkAsync(
+        HttpClient http, Uri uri, string partPath, DownloadRange zone, DownloadRange range,
         ParallelProgressAggregator progress, CancellationToken ct)
     {
-        // Уже скачанное учитывается в агрегированном прогрессе с самого начала.
-        var existing = SafeFileLength(partPath);
-        if (existing > range.Length)
-        {
-            // Часть повреждена (длиннее диапазона) — начинаем сегмент заново.
-            TryDelete(partPath);
-            existing = 0;
-        }
-        progress.Add(Math.Min(existing, range.Length));
-
         for (var attempt = 1; attempt <= MaxAttemptsPerSegment; attempt++)
         {
             try
             {
-                var resumed = SafeFileLength(partPath);
-                if (resumed > range.Length)
+                // Сколько байт зоны уже лежит в .part (может быть больше прогресса зоны,
+                // если прошлый запуск оборвался в середине куска).
+                var existing = SafeFileLength(partPath);
+                if (existing > zone.Length)
                 {
+                    // Часть повреждена (длиннее зоны) — начинаем зону заново.
                     TryDelete(partPath);
-                    resumed = 0;
+                    existing = 0;
                 }
 
-                var remaining = range.Length - resumed;
+                // Сколько байт ИМЕННО этого куска уже записано.
+                var inChunk = Math.Clamp(existing - (range.Start - zone.Start), 0, range.Length);
+                var remaining = range.Length - inChunk;
                 if (remaining <= 0)
-                    return; // часть уже полная (например, после записи и сбоя Flush).
+                    return; // кусок уже записан (например, после записи и сбоя Flush).
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-                // Диапазон от текущей позиции части до конца сегмента (концы включены).
-                request.Headers.Range = new RangeHeaderValue(range.Start + resumed, range.End);
+                // Диапазон от текущей позиции куска до его конца (концы включены).
+                request.Headers.Range = new RangeHeaderValue(range.Start + inChunk, range.End);
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(AttemptTimeout);
@@ -353,7 +540,7 @@ internal static class ParallelDownloader
 
                 await using var source = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
                 await using (var target = new FileStream(
-                    partPath, resumed > 0 ? FileMode.Append : FileMode.Create,
+                    partPath, FileMode.Append,
                     FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous))
                 {
                     var buffer = new byte[BufferSize];
@@ -367,12 +554,13 @@ internal static class ParallelDownloader
                     }
                 }
 
-                // Сегмент должен иметь ровно длину диапазона: сервер мог отдать меньше
-                // (обрыв «без исключения») или больше запрошенного (нестандартный Range).
-                if (resumed + SafeFileLength(partPath) != range.Length)
+                // После куска .part зоны должен иметь ровно ожидаемый размер: сервер мог
+                // отдать меньше (обрыв «без исключения») или больше запрошенного (нестандартный
+                // Range) — в этом случае зона повреждена и начинается заново.
+                if (SafeFileLength(partPath) != (range.Start - zone.Start) + range.Length)
                 {
                     TryDelete(partPath);
-                    throw new IOException("Сегмент загружен не полностью.");
+                    throw new IOException("Кусок сегмента загружен не полностью.");
                 }
 
                 return;
@@ -395,7 +583,7 @@ internal static class ParallelDownloader
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(attempt, 5)), ct).ConfigureAwait(false);
         }
 
-        throw new IOException($"Не удалось загрузить сегмент {range.Start}-{range.End}.");
+        throw new IOException($"Не удалось загрузить кусок {range.Start}-{range.End}.");
     }
 
     /// <summary>
