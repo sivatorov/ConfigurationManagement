@@ -224,9 +224,10 @@
             </TabItem>
 
             <!-- ============ Вкладка «Цвет» ============ -->
-            <!-- Открывается активной по умолчанию (issue #249): при правке оформления
-                 группы/служебного узла цвет нужен чаще, чем имя или родитель. -->
-            <TabItem Style="{StaticResource SettingsSubTabItem}" IsSelected="True">
+            <!-- По умолчанию активна вкладка «Основные» с именем (issue #297): при добавлении
+                 группы имя важнее цвета ярлычка. «Цвет» выбирается явно в коде только для
+                 служебных узлов «Без группы»/«Закреплённые», где «Основные» скрыта. -->
+            <TabItem x:Name="ColorTabItem" Style="{StaticResource SettingsSubTabItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="Palette" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center"

@@ -30,6 +30,9 @@ namespace Configuration_Management
         private string _icon = string.Empty;
         private string _parentId = string.Empty;
 
+        /// <summary>Вкладка «Основные» (с именем). null для служебных узлов «Без группы»/«Закреплённые».</summary>
+        private TabItem? _mainTabItem;
+
         private readonly TextBox _nameBox =
             new TextBox { Padding = new Thickness(4, 3) }.Styled(ControlThemes.ModernTextBox);
 
@@ -139,6 +142,13 @@ namespace Configuration_Management
 
             Content = BuildRoot();
 
+            if (!_noGroupMode)
+            {
+                // Фокус сразу на поле имени (issue #297): при добавлении группы удобно
+                // печатать имя без лишнего щелчка (как фокус пароля в AppLockWindow, #294).
+                Opened += (_, _) => _nameBox.Focus();
+            }
+
             ApplyIconPickerColors();
             HighlightSelectedIcon();
         }
@@ -241,7 +251,10 @@ namespace Configuration_Management
             // не показываем: наименование, родитель и описание при сохранении
             // не применяются (замечание к issue #240). Остаются «Цвет» и «Иконка».
             if (!_noGroupMode)
-                tabs.Items.Add(SubTab("IconFileDocument", "GroupEdit.TabMain", generalBox));
+            {
+                _mainTabItem = SubTab("IconFileDocument", "GroupEdit.TabMain", generalBox);
+                tabs.Items.Add(_mainTabItem);
+            }
 
             // ===== Вкладка «Цвет» =====
             var colorTab = new StackPanel();
@@ -273,10 +286,10 @@ namespace Configuration_Management
                 margin: new Thickness(0, 0, 0, 12), padding: new Thickness(10));
             tabs.Items.Add(SubTab("IconApplication", "GroupEdit.TabIcon", iconBox));
 
-            // Открываем активной вкладку «Цвет» (issue #249): при правке оформления
-            // группы/служебного узла цвет нужен чаще, чем имя или родитель. Для
-            // служебных узлов «Основные» скрыта, поэтому здесь всегда указываем «Цвет».
-            tabs.SelectedItem = colorTabItem;
+            // Активная вкладка: для обычных групп — «Основные» с именем (issue #297:
+            // при добавлении группы имя важнее цвета ярлычка); для служебных узлов
+            // «Без группы»/«Закреплённые» — «Цвет» (вкладка «Основные» скрыта).
+            tabs.SelectedItem = _mainTabItem ?? colorTabItem;
 
             Grid.SetRow(tabs, 0);
             grid.Children.Add(tabs);

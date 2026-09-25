@@ -94,6 +94,8 @@ namespace Configuration_Management
                 // Вкладку «Основные» скрываем полностью — остаются только «Цвет» и «Иконка»
                 // (замечание к issue #240).
                 MainTabItem.Visibility = Visibility.Collapsed;
+                // «Основные» скрыта — активной становится «Цвет» (первая видимая вкладка).
+                ColorTabItem.IsSelected = true;
 
                 _color = !string.IsNullOrWhiteSpace(noGroupColor) ? noGroupColor : "#2D6CDF";
                 _iconColor = !string.IsNullOrWhiteSpace(noGroupIconColor) ? noGroupIconColor : "#FFFFFF";
@@ -119,6 +121,17 @@ namespace Configuration_Management
             // Содержимое вкладок «Цвет» и «Иконка» инициализируется лениво —
             // при первой загрузке соответствующей вкладки (OnColorTab_Loaded / OnIconTab_Loaded),
             // т.к. WPF создаёт элементы только активной вкладки TabControl.
+
+            // Активная вкладка — «Основные» с именем (issue #297): для группы имя важнее
+            // цвета ярлычка. Первая вкладка активна в WPF по умолчанию, но указываем явно,
+            // чтобы поведение не зависело от порядка вкладок. Фокус сразу на поле имени:
+            // при добавлении группы удобно печатать имя без лишнего щелчка.
+            MainTabItem.IsSelected = true;
+            Loaded += (_, _) =>
+            {
+                NameBox.Focus();
+                NameBox.SelectAll();
+            };
         }
 
         public Group Result { get; private set; } = new();
