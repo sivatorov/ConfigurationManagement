@@ -221,7 +221,7 @@
                         <Button.Style>
                             <!-- Компактный режим уменьшает кнопки управления окном, поэтому
                                  заголовок окна тоже становится ниже (issue #296). -->
-                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlButton}">
+                            <Style TargetType="Button" BasedOn="{StaticResource WindowControlButton}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                                         <Setter Property="Width" Value="44"/>
@@ -241,7 +241,7 @@
                         <Button.Style>
                             <!-- Компактный режим уменьшает кнопки управления окном, поэтому
                                  заголовок окна тоже становится ниже (issue #296). -->
-                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlButton}">
+                            <Style TargetType="Button" BasedOn="{StaticResource WindowControlButton}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                                         <Setter Property="Width" Value="44"/>
@@ -267,7 +267,7 @@
                         <Button.Style>
                             <!-- Компактный режим уменьшает кнопки управления окном, поэтому
                                  заголовок окна тоже становится ниже (issue #296). -->
-                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlCloseButton}">
+                            <Style TargetType="Button" BasedOn="{StaticResource WindowControlCloseButton}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                                         <Setter Property="Width" Value="44"/>
