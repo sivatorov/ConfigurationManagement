@@ -1755,6 +1755,7 @@
     "Schedule.CfgFile": "Configuration file (.cf)",
     "Schedule.CfgFileRequired": "Specify the .cf configuration file.",
     "Schedule.Browse": "Browse…",
+    "Schedule.Scenarios": "Scenarios…",
     "Schedule.EveryDay": "daily",
     "Schedule.NeverRun": "never run",
     "Schedule.LastRunOk": "— completed",

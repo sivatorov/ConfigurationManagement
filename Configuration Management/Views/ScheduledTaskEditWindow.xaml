@@ -65,7 +65,12 @@
 
         <StackPanel x:Name="ScenarioPanel" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,0,0,8">
             <TextBlock Text="Сценарий резервирования" VerticalAlignment="Center" Margin="0,0,8,8"/>
-            <ComboBox x:Name="ScenarioCombo" Margin="0,0,0,0"/>
+            <!-- Кнопка доступа к списку сценариев (issue #292): позволяет посмотреть/создать
+                 сценарий, не закрывая окно задания по расписанию. -->
+            <DockPanel>
+                <Button x:Name="ScenariosButton" DockPanel.Dock="Right" Width="100" Content="Сценарии…" Padding="6,4" Margin="8,0,0,0" Click="Scenarios_Click"/>
+                <ComboBox x:Name="ScenarioCombo" Margin="0,0,0,0"/>
+            </DockPanel>
         </StackPanel>
 
         <StackPanel x:Name="InfobasePanel" Grid.Row="6" Grid.ColumnSpan="2" Margin="0,0,0,8">

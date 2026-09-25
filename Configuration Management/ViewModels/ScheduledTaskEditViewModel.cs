@@ -27,7 +27,7 @@ public sealed class ScheduledTaskOption
 /// </summary>
 public class ScheduledTaskEditViewModel : ViewModelBase
 {
-    private readonly IReadOnlyList<BackupScenario> _scenarios;
+    private IReadOnlyList<BackupScenario> _scenarios;
     private readonly IReadOnlyList<Infobase> _infobases;
 
     public ScheduledTaskEditViewModel(ScheduledTask? task,
@@ -84,6 +84,16 @@ public class ScheduledTaskEditViewModel : ViewModelBase
     public IReadOnlyList<ScheduledTaskOption> ScenarioOptions => _scenarios
         .Select(s => new ScheduledTaskOption(s.Id, s.Name))
         .ToList();
+
+    /// <summary>
+    /// Обновляет список доступных сценариев после возврата из окна «Сценарии резервирования»
+    /// (issue #292): вновь созданные/изменённые сценарии появляются в выборе без переоткрытия
+    /// окна задания.
+    /// </summary>
+    public void UpdateScenarios(IReadOnlyList<BackupScenario> scenarios)
+    {
+        _scenarios = scenarios ?? Array.Empty<BackupScenario>();
+    }
 
     /// <summary>Доступные информационные базы.</summary>
     public IReadOnlyList<ScheduledTaskOption> InfobaseOptions => _infobases

@@ -1755,6 +1755,7 @@
     "Schedule.CfgFile": "Файл конфигурации (.cf)",
     "Schedule.CfgFileRequired": "Укажите файл конфигурации .cf.",
     "Schedule.Browse": "Обзор…",
+    "Schedule.Scenarios": "Сценарии…",
     "Schedule.EveryDay": "ежедневно",
     "Schedule.NeverRun": "ещё не выполнялось",
     "Schedule.LastRunOk": "— выполнено",

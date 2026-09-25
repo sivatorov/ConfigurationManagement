@@ -99,12 +99,20 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
         BuildDayChecks();
         panel.Children.Add(_daysPanel);
 
-        // Сценарий резервирования.
+        // Сценарий резервирования. Кнопка «Сценарии…» (issue #292) открывает окно списка
+        // сценариев, чтобы посмотреть/создать сценарий, не закрывая окно задания.
         _scenarioCombo.ItemsSource = _vm.ScenarioOptions;
         _scenarioCombo.SelectedItem = _vm.ScenarioOptions.FirstOrDefault(o => o.Value == _vm.SelectedScenarioId);
         _scenarioCombo.HorizontalAlignment = HorizontalAlignment.Stretch;
+        var scenariosButton = new Button { Content = T("Schedule.Scenarios"), Width = 110 }
+            .Styled(ControlThemes.SecondaryButton);
+        scenariosButton.Click += (_, _) => OpenScenarios();
+        var scenarioRow = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(scenariosButton, Dock.Right);
+        scenarioRow.Children.Add(scenariosButton);
+        scenarioRow.Children.Add(_scenarioCombo);
         _scenarioPanel.Children.Add(Label(T("Schedule.Scenario")));
-        _scenarioPanel.Children.Add(_scenarioCombo);
+        _scenarioPanel.Children.Add(scenarioRow);
         panel.Children.Add(_scenarioPanel);
 
         // Информационная база.
@@ -200,6 +208,31 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
         var path = _dialogs.OpenFileDialog(T("Schedule.CfgFile"), "*.cf");
         if (!string.IsNullOrWhiteSpace(path))
             _cfgPathBox.Text = path;
+    }
+
+    /// <summary>
+    /// Открывает окно «Сценарии резервирования» (issue #292) модально относительно окна задания.
+    /// После возврата список сценариев в выборе перечитывается, чтобы новые/изменённые
+    /// сценарии стали доступны без переоткрытия окна.
+    /// </summary>
+    private void OpenScenarios()
+    {
+        var scenarios = new BackupScenariosWindow();
+        scenarios.ShowDialogSync(this);
+        ReloadScenarios();
+    }
+
+    /// <summary>Перечитывает сценарии после возврата из окна «Сценарии резервирования».</summary>
+    private void ReloadScenarios()
+    {
+        var selected = (_scenarioCombo.SelectedItem as ScheduledTaskOption)?.Value;
+        var scenarios = AppServices.GetRequiredService<IBackupScenarioStore>().LoadAll();
+        _vm.UpdateScenarios(scenarios);
+
+        _scenarioCombo.ItemsSource = _vm.ScenarioOptions;
+        _scenarioCombo.SelectedItem = string.IsNullOrEmpty(selected) || !_vm.ScenarioOptions.Any(o => o.Value == selected)
+            ? _vm.ScenarioOptions.FirstOrDefault(o => o.Value == _vm.SelectedScenarioId)
+            : _vm.ScenarioOptions.FirstOrDefault(o => o.Value == selected);
     }
 
     private void OkClicked()

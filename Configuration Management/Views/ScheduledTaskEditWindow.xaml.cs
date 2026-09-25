@@ -36,6 +36,7 @@ public partial class ScheduledTaskEditWindow : Window
         Title = T(task is null ? "Schedule.AddTitle" : "Schedule.EditTitle");
         OkButton.Content = T("Common.Save");
         BrowseButton.Content = T("Schedule.Browse");
+        ScenariosButton.Content = T("Schedule.Scenarios");
 
         NameBox.Text = _vm.Name;
         EnabledCheck.IsChecked = _vm.Enabled;
@@ -105,6 +106,37 @@ public partial class ScheduledTaskEditWindow : Window
     private void KindCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         ApplyKindVisibility();
+    }
+
+    /// <summary>
+    /// Открывает окно «Сценарии резервирования» (issue #292), чтобы посмотреть или создать
+    /// сценарий, не закрывая окно задания. После возврата список сценариев в выборе
+    /// перечитывается.
+    /// </summary>
+    private void Scenarios_Click(object sender, RoutedEventArgs e)
+    {
+        var scenarios = new BackupScenariosWindow();
+        // Модальность относительно окна задания (issue #291/#292): владелец — это окно,
+        // иначе сценарии можно было бы редактировать параллельно с текущим заданием.
+        scenarios.Owner = this;
+        scenarios.ShowDialog();
+
+        ReloadScenarios();
+    }
+
+    /// <summary>Перечитывает сценарии после возврата из окна «Сценарии резервирования».</summary>
+    private void ReloadScenarios()
+    {
+        var selected = ScenarioCombo.SelectedValue as string;
+        var scenarios = AppServices.GetRequiredService<IBackupScenarioStore>().LoadAll();
+        _vm.UpdateScenarios(scenarios);
+
+        ScenarioCombo.ItemsSource = _vm.ScenarioOptions;
+        ScenarioCombo.DisplayMemberPath = "Text";
+        ScenarioCombo.SelectedValuePath = "Value";
+        ScenarioCombo.SelectedValue = string.IsNullOrEmpty(selected) || !_vm.ScenarioOptions.Any(o => o.Value == selected)
+            ? (string.IsNullOrEmpty(_vm.SelectedScenarioId) ? null : _vm.SelectedScenarioId)
+            : selected;
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
