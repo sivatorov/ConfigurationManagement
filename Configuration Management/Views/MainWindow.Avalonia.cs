@@ -724,7 +724,10 @@ namespace Configuration_Management
             {
                 Child = grid,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(UiMetrics.Scaled(12), UiMetrics.Scaled(6))
+                // Отступы шапки из метрик: компактный режим уменьшает высоту заголовка
+                // окна вместе с кнопками управления (кнопки уже масштабируются через
+                // UiMetrics.Scaled), как на Windows (issue #296).
+                Padding = new Thickness(UiMetrics.TitleBarPadH, UiMetrics.TitleBarPadV)
             };
             ThemeBrushes.Bind(_titleBarBorder, Border.BorderBrushProperty, "BorderColorBrush");
 

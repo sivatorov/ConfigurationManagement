@@ -40,9 +40,12 @@ namespace Configuration_Management.Controls
             // Числа из разметки (MainWindow.xaml:1052): скругление 4, отступ 0,3,
             // поле 0,1 и никакой рамки. Прежние радиус 8, отступ 8 и рамка 1
             // делали из строки карточку, которой у автора нет.
+            // Вертикальные отступы следуют компактному режиму (UiMetrics.RowPadV /
+            // RowMarginV): в нём основная строка сжимается до высоты заголовка
+            // группы, как на Windows (issue #296).
             CornerRadius = new CornerRadius(4);
-            Padding = new Thickness(0, 3);
-            Margin = new Thickness(0, 1);
+            Padding = new Thickness(0, UiMetrics.RowPadV);
+            Margin = new Thickness(0, UiMetrics.RowMarginV);
             BorderThickness = new Thickness(0);
             IsHitTestVisible = true;
             HorizontalAlignment = HorizontalAlignment.Stretch;

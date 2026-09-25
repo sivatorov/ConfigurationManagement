@@ -127,6 +127,23 @@ namespace Configuration_Management.Controls
         /// <summary>Вертикальный внешний отступ заголовка группы (расстояние между группами).</summary>
         public static double GroupHeaderMarginV => Compact ? 0.5 : 1;
 
+        /// <summary>
+        /// Вертикальный внутренний отступ строки базы. В компактном режиме уменьшается
+        /// до значения заголовка группы (<see cref="GroupHeaderPadV"/>), чтобы основная
+        /// строка сжималась до высоты группы, а не оставалась прежней (issue #296).
+        /// </summary>
+        public static double RowPadV => Compact ? 1 : 3;
+        /// <summary>Вертикальный внешний отступ строки базы (расстояние между строками).</summary>
+        public static double RowMarginV => Compact ? 0.5 : 1;
+
+        /// <summary>
+        /// Вертикальный внутренний отступ шапки окна (собственный заголовок вместо
+        /// системного): компактный режим уменьшает высоту заголовка окна (issue #296).
+        /// </summary>
+        public static double TitleBarPadV => Compact ? 3 : 6;
+        /// <summary>Горизонтальный внутренний отступ шапки окна.</summary>
+        public static double TitleBarPadH => Compact ? 8 : 12;
+
         /// <summary>Минимальная ширина правой панели сведений.</summary>
         public static double RightPanelMin => Compact ? 200 : 280;
         /// <summary>Максимальная ширина правой панели сведений.</summary>

@@ -181,7 +181,20 @@
              Перетаскивание окна за эту полосу — OnTopBar_MouseLeftButtonDown -> DragMove. -->
         <Border x:Name="TitleBarBorder" Grid.Row="0"
                 BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="0,0,0,1"
-                Padding="12,6" MouseLeftButtonDown="OnTopBar_MouseLeftButtonDown">
+                MouseLeftButtonDown="OnTopBar_MouseLeftButtonDown">
+            <Border.Style>
+                <!-- Отступы шапки переехали в стиль: в компактном режиме DataTrigger
+                     уменьшает высоту заголовка окна вместе с кнопками управления
+                     (issue #296). Обычный режим сохраняет прежние 12,6. -->
+                <Style TargetType="Border">
+                    <Setter Property="Padding" Value="12,6"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                            <Setter Property="Padding" Value="8,3"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -204,8 +217,19 @@
                      скруглённые квадраты и крест с округлёнными концами. -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="MinimizeButton" Click="OnMinimizeButton_Click"
-                            Style="{DynamicResource WindowControlButton}"
                             ToolTip="{loc:Loc Window.Minimize}">
+                        <Button.Style>
+                            <!-- Компактный режим уменьшает кнопки управления окном, поэтому
+                                 заголовок окна тоже становится ниже (issue #296). -->
+                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Width" Value="44"/>
+                                        <Setter Property="Height" Value="30"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <Path Width="14" Height="14" Stretch="Uniform"
                               Data="M3,7 L11,7"
                               StrokeThickness="2"
@@ -213,8 +237,19 @@
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                     </Button>
                     <Button x:Name="MaximizeButton" Click="OnMaximizeButton_Click"
-                            Style="{DynamicResource WindowControlButton}"
                             ToolTip="{loc:Loc Window.Maximize}">
+                        <Button.Style>
+                            <!-- Компактный режим уменьшает кнопки управления окном, поэтому
+                                 заголовок окна тоже становится ниже (issue #296). -->
+                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Width" Value="44"/>
+                                        <Setter Property="Height" Value="30"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <Grid Width="14" Height="14">
                             <Path x:Name="MaximizeGlyphPath" Stretch="Uniform"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Fill="Transparent"
@@ -228,8 +263,19 @@
                         </Grid>
                     </Button>
                     <Button x:Name="CloseButton" Click="OnCloseButton_Click"
-                            Style="{DynamicResource WindowControlCloseButton}"
                             ToolTip="{loc:Loc Common.Close}">
+                        <Button.Style>
+                            <!-- Компактный режим уменьшает кнопки управления окном, поэтому
+                                 заголовок окна тоже становится ниже (issue #296). -->
+                            <Style TargetType="Button" BasedOn="{DynamicResource WindowControlCloseButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Width" Value="44"/>
+                                        <Setter Property="Height" Value="30"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <Path Width="14" Height="14" Stretch="Uniform"
                               Data="M3.5,3.5 L10.5,10.5 M10.5,3.5 L3.5,10.5"
                               StrokeThickness="1.7"
@@ -1397,15 +1443,26 @@
 
                             <!-- Строка информационной базы -->
                             <DataTemplate DataType="{x:Type models:Infobase}">
-                                <Border Padding="0,3" Margin="0,1">
+                                <Border>
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="Transparent"/>
                                             <Setter Property="CornerRadius" Value="4"/>
+                                            <!-- Вертикальные отступы строки базы переехали в стиль:
+                                                 в компактном режиме DataTrigger уменьшает их так же,
+                                                 как у заголовка группы (там 6,1), и основная строка
+                                                 сжимается до высоты группы (issue #296). Обычный
+                                                 режим сохраняет прежние 0,3 / 0,1. -->
+                                            <Setter Property="Padding" Value="0,3"/>
+                                            <Setter Property="Margin" Value="0,1"/>
                                             <Style.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
                                                     <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
                                                 </Trigger>
+                                                <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                    <Setter Property="Padding" Value="0,1"/>
+                                                    <Setter Property="Margin" Value="0,0"/>
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
