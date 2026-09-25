@@ -566,8 +566,16 @@ public class Infobase : INotifyPropertyChanged
 
     /// <summary>
     /// Ключ иконки статуса базы для списка баз (геометрия из Icons.xaml / Icons.axaml):
-    /// файловая — база данных, веб-сервер — глобус, клиент-серверная — сеть, недоступная — ошибка.
+    /// файловая — база данных, веб-сервер — глобус, клиент-серверная — сеть,
+    /// во время проверки доступности — серые часики.
     /// Передаётся в IconKeyToGeometryConverter для отрисовки Path.
+    /// <para>
+    /// Недоступная база (issue #289) показывается ОРИГИНАЛЬНОЙ иконкой типа подключения,
+    /// а не красным крестиком: цвет иконки задаётся отдельно свойством
+    /// <see cref="StatusColorHex"/> (для недоступной — красный), поэтому форма значка
+    /// всегда соответствует типу базы — файловая это или серверная, даже после
+    /// команды «Проверить доступность всех баз».
+    /// </para>
     /// <para>
     /// Issue #161: файловая база раньше рисовалась той же иконкой «папка» (IconFolder), что
     /// и группы, и отличалась от неё только цветом. Чтобы база отличалась от папки по форме,
@@ -577,14 +585,12 @@ public class Infobase : INotifyPropertyChanged
     /// </summary>
     public string StatusIconKey => _isChecking
         ? "IconInProgress"
-        : !IsAvailable
-            ? "IconError"
-            : Connection.Type switch
-            {
-                ConnectionType.File => "IconDatabase",
-                ConnectionType.WebServer => "IconWeb",
-                _ => "IconNetwork"
-            };
+        : Connection.Type switch
+        {
+            ConnectionType.File => "IconDatabase",
+            ConnectionType.WebServer => "IconWeb",
+            _ => "IconNetwork"
+        };
 
     /// <summary>
     /// Подпись статуса базы для подсказки к иконке в списке.
