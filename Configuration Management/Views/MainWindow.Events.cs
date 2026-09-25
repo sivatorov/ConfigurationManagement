@@ -581,10 +581,14 @@ namespace Configuration_Management
                 return;
             }
 
-            // Если клик пришёлся по интерактивному элементу (кнопка, поле ввода),
-            // не вмешиваемся и не начинаем drag.
+            // Если клик пришёлся по интерактивному элементу (кнопка, поле ввода,
+            // редактируемый список), не вмешиваемся и не начинаем drag. Стрелка
+            // списка — ToggleButton из шаблона ComboBox (не Button), поэтому
+            // отдельная проверка на сам ComboBox: иначе клик по списку сбрасывал
+            // бы фокус на строку дерева и закрывал поле ввода тега (issue #283).
             if (FindAncestor<Button>(source) is not null ||
-                FindAncestor<TextBox>(source) is not null)
+                FindAncestor<TextBox>(source) is not null ||
+                FindAncestor<ComboBox>(source) is not null)
             {
                 _draggedData = null;
                 return;

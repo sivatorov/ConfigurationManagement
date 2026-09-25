@@ -26,6 +26,13 @@ namespace Configuration_Management
 {
     public partial class MainWindow
     {
+        /// <summary>
+        /// Поколение открытия поля ввода тега в строке базы. Инкрементируется при
+        /// каждом показе поля; отложенные обработчики (LostFocus, SelectionChanged)
+        /// запоминают поколение при постановке в очередь и игнорируются, если поле
+        /// было скрыто и открыто заново до их выполнения (issue #283).
+        /// </summary>
+        private int _inlineTagGeneration;
 
         /// <summary>
         /// Показывает поле ввода тега прямо в строке названия базы.
@@ -42,21 +49,35 @@ namespace Configuration_Management
             if (tagBox is null)
                 return;
 
+            var generation = ++_inlineTagGeneration;
+
             // Скрываем кнопку «+ тег» и показываем поле ввода на её месте.
             button.Visibility = Visibility.Collapsed;
             tagBox.Text = string.Empty;
             tagBox.SelectedItem = null;
+            tagBox.IsDropDownOpen = false;
             tagBox.Visibility = Visibility.Visible;
-            tagBox.Focus();
-            Keyboard.Focus(tagBox);
 
-            // Текст всегда пуст, но выделение во внутреннем поле — единый вид при
-            // повторных открытиях. Шаблон ComboBox применяется уже после показа,
-            // поэтому SelectAll откладываем до обработки разметки.
+            // Фокус ставим во внутреннее поле ввода (PART_EditableTextBox), а не на
+            // сам ComboBox: иначе каретка не попадает в поле и набор не работает.
+            // Шаблон ComboBox применяется уже после показа, поэтому фокус и
+            // выделение откладываем до обработки разметки.
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                if (generation != _inlineTagGeneration || tagBox.Visibility != Visibility.Visible)
+                    return;
+
                 if (tagBox.Template?.FindName("PART_EditableTextBox", tagBox) is TextBox editBox)
+                {
+                    editBox.Focus();
+                    Keyboard.Focus(editBox);
                     editBox.SelectAll();
+                }
+                else
+                {
+                    tagBox.Focus();
+                    Keyboard.Focus(tagBox);
+                }
             }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
@@ -112,9 +133,11 @@ namespace Configuration_Management
             if (sender is not ComboBox { Visibility: Visibility.Visible } combo)
                 return;
 
+            var generation = _inlineTagGeneration;
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (combo.Visibility != Visibility.Visible || combo.IsDropDownOpen)
+                if (generation != _inlineTagGeneration ||
+                    combo.Visibility != Visibility.Visible || combo.IsDropDownOpen)
                     return;
 
                 if (combo.SelectedItem is string tag && !string.IsNullOrWhiteSpace(tag))
@@ -123,15 +146,31 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// При потере фокуса полем ввода тега — сохраняем непустой тег и всегда скрываем поле.
+        /// При потере фокуса полем ввода тега — сохраняем непустой тег и скрываем поле.
+        /// Фокус, ушедший внутрь ComboBox (внутреннее поле ввода) или в выпадающий
+        /// список (попап), редактор не закрывает: клик по полю или по списку не должен
+        /// прерывать правку (issue #283).
         /// </summary>
         private void OnInlineTagBox_LostFocus(object sender, RoutedEventArgs e)
         {
+            if (sender is not ComboBox combo)
+                return;
+
+            if (combo.IsKeyboardFocusWithin || combo.IsDropDownOpen)
+                return;
+
+            var generation = _inlineTagGeneration;
             // Dispatcher: клик вне поля сначала переводит фокус, затем обрабатываем.
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (sender is ComboBox { Visibility: Visibility.Visible } box)
-                    CommitInlineTag(box);
+                if (generation != _inlineTagGeneration)
+                    return;
+
+                if (combo.Visibility != Visibility.Visible ||
+                    combo.IsKeyboardFocusWithin || combo.IsDropDownOpen)
+                    return;
+
+                CommitInlineTag(combo);
             }), System.Windows.Threading.DispatcherPriority.Input);
         }
 

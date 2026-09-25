@@ -10,6 +10,7 @@ using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Configuration_Management.Controls;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
@@ -219,15 +220,14 @@ namespace Configuration_Management
                 button.IsVisible = false;
                 input.Text = string.Empty;
                 input.SelectedItem = null;
+                input.IsDropDownOpen = false;
                 // Список существующих тегов перечитываем при каждом показе: новые
                 // теги (добавленные, например, в окне свойств базы) видны сразу.
                 // Источник — чипы панели фильтра: уникальные теги всех баз.
                 input.ItemsSource = _vm?.TagFilterItems.Select(t => t.Name).ToList()
                     ?? new List<string>();
                 input.IsVisible = true;
-                input.Focus();
-                // Список виден сразу — пользователю не нужно нажимать стрелку.
-                input.IsDropDownOpen = true;
+                FocusInlineTagInput(input);
             }
 
             void HideEditor()
@@ -299,16 +299,62 @@ namespace Configuration_Management
 
             // Потеря фокуса сохраняет введённый тег, как в WPF-версии. Откладываем
             // обработку: клик вне поля сначала переводит фокус, затем фиксируем ввод.
+            // Фокус, ушедший внутрь ComboBox (внутреннее поле ввода) или в выпадающий
+            // список (попап), редактор не закрывает (issue #283).
             input.LostFocus += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (input.IsVisible)
-                    Commit();
+                if (!input.IsVisible || input.IsKeyboardFocusWithin || input.IsDropDownOpen)
+                    return;
+                Commit();
             });
 
             var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             row.Children.Add(button);
             row.Children.Add(input);
             return row;
+        }
+
+        /// <summary>
+        /// Ставит фокус во внутреннее поле ввода редактируемого списка тегов.
+        /// Фокус на самом ComboBox каретки не даёт — набор начинается только после
+        /// фокуса PART_EditableTextBox (issue #283). Шаблон применяется после показа,
+        /// поэтому откладываем до обработки очереди Dispatcher. Список раскрывается
+        /// сразу, чтобы существующие теги были видны без клика по стрелке.
+        /// </summary>
+        private static void FocusInlineTagInput(ComboBox input)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (!input.IsVisible)
+                    return;
+
+                if (FindInlineTagTextBox(input) is TextBox editBox)
+                {
+                    editBox.Focus(NavigationMethod.Pointer);
+                    editBox.SelectAll();
+                }
+                else
+                {
+                    input.Focus(NavigationMethod.Pointer);
+                }
+
+                input.IsDropDownOpen = true;
+            });
+        }
+
+        /// <summary>
+        /// Ищет внутреннее поле ввода редактируемого списка в визуальном дереве
+        /// шаблона. В Avalonia имя части шаблона (PART_EditableTextBox) недоступно
+        /// через публичный API контрола, поэтому обходим дерево.
+        /// </summary>
+        private static TextBox? FindInlineTagTextBox(ComboBox input)
+        {
+            foreach (var child in input.GetVisualDescendants())
+            {
+                if (child is TextBox { Name: "PART_EditableTextBox" } textBox)
+                    return textBox;
+            }
+            return null;
         }
 
         /// <summary>
