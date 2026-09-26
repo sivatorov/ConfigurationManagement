@@ -127,10 +127,19 @@ namespace Configuration_Management
             // чтобы поведение не зависело от порядка вкладок. Фокус сразу на поле имени:
             // при добавлении группы удобно печатать имя без лишнего щелчка.
             MainTabItem.IsSelected = true;
+            // Фокус ставим отложенно (issue #297): синхронная установка в Loaded «съедается» —
+            // TabControl при инициализации может перехватить фокус, и он попадает в поле
+            // «не всегда». ApplicationIdle выполняется после полного показа и активации окна;
+            // Keyboard.Focus и FocusManager страхуют от перехвата фокуса элементом вкладок.
             Loaded += (_, _) =>
             {
-                NameBox.Focus();
-                NameBox.SelectAll();
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
+                {
+                    if (!NameBox.Focus())
+                        System.Windows.Input.Keyboard.Focus(NameBox);
+                    System.Windows.Input.FocusManager.SetFocusedElement(this, NameBox);
+                    NameBox.SelectAll();
+                }));
             };
         }
 

@@ -146,11 +146,35 @@ namespace Configuration_Management
             {
                 // Фокус сразу на поле имени (issue #297): при добавлении группы удобно
                 // печатать имя без лишнего щелчка (как фокус пароля в AppLockWindow, #294).
-                Opened += (_, _) => _nameBox.Focus();
+                // Ставим отложенно — после полного показа и активации окна, иначе Focus()
+                // может вернуть false (окно ещё не активировано/не прошла компоновка);
+                // при неудаче повторяем до 3 попыток.
+                Opened += (_, _) => FocusNameBoxAttempt(0);
             }
 
             ApplyIconPickerColors();
             HighlightSelectedIcon();
+        }
+
+        /// <summary>
+        /// Отложенная установка фокуса в поле «Наименование» с повторами (issue #297):
+        /// синхронный вызов в Opened может вернуть false, если окно ещё не активировано
+        /// или не завершилась компоновка — в этом случае пробуем снова.
+        /// </summary>
+        private void FocusNameBoxAttempt(int attempt)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (_nameBox.Focus())
+                {
+                    _nameBox.SelectAll();
+                    return;
+                }
+
+                // Окно ещё не готово — повторяем (всего до 3 попыток).
+                if (attempt < 2)
+                    FocusNameBoxAttempt(attempt + 1);
+            }, Avalonia.Threading.DispatcherPriority.Background);
         }
 
         public Group Result { get; private set; } = new();
