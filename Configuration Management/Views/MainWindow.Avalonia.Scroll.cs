@@ -21,7 +21,7 @@ namespace Configuration_Management
         private Avalonia.Vector? _treeScrollOffset;
 
         /// <summary>Максимум отложенных попыток довести строку до видимой области (issue #285).</summary>
-        private const int MaxRevealAttempts = 3;
+        private const int MaxRevealAttempts = 8;
 
         /// <summary>Внутренняя прокрутка дерева: вертикаль ведёт сам TreeView.</summary>
         private ScrollViewer? TreeScroll =>
@@ -242,6 +242,20 @@ namespace Configuration_Management
             catch
             {
                 // Контейнер мог отсоединиться во время пересборки — выходим.
+                return;
+            }
+
+            // Контейнер цели ещё не создан (issue #285): строка далеко вниз внутри длинной
+            // раскрытой группы, а контейнеры реализуются только для видимой области. Поэтому
+            // двигаемся к цели прокруткой — сначала к домашнему узлу во «Все базы» (его строки
+            // материализуются), затем итеративно к самой строке через EnsureDataVisible.
+            // Каждый Dispatcher-цикл делает шаг прокрутки; когда контейнер появится, выделяем.
+            if (target is Infobase ib
+                && GroupNodeViewModel.FindInfobaseHomeNode(_vm.GroupNodes, ib) is { } home
+                && _tree.EnsureDataVisible(ib, home)
+                && FindFindInListRow(target) is { } revealed)
+            {
+                SelectAndReveal(revealed);
                 return;
             }
 

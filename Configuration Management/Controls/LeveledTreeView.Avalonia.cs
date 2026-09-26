@@ -388,6 +388,59 @@ namespace Configuration_Management.Controls
             }
         }
 
+        /// <summary>
+        /// Доводит строку до видимой области по её данным (issue #285). Контейнер строки
+        /// далеко вниз внутри длинной раскрытой группы не реализован (контейнеры создаются
+        /// только для видимой области), поэтому метод итеративно двигает внутренний
+        /// ScrollViewer к цели: сначала к контейнеру домашнего узла — если он реализован,
+        /// прокручивает к его заголовку, а если нет (заголовок выше вьюпорта) — вверх до его
+        /// появления, — затем вниз к самой строке. Возвращает true, если контейнер строки
+        /// найден и прокрутка к нему выполнена. При неудаче позиция прокрутки всё равно
+        /// продвигается к цели: последующие попытки RevealFindInListAttempt продолжают с места.
+        /// </summary>
+        public bool EnsureDataVisible(object data, object? home)
+        {
+            if (ContainerForItem(data) is { } item)
+            {
+                item.BringIntoView();
+                return true;
+            }
+            if (TreeScroll is not { } scroll)
+                return false;
+
+            const int maxSteps = 8;
+            var viewport = Math.Max(1, scroll.Viewport.Height);
+            var hidden = Math.Max(0, scroll.Extent.Height - viewport);
+
+            // 1) Добираемся до домашнего узла: вниз, если его заголовок уже реализован,
+            //    либо вверх, если он выше текущего вьюпорта и контейнер ещё не создан.
+            for (var step = 0; step < maxSteps; step++)
+            {
+                if (home is { } homeData && ContainerForItem(homeData) is { } homeItem)
+                {
+                    homeItem.BringIntoView();
+                    break;
+                }
+                if (scroll.Offset.Y <= 0)
+                    return false;
+                scroll.Offset = scroll.Offset.WithY(Math.Max(0, scroll.Offset.Y - viewport));
+            }
+
+            // 2) От заголовка домашнего узла спускаемся к строке цели.
+            for (var step = 0; step < maxSteps; step++)
+            {
+                if (ContainerForItem(data) is { } target)
+                {
+                    target.BringIntoView();
+                    return true;
+                }
+                if (scroll.Offset.Y >= hidden)
+                    return false;
+                scroll.Offset = scroll.Offset.WithY(Math.Min(hidden, scroll.Offset.Y + viewport));
+            }
+            return false;
+        }
+
         protected override void ClearContainerForItemOverride(Control container)
         {
             ReleaseExpandedBinding(container);

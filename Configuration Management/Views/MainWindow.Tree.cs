@@ -40,7 +40,7 @@ namespace Configuration_Management
         private bool _revealFindInListPending;
 
         /// <summary>Максимум «добирающих» проходов при поиске контейнера цели после пересборки (issue #285).</summary>
-        private const int MaxRevealAttempts = 3;
+        private const int MaxRevealAttempts = 6;
 
         /// <summary>
         /// Собирает контейнеры видимых строк дерева в порядке их отображения
@@ -323,6 +323,29 @@ namespace Configuration_Management
                 MainTree.UpdateLayout();
 
                 var item = FindTargetContainer(target, revealToHome ? leaf : null);
+                if (item is null && revealToHome)
+                {
+                    // «Найти в списке» (issue #285): строка цели далеко вниз внутри длинной
+                    // раскрытой группы. При Recycling-виртуализации (VirtualizingStackPanel,
+                    // ScrollUnit=Pixel) её контейнер ниже вьюпорта не создаётся никогда, и
+                    // повторные проходы БЕЗ сдвига прокрутки бесполезны. В повторных проходах
+                    // первым делом прокручиваем к контейнеру домашней группы (BringIntoView):
+                    // его строки материализуются, и цель может попасть в реализованный диапазон.
+                    if (attempt > 0 && leaf is { } leafNode && FindTreeViewItemForData(leafNode) is { } homeItem)
+                    {
+                        homeItem.BringIntoView();
+                        MainTree.UpdateLayout();
+                        item = FindTargetContainer(target, leaf);
+                    }
+
+                    // Если цель всё ещё не создана — материализуем дерево целиком: временно
+                    // отключаем виртуализацию, находим контейнер цели, прокручиваем к нему,
+                    // возвращаем виртуализацию (цель остаётся в видимой области, а свежий
+                    // контейнер после включения ищется по данным заново).
+                    if (item is null)
+                        item = MaterializeRevealTarget(target, leaf);
+                }
+
                 if (item is null)
                 {
                     // Контейнер цели ещё не создан: строка ниже реализованного диапазона
@@ -381,6 +404,45 @@ namespace Configuration_Management
                 }
             }
             catch { /* элемент мог отсоединиться во время пересборки */ }
+        }
+
+        /// <summary>
+        /// «Найти в списке» (issue #285): принудительно материализует контейнер строки цели.
+        /// Строка внизу внутри длинной раскрытой группы не создаётся при Recycling-
+        /// виртуализации (VirtualizingStackPanel): временно отключаем виртуализацию дерева,
+        /// выполняем раскладку — контейнеры создаются для всех строк, — прокручиваем к цели
+        /// и возвращаем виртуализацию. После включения цель остаётся в видимой области,
+        /// и свежий контейнер ищется заново по данным. Возвращает контейнер цели либо null,
+        /// если строка так и не найдена.
+        /// </summary>
+        private TreeViewItem? MaterializeRevealTarget(object target, GroupNodeViewModel? homeNode)
+        {
+            if (MainTree is null)
+                return null;
+            var wasVirtualizing = VirtualizingPanel.GetIsVirtualizing(MainTree);
+            if (!wasVirtualizing)
+                return FindTargetContainer(target, homeNode);
+
+            VirtualizingPanel.SetIsVirtualizing(MainTree, false);
+            try
+            {
+                MainTree.UpdateLayout();
+                var item = FindTargetContainer(target, homeNode);
+                if (item is null)
+                    return null;
+                // Прокрутка при полной материализации: позиция цели вычисляется точно
+                // (контейнеры всех строк существуют, высоты актуальны).
+                ScrollSelectedIntoView(item);
+            }
+            finally
+            {
+                VirtualizingPanel.SetIsVirtualizing(MainTree, wasVirtualizing);
+                MainTree.UpdateLayout();
+            }
+
+            // После возврата виртуализации контейнеры пересозданы для видимой области:
+            // цель в ней, ищем свежий контейнер по данным (прежний мог быть переиспользован).
+            return FindTargetContainer(target, homeNode);
         }
 
         /// <summary>
