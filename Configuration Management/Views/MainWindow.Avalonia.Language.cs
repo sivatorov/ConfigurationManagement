@@ -45,13 +45,23 @@ namespace Configuration_Management
             }
 
             // Выделение и прокрутка восстанавливаются после того, как новое дерево
-            // построено и разложено (иначе строки ещё не существуют).
+            // построено и разложено (иначе строки ещё не существуют). Строка выбирается
+            // по конкретному контейнеру, а не через SelectedItem: закреплённая база есть
+            // в дереве дважды, и разрешение по данным нашло бы первую копию в узле
+            // «Закреплённые» (issue #301).
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (selected is not null && _tree is not null && !ReferenceEquals(_tree.SelectedItem, selected))
                 {
                     _tree.SelectionChanged -= OnTreeSelectionChanged;
-                    try { _tree.SelectedItem = selected; }
+                    try
+                    {
+                        if (FindFindInListRow(selected) is { } row)
+                        {
+                            _tree.SelectRow(row);
+                            row.BringIntoView();
+                        }
+                    }
                     finally { _tree.SelectionChanged += OnTreeSelectionChanged; }
                 }
                 if (offset is { } off && TreeScroll is { } scroll)

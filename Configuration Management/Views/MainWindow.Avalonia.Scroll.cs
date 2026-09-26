@@ -131,16 +131,30 @@ namespace Configuration_Management
                 var target = (object?)_vm.SelectedInfobase ?? _vm.SelectedGroupNode;
                 if (target is not null && !ReferenceEquals(_tree.SelectedItem, target))
                 {
-                    // Выбор ставится напрямую, без обработчика: он уже согласован
-                    // с вьюмоделью, и повторный проход только сбросил бы парное поле.
+                    // Выбор ставится напрямую на конкретный контейнер, а не через
+                    // SelectedItem: закреплённая база присутствует в дереве дважды
+                    // («Закреплённые» и своя группа), и разрешение по данным всегда
+                    // находит первую копию — подсветка «перепрыгивала» бы в узел
+                    // «Закреплённые» в начало списка (issue #301). Для базы строка
+                    // ищется внутри её настоящей группы, как в «Найти в списке».
+                    // Обработчик отключаем: выбор уже согласован с вьюмоделью, и
+                    // повторный проход только сбросил бы парное поле.
                     _tree.SelectionChanged -= OnTreeSelectionChanged;
-                    try { _tree.SelectedItem = target; }
+                    try
+                    {
+                        if (FindFindInListRow(target) is { } row)
+                        {
+                            _tree.SelectRow(row);
+                            // Показываем восстановленную строку: AutoScrollToSelectedItem
+                            // отключено, чтобы разметка данных не прокручивала список
+                            // к ПЕРВОЙ копии базы (issue #301).
+                            row.BringIntoView();
+                        }
+                    }
                     finally { _tree.SelectionChanged += OnTreeSelectionChanged; }
                 }
 
-                // Прокрутка возвращается последней: у дерева включено
-                // AutoScrollToSelectedItem, и установка выбора синхронно тянет
-                // строку в видимую область, затирая прежнюю позицию.
+                // Прокрутка возвращается последней: показываем прежнее место списка.
                 if (_treeScrollOffset is { } offset && TreeScroll is { } scroll)
                     scroll.Offset = offset;
 
@@ -148,12 +162,13 @@ namespace Configuration_Management
                 // диалога (например, сохранения настроек базы): контейнер прежней
                 // строки уничтожен пересборкой, и фокус осел на окне. Если сейчас
                 // идёт ввод в текстовом поле (поиск, теги), фокус не трогаем,
-                // чтобы не выбивать курсор из поля во время набора.
+                // чтобы не выбивать курсор из поля во время набора. Строка та же,
+                // что выделена выше (для базы — не первая копия в «Закреплённых»).
                 if (target is not null
                     && FocusManager?.GetFocusedElement() is not TextBox
-                    && _tree.ContainerForItem(target) is { } row)
+                    && FindFindInListRow(target) is { } focusRow)
                 {
-                    row.Focus();
+                    focusRow.Focus();
                 }
             }, Avalonia.Threading.DispatcherPriority.Background);
         }
@@ -216,9 +231,9 @@ namespace Configuration_Management
         /// («Закреплённые»). Из контейнера выбор поднимается штатно (тот же приём,
         /// что в навигации клавишами LeveledTreeView).
         /// </summary>
-        private static void SelectAndReveal(TreeViewItem row)
+        private void SelectAndReveal(TreeViewItem row)
         {
-            row.IsSelected = true;
+            _tree.SelectRow(row);
             row.BringIntoView();
             row.Focus();
         }
