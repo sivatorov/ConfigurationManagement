@@ -43,6 +43,18 @@ public sealed class BackupScenarioEditWindow : ModalWindowBase
         MinHeight = 580;
         FontSize = 13;
         Content = BuildRoot();
+
+        // Фокус в поле «Наименование» (issue #299): отложенно после показа окна —
+        // синхронная установка в Opened слетает до активации модального диалога.
+        Opened += (_, _) =>
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                _nameBox.Focus();
+                if (scenario is null)
+                    _nameBox.SelectAll();
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        };
     }
 
     /// <summary>Показывает окно модально (синхронно).</summary>

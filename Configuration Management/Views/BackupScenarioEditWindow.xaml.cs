@@ -1,5 +1,6 @@
 #if WINDOWS
 using System.Windows;
+using System.Windows.Threading;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
@@ -46,7 +47,17 @@ public partial class BackupScenarioEditWindow : Window
         FormatCombo.ItemsSource = System.Enum.GetValues<BackupFormat>();
         PasswordBox.Password = _vm.Password;
 
-        Loaded += (_, _) => NameBox.Focus();
+        // Фокус в поле «Наименование» (issue #299): отложенный вызов после показа окна —
+        // иначе при ShowDialog() фокус «съедается» до активации окна.
+        Loaded += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+            {
+                NameBox.Focus();
+                if (scenario is null)
+                    NameBox.SelectAll();
+            }));
+        };
     }
 
     private static string T(string key) => LocalizationManager.T(key);

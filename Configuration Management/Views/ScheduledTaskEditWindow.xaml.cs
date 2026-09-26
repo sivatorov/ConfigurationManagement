@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
 using Configuration_Management.Services;
@@ -75,6 +76,18 @@ public partial class ScheduledTaskEditWindow : Window
         SunCheck.Content = T("Schedule.Days.Sun");
 
         ApplyKindVisibility();
+
+        // Фокус в поле «Наименование» (issue #299): отложенный вызов после показа окна —
+        // иначе при ShowDialog() фокус ставится до активации окна и «съедается».
+        Loaded += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+            {
+                NameBox.Focus();
+                if (task is null)
+                    NameBox.SelectAll();
+            }));
+        };
     }
 
     private static string T(string key) => LocalizationManager.T(key);
