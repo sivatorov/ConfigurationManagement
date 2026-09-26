@@ -1189,6 +1189,19 @@
                         </controls:LeveledTreeView.ItemsPanel>
 
                         <controls:LeveledTreeView.Resources>
+                            <!-- Компактный режим сжимает иконки кнопок действий строки базы
+                                 (issue #296): 15 → 13. Работает вместе с ThemeManager.ApplyCompactTree,
+                                 который масштабирует отступы и шрифты, но не размеры иконок. -->
+                            <Style x:Key="RowActionIcon" TargetType="materialDesign:PackIcon">
+                                <Setter Property="Width" Value="15"/>
+                                <Setter Property="Height" Value="15"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Width" Value="13"/>
+                                        <Setter Property="Height" Value="13"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
                             <!-- Узел группы: заголовок + вложенные подгруппы и базы -->
                             <HierarchicalDataTemplate DataType="{x:Type vm:GroupNodeViewModel}"
                                                       ItemsSource="{Binding Items}">
@@ -1455,9 +1468,12 @@
                                             <Setter Property="CornerRadius" Value="4"/>
                                             <!-- Вертикальные отступы строки базы переехали в стиль:
                                                  в компактном режиме DataTrigger уменьшает их так же,
-                                                 как у заголовка группы (там 6,1), и основная строка
-                                                 сжимается до высоты группы (issue #296). Обычный
-                                                 режим сохраняет прежние 0,3 / 0,1. -->
+                                                 как у заголовка группы (там 6,1), а внутренняя структура
+                                                 строки сжимается отдельными DataTrigger ниже (иконки
+                                                 статуса/избранного/закрепления, бейджи тегов) и обходом
+                                                 ThemeManager.ApplyCompactTree (отступы и шрифты) —
+                                                 основная строка визуально опускается до высоты группы
+                                                 (issue #296). Обычный режим сохраняет прежние 0,3 / 0,1. -->
                                             <Setter Property="Padding" Value="0,3"/>
                                             <Setter Property="Margin" Value="0,1"/>
                                             <Style.Triggers>
@@ -1619,24 +1635,37 @@
                                                     VerticalAlignment="Center"
                                                     ToolTip="{loc:Loc Main.ToggleFavoriteTooltip}">
                                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                    <materialDesign:PackIcon Kind="Star" Width="14" Height="14" VerticalAlignment="Center">
+                                                    <materialDesign:PackIcon Kind="Star" VerticalAlignment="Center">
                                                         <materialDesign:PackIcon.Style>
                                                             <Style TargetType="materialDesign:PackIcon">
+                                                                <!-- В компактном режиме иконка избранного сжимается (issue #296);
+                                                                     обычный размер задан сеттером, а не атрибутом, чтобы DataTrigger
+                                                                     мог его перекрыть (локальное значение сильнее триггера). -->
+                                                                <Setter Property="Width" Value="14"/>
+                                                                <Setter Property="Height" Value="14"/>
                                                                 <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding IsFavorite}" Value="True">
                                                                         <Setter Property="Foreground" Value="{DynamicResource FavoriteBrush}"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                        <Setter Property="Width" Value="12"/>
+                                                                        <Setter Property="Height" Value="12"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </materialDesign:PackIcon.Style>
                                                     </materialDesign:PackIcon>
                                                     <Border VerticalAlignment="Center" Margin="2,0,0,0" CornerRadius="3" Padding="4,0,4,1"
-                                                            MinWidth="16" Background="{DynamicResource FavoriteBrush}">
+                                                            Background="{DynamicResource FavoriteBrush}">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
+                                                                <Setter Property="MinWidth" Value="16"/>
                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                 <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                        <Setter Property="MinWidth" Value="14"/>
+                                                                    </DataTrigger>
                                                                     <MultiDataTrigger>
                                                                         <MultiDataTrigger.Conditions>
                                                                             <Condition Binding="{Binding IsFavorite}" Value="True"/>
@@ -1669,13 +1698,21 @@
                                                     MinWidth="0" MinHeight="0"
                                                     VerticalAlignment="Center"
                                                     ToolTip="{loc:Loc Main.TogglePinTooltip}">
-                                                <materialDesign:PackIcon Kind="Pin" Width="14" Height="14" VerticalAlignment="Center">
+                                                <materialDesign:PackIcon Kind="Pin" VerticalAlignment="Center">
                                                     <materialDesign:PackIcon.Style>
                                                         <Style TargetType="materialDesign:PackIcon">
+                                                            <!-- В компактном режиме иконка закрепления сжимается (issue #296),
+                                                                 как и звезда избранного: 14 → 12. -->
+                                                            <Setter Property="Width" Value="14"/>
+                                                            <Setter Property="Height" Value="14"/>
                                                             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IsPinned}" Value="True">
                                                                     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                    <Setter Property="Width" Value="12"/>
+                                                                    <Setter Property="Height" Value="12"/>
                                                                 </DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
@@ -1687,10 +1724,25 @@
                                                  типа, но красным цветом (issue #289). Цвет зависит от статуса:
                                                  янтарный — файловая, синий — веб, фиолетовый — клиент-сервер,
                                                  красный — недоступна, серый — идёт проверка доступности. -->
-                                            <Path Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"
+                                            <Path Stretch="Uniform" Margin="0,0,6,0"
                                                   VerticalAlignment="Center"
                                                   Data="{Binding StatusIconKey, Converter={StaticResource IconKeyToGeometryConverter}}"
                                                   ToolTip="{Binding StatusDisplay}">
+                                                <Path.Style>
+                                                    <!-- Иконка статуса базы в компактном режиме сжимается (issue #296):
+                                                         14 → 12, как в строке группы. ThemeManager.ApplyCompactTree трогает
+                                                         отступы и шрифты, но не размеры иконок. -->
+                                                    <Style TargetType="Path">
+                                                        <Setter Property="Width" Value="14"/>
+                                                        <Setter Property="Height" Value="14"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                <Setter Property="Width" Value="12"/>
+                                                                <Setter Property="Height" Value="12"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Path.Style>
                                                 <Path.Fill>
                                                     <MultiBinding Converter="{StaticResource GroupColorConverter}">
                                                         <Binding Path="StatusColorHex"/>
@@ -1753,21 +1805,24 @@
                                                     CommandParameter="{Binding}"
                                                     Style="{DynamicResource IconButton}" Margin="1,0"
                                                     ToolTip="{loc:Loc Main.LaunchEnterpriseTooltip}">
-                                                <materialDesign:PackIcon Kind="Play" Width="15" Height="15"
+                                                <materialDesign:PackIcon Kind="Play"
+                                                                         Style="{StaticResource RowActionIcon}"
                                                                          Foreground="{DynamicResource TextSecondaryBrush}"/>
                                             </Button>
                                             <Button Command="{Binding DataContext.LaunchConfiguratorCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
                                                     Style="{DynamicResource IconButton}" Margin="1,0"
                                                     ToolTip="{loc:Loc Main.LaunchConfiguratorSectionTooltip}">
-                                                <materialDesign:PackIcon Kind="Wrench" Width="15" Height="15"
+                                                <materialDesign:PackIcon Kind="Wrench"
+                                                                         Style="{StaticResource RowActionIcon}"
                                                                          Foreground="{DynamicResource TextSecondaryBrush}"/>
                                             </Button>
                                             <Button Command="{Binding DataContext.ClearCacheCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
                                                     Style="{DynamicResource IconButton}" Margin="1,0"
                                                     ToolTip="{loc:Loc Main.ClearCacheTooltip}">
-                                                <materialDesign:PackIcon Kind="Broom" Width="15" Height="15"
+                                                <materialDesign:PackIcon Kind="Broom"
+                                                                         Style="{StaticResource RowActionIcon}"
                                                                          Foreground="{DynamicResource TextSecondaryBrush}"/>
                                             </Button>
                                         </StackPanel>
@@ -1791,9 +1846,21 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <Border Background="{DynamicResource ItemHoverBrush}" CornerRadius="3"
-                                                                Padding="4,0" Margin="0,0,3,0" Height="16"
+                                                                Padding="4,0" Margin="0,0,3,0"
                                                                 VerticalAlignment="Center"
                                                                 BorderThickness="0" SnapsToDevicePixels="True">
+                                                            <Border.Style>
+                                                                <!-- Высота бейджа тега в компактном режиме сжимается (issue #296):
+                                                                     16 → 14, под размер кнопки тега (14) и кнопки «Добавить тег». -->
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Height" Value="16"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                            <Setter Property="Height" Value="14"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
                                                             <DockPanel LastChildFill="False" VerticalAlignment="Center">
                                                                 <Button DockPanel.Dock="Left"
                                                                         Command="{Binding DataContext.SearchByTagCommand, RelativeSource={RelativeSource AncestorType=TreeView}}"
@@ -1835,12 +1902,38 @@
                                             <Button x:Name="AddTagButton"
                                                     Click="OnAddTagInline_Click"
                                                     Background="Transparent" BorderThickness="0" Padding="2,0"
-                                                    Cursor="Hand" Height="16" MinHeight="0" VerticalAlignment="Center" Margin="2,0,0,0"
+                                                    Cursor="Hand" MinHeight="0" VerticalAlignment="Center" Margin="2,0,0,0"
                                                     ToolTip="{loc:Loc Main.AddTag}">
+                                                <Button.Style>
+                                                    <!-- Кнопка «Добавить тег» в компактном режиме сжимается до высоты
+                                                         бейджей тегов (issue #296): 16 → 14. Высота задана сеттером,
+                                                         а не атрибутом, чтобы DataTrigger мог её перекрыть. -->
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Height" Value="16"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                <Setter Property="Height" Value="14"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,3,0"
+                                                    <Path Stretch="Uniform" Margin="0,0,3,0"
                                                           VerticalAlignment="Center" Data="{StaticResource IconTag}"
-                                                          Fill="{DynamicResource TextSecondaryBrush}"/>
+                                                          Fill="{DynamicResource TextSecondaryBrush}">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Width" Value="11"/>
+                                                                <Setter Property="Height" Value="11"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding DataContext.CompactMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                                        <Setter Property="Width" Value="10"/>
+                                                                        <Setter Property="Height" Value="10"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
                                                     <TextBlock Text="{loc:Loc Main.AddTagShort}" FontSize="11" VerticalAlignment="Center"
                                                                Foreground="{DynamicResource TextSecondaryBrush}"/>
                                                 </StackPanel>
