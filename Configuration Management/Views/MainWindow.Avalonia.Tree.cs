@@ -204,18 +204,54 @@ namespace Configuration_Management
             var grid = new Grid();
             // Слева направо: звезда, булавка, иконка типа подключения, имя базы,
             // дальше колонки значений. Звезда и булавка повторяют колонки заголовка
-            // теми же ширинами и подчиняются тем же настройкам.
+            // теми же ширинами и подчиняются тем же настройкам. Колонка «Действия»
+            // берётся из общего построителя колонок, как у заголовка и у строки
+            // группы: возвращаемый индекс и есть единственный источник истины
+            // (issue #300 — артефакты «значки поверх кнопок запуска» из-за
+            // рассинхрона колонок строки с заголовком).
             var showFavorite = _vm?.ShowFavoritesButton ?? true;
             var showPin = _vm?.ShowPinnedButton ?? true;
-            AddListColumns(grid, showFavorite, showPin);
+            var actionsIndex = AddListColumns(grid, showFavorite, showPin);
             var columns = ListColumns();
             var actionsOffset = ActionsOffsetInColumns(columns);
 
-            // Звезда, булавка, значок подключения и имя лежат в одной горизонтальной
-            // панели, которая занимает все пять ведущих колонок (MainWindow.xaml:1152).
-            // Так их собственная ширина не двигает колонки значений: те начинаются
-            // после ведущих и стоят под своими заголовками. Отступ вложенности
-            // ставит контейнер строки, панель его получает от него же.
+            // Звезда и булавка лежат в собственных ведущих колонках (2 — избранное,
+            // 3 — закрепление) теми же ширинами, что и у заголовка. Они прямые дети
+            // сетки, поэтому их позиция определяется колонками и не зависит от того,
+            // как широко разложился блок имени: горизонтальный StackPanel в Avalonia
+            // меряет детей без ограничения ширины, и раньше (ведущий блок со звездой
+            // и булавкой внутри, растянутый на все пять колонок) при длинном имени
+            // или плашке слота значки раскладывались поверх колонок значений, в том
+            // числе поверх кнопок запуска (issue #300). Теперь пересечение с колонкой
+            // «Действия» структурно невозможно.
+            if (showFavorite)
+            {
+                // Номер слота Alt+N идёт плашкой сразу за звездой и внутри той же
+                // кнопки, как в разметке (MainWindow.xaml:1180). Прежде он был
+                // наложен на угол колонки мелкой цифрой без подложки.
+                var favorite = RowMarkButton(card, ib, "IconFavorite", "FavoriteBrush",
+                    nameof(Infobase.IsFavorite), () => ib.IsFavorite,
+                    LocalizationManager.T("Main.ToggleFavoriteTooltip"), "ToggleFavoriteForCommand",
+                    FavoriteSlotBadge(card, ib));
+                grid.Children.Add(favorite);
+                Grid.SetColumn(favorite, 2);
+            }
+
+            if (showPin)
+            {
+                var pin = RowMarkButton(card, ib, "IconPin", "AccentBrush",
+                    nameof(Infobase.IsPinned), () => ib.IsPinned,
+                    LocalizationManager.T("Main.TogglePinTooltip"), "TogglePinForCommand");
+                grid.Children.Add(pin);
+                Grid.SetColumn(pin, 3);
+            }
+
+            // Значок подключения и имя занимают только колонку «Название» (номер
+            // NameRowColumn): колонка звёздная и ограничивает ширину блока, поэтому
+            // имя обрезается на её границе и не выходит на колонки значений/действий.
+            // Раньше блок занимал все пять ведущих колонок с отступом уровня
+            // (MainWindow.xaml:1152), из-за чего звезда с булавкой уезжали от своих
+            // колонок заголовка на глубоких уровнях вложенности.
             var lead = new StackPanel
             {
                 Name = LeadBlockName,
@@ -226,37 +262,6 @@ namespace Configuration_Management
                 // в край окна, а у нас налезало бы на колонки значений.
                 ClipToBounds = true
             };
-            // Отступ вложенности: сдвигается только ведущий блок, сама строка
-            // остаётся у левого края (MainWindow.xaml:1155).
-            lead[!StackPanel.MarginProperty] = new Binding(nameof(TreeViewItem.Level))
-            {
-                RelativeSource = new RelativeSource
-                {
-                    Mode = RelativeSourceMode.FindAncestor,
-                    AncestorType = typeof(TreeViewItem)
-                },
-                Converter = LeveledTreeViewItem.LeadIndent
-            };
-
-            if (showFavorite)
-            {
-                // Номер слота Alt+N идёт плашкой сразу за звездой и внутри той же
-                // кнопки, как в разметке (MainWindow.xaml:1180). Прежде он был
-                // наложен на угол колонки мелкой цифрой без подложки.
-                var favorite = RowMarkButton(card, ib, "IconFavorite", "FavoriteBrush",
-                    nameof(Infobase.IsFavorite), () => ib.IsFavorite,
-                    LocalizationManager.T("Main.ToggleFavoriteTooltip"), "ToggleFavoriteForCommand",
-                    FavoriteSlotBadge(card, ib));
-                lead.Children.Add(favorite);
-            }
-
-            if (showPin)
-            {
-                var pin = RowMarkButton(card, ib, "IconPin", "AccentBrush",
-                    nameof(Infobase.IsPinned), () => ib.IsPinned,
-                    LocalizationManager.T("Main.TogglePinTooltip"), "TogglePinForCommand");
-                lead.Children.Add(pin);
-            }
 
             // Иконка статуса базы слева: тип подключения (папка / глобус / сеть)
             // или «проверяется» (серые часики). Недоступная база показывается той же
@@ -322,8 +327,8 @@ namespace Configuration_Management
             // Расположение живёт в своей колонке и в сведениях правой панели.
             lead.Children.Add(content);
             grid.Children.Add(lead);
-            Grid.SetColumn(lead, 0);
-            Grid.SetColumnSpan(lead, NameRowColumn + 1);
+            Grid.SetColumn(lead, NameRowColumn);
+            Grid.SetColumnSpan(lead, 1);
 
             var dataColumn = NameRowColumn + 1;
             for (var i = 0; i < columns.Count; i++)
@@ -361,11 +366,14 @@ namespace Configuration_Management
                 dataColumn++;
             }
 
-            // Кнопки действий в колонке «Действия» (после колонки «Режим запуска»):
-            // запуск, конфигуратор, изменить настройки, очистить кеш, удалить.
-            // Колонка при этом нулевой ширины, поэтому панель не строится вовсе
-            // и не остаётся невидимых обработчиков на каждую строку (issue #158).
-            var actionsCol = NameRowColumn + 1 + actionsOffset;
+            // Кнопки действий в колонке «Действия»: запуск, конфигуратор,
+            // изменить настройки, очистить кеш, удалить. Индекс колонки берётся
+            // из общего построителя колонок (<see cref="AddListColumns"/>), как
+            // у строки группы и заголовка: повторный расчёт здесь разошёлся бы
+            // со строками при скрытых/перенесённых колонках (issue #300).
+            // При скрытой колонке панель не строится вовсе, чтобы не оставалось
+            // невидимых обработчиков на каждую строку (issue #158).
+            var actionsCol = actionsIndex;
             ActionsPanel? actions = null;
             if (_vm?.ShowActionsColumn != false)
             {
@@ -395,23 +403,15 @@ namespace Configuration_Management
                     Grid.SetRowSpan(actions, 2);
 
                 var tags = BuildRowTags(card, ib);
-                // Тот же отступ вложенности, что и у ведущего блока
-                // (MainWindow.xaml:1316): теги стоят под именем, а не левее его.
-                tags[!Control.MarginProperty] = new Binding(nameof(TreeViewItem.Level))
-                {
-                    RelativeSource = new RelativeSource
-                    {
-                        Mode = RelativeSourceMode.FindAncestor,
-                        AncestorType = typeof(TreeViewItem)
-                    },
-                    // Верхний отступ 2 сохраняется: привязка задаёт Margin целиком.
-                    Converter = new FuncValueConverter<int, Thickness>(level =>
-                        new Thickness(LeveledTreeViewItem.LeadIndentFor(level), 2, 0, 0))
-                };
+                // Теги начинаются с колонки имени, как и сам блок имени, и идут
+                // до колонки действий: привязка уровня для отступа больше не нужна,
+                // позицию строки держит контейнер дерева, а колонки сетки выравнивают
+                // теги под именем на любой глубине вложенности (MainWindow.xaml:1316).
+                tags.Margin = new Thickness(0, 2, 0, 0);
                 grid.Children.Add(tags);
                 Grid.SetRow(tags, 1);
-                Grid.SetColumn(tags, 0);
-                Grid.SetColumnSpan(tags, actionsCol);
+                Grid.SetColumn(tags, NameRowColumn);
+                Grid.SetColumnSpan(tags, Math.Max(1, actionsCol - NameRowColumn));
             }
 
             card.Child = grid;
