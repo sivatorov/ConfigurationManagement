@@ -62,14 +62,31 @@ public partial class MainViewModel
 
     private void ExecuteLockApp()
     {
-        // Если пароль ещё не задан — предложить его установить.
-        var setupMode = !HasAppLockPassword;
-        var win = new Configuration_Management.AppLockWindow(this, setupMode);
-        // Окно блокировки открывается модально относительно главного окна (issue #294):
-        // без владельца повторный запуск приложения ставил главное окно поверх диалога,
-        // и блокировка визуально «не срабатывала».
-        win.Owner = System.Windows.Application.Current.MainWindow;
-        win.ShowDialog();
+        // Если пароль ещё не задан — сначала предложить его установить.
+        // При отмене установки блокировка не запускается (issue #294).
+        if (!HasAppLockPassword)
+        {
+            var setupWin = new Configuration_Management.AppLockWindow(this, setupMode: true);
+            // Окно блокировки открывается модально относительно главного окна (issue #294):
+            // без владельца повторный запуск приложения ставил главное окно поверх диалога,
+            // и блокировка визуально «не срабатывала».
+            setupWin.Owner = System.Windows.Application.Current.MainWindow;
+            setupWin.ShowDialog();
+            if (!HasAppLockPassword)
+                return;
+        }
+
+        // Цикл разблокировки: интерфейс остаётся недоступным, пока не введён верный
+        // пароль. Кнопка «Отмена», крестик и Esc в режиме разблокировки недоступны
+        // (AppLockWindow), поэтому окно закрывается только по верному паролю (issue #294).
+        while (true)
+        {
+            var unlockWin = new Configuration_Management.AppLockWindow(this, setupMode: false);
+            unlockWin.Owner = System.Windows.Application.Current.MainWindow;
+            unlockWin.ShowDialog();
+            if (unlockWin.Unlocked)
+                return;
+        }
     }
 
     /// <summary>Пароль блокировки приложения (PBKDF2-хэш) из настроек.</summary>

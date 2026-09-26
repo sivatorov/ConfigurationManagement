@@ -53,7 +53,18 @@ namespace Configuration_Management
                 PasswordBox1.Visibility = Visibility.Visible;
                 ConfirmLabel.Visibility = Visibility.Collapsed;
                 PasswordBox2.Visibility = Visibility.Collapsed;
+                // В режиме разблокировки «Отмена» недоступна: снять блокировку
+                // можно только верным паролем (issue #294).
+                CancelButton.Visibility = Visibility.Collapsed;
             }
+
+            // В режиме разблокировки окно нельзя закрыть ни крестиком, ни Alt+F4,
+            // ни системным меню: пока блокировка активна, интерфейс недоступен (issue #294).
+            Closing += (_, e) =>
+            {
+                if (!_setupMode && !Unlocked)
+                    e.Cancel = true;
+            };
 
             Loaded += (_, _) =>
             {

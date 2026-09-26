@@ -1716,9 +1716,9 @@ namespace Configuration_Management
                 Icon = MenuIcon("IconServer", "#EF4444")
             };
             adminMenu.Styled(Themes.ControlThemes.ModernMenuItem);
-            // Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
+            // Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L). Временная
+            // блокировка приложения (функция №19) перенесена в «Утилиты» (issue #294).
             adminMenu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
-            adminMenu.Items.Add(MenuAction("AppLock.LockTitle", _vm.LockAppCommand, _vm.HotkeyLockApp, "IconExitToApp", "#8B5CF6", "AppLock.MenuTooltip"));
             adminMenu.Items.Add(MenuSeparator());
             adminMenu.Items.Add(MenuAction("Main.OpenCatalog", _vm.OpenInfobaseFolderCommand, null, "IconFolderOpen", "#0EA5E9"));
             // Администрирование ИБ (Этап 6, функция №29): проверка целостности файловой ИБ

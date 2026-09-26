@@ -667,6 +667,11 @@
                                         <MenuItem Header="{loc:Loc Admin.ServerConsole}" Command="{Binding OpenServerConsoleCommand}" InputGestureText="{Binding HotkeyServerConsole}" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#14B8A6"/></MenuItem.Icon>
                                         </MenuItem>
+                                        <!-- «Блокировка приложения» перенесена из контекстного меню базы в «Утилиты»
+                                             сразу после «Консоли администрирования серверов», не в конец списка (issue #294). -->
+                                        <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}" ToolTip="{loc:Loc AppLock.MenuTooltip}">
+                                            <MenuItem.Icon><materialDesign:PackIcon Kind="Lock" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <Separator/>
                                         <MenuItem Header="{loc:Loc Settings.Bases.RemoveMissing}" Command="{Binding RemoveMissingFileBasesCommand}" Style="{DynamicResource ModernMenuItem}">
                                             <MenuItem.Icon><materialDesign:PackIcon Kind="FolderRemove" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
@@ -2073,13 +2078,11 @@
                                      целостность и история запусков (issue #287). -->
                                 <MenuItem Header="{loc:Loc Menu.Administration}" Style="{DynamicResource ModernMenuItem}">
                                     <MenuItem.Icon><materialDesign:PackIcon Kind="Server" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
-                                    <!-- Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L)
-                                         и временная блокировка приложения (функция №19). -->
+                                    <!-- Блокировка сеансов файловой ИБ (функция №20, Ctrl+Alt+L).
+                                         Временная блокировка приложения (функция №19) перенесена
+                                         в «Утилиты» верхней панели (issue #294). -->
                                     <MenuItem Header="{loc:Loc SessionLock.Title}" Command="{Binding ShowSessionLockCommand}" InputGestureText="{Binding HotkeySessionLock}" Style="{DynamicResource ModernMenuItem}">
                                         <MenuItem.Icon><materialDesign:PackIcon Kind="ShieldLockOutline" Width="16" Height="16" Foreground="#EF4444"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="{loc:Loc AppLock.LockTitle}" Command="{Binding LockAppCommand}" InputGestureText="{Binding HotkeyLockApp}" Style="{DynamicResource ModernMenuItem}" ToolTip="{loc:Loc AppLock.MenuTooltip}">
-                                        <MenuItem.Icon><materialDesign:PackIcon Kind="Lock" Width="16" Height="16" Foreground="#8B5CF6"/></MenuItem.Icon>
                                     </MenuItem>
                                     <Separator/>
                                     <MenuItem Header="{loc:Loc Main.RegisterComConnector}" Command="{Binding RegisterComConnectorCommand}" Style="{DynamicResource ModernMenuItem}">

@@ -62,8 +62,18 @@ public sealed class AppLockWindow : ModalWindowBase
             _pwd1.IsVisible = true;
             _pwd2Label.IsVisible = false;
             _pwd2.IsVisible = false;
+            // «Отмена» недоступна: снять блокировку можно только верным паролем (issue #294).
+            _cancelButton.IsVisible = false;
             UnlockField = _pwd1;
         }
+
+        // В режиме разблокировки окно нельзя закрыть ни крестиком, ни системным меню:
+        // пока блокировка активна, интерфейс недоступен (issue #294).
+        Closing += (_, e) =>
+        {
+            if (!_setupMode && !Unlocked)
+                e.Cancel = true;
+        };
 
         // Фокус на первое (видимое) поле пароля при открытии окна (issue #294):
         // в режиме установки — «Новый пароль», при разблокировке — единственное поле.
@@ -92,6 +102,9 @@ public sealed class AppLockWindow : ModalWindowBase
 
     private Controls.PasswordBox? UnlockField;
 
+    // Кнопка «Отмена» — поле класса, чтобы скрывать её в режиме разблокировки (issue #294).
+    private readonly Button _cancelButton = new();
+
     private Control BuildRoot()
     {
         var stack = new StackPanel { Margin = new Thickness(16) };
@@ -118,11 +131,13 @@ public sealed class AppLockWindow : ModalWindowBase
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 16, 0, 0)
         };
-        var cancel = new Button { Content = CancelText, Width = 110, Margin = new Thickness(0, 0, 8, 0) };
-        cancel.Click += OnCancel_Click;
+        _cancelButton.Content = CancelText;
+        _cancelButton.Width = 110;
+        _cancelButton.Margin = new Thickness(0, 0, 8, 0);
+        _cancelButton.Click += OnCancel_Click;
         var ok = new Button { Content = OkText, Width = 160, MinHeight = 36 };
         ok.Click += OnOk_Click;
-        buttons.Children.Add(cancel);
+        buttons.Children.Add(_cancelButton);
         buttons.Children.Add(ok);
         stack.Children.Add(buttons);
 
