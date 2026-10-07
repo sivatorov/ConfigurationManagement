@@ -107,3 +107,29 @@ HEAD: `8d8370e2a2d990b0f174bc3190c27af2aef24a73` — «0.3.9.324-0.3.9.327: ст
   артефакты (`dist/*`, `package/linux/deb/out/*`, `publish/out-0.3.9.328-*`) в git НЕ добавляются (в .gitignore).
 - Предыдущее содержимое этого файла (отчёт о публикации комментария в issue #352) сохранено
   в `publish/comment-352-0.3.9.328.md` (id комментария 6044987210).
+
+## Релиз
+
+- **Коммит**: `aff9222` — «0.3.9.328: цепочки обновлений для базы — таблица вариантов,
+  граф обновления, кнопка скачать цепочку (#352)» (26 файлов, +2577/−42).
+- **Ветка**: `main` = `origin/main` = `aff9222` (push выполнен: `8d8370e..aff9222`).
+- **Тег**: `v0.3.9.328` — аннотированный (`git tag -a -m "0.3.9.328"`), запушен в `origin`.
+- **Релиз**: https://github.com/sivatorov/ConfigurationManagement/releases/tag/v0.3.9.328
+  (published, не draft/prerelease; тело — из `publish/release_body_0.3.9.328.md`).
+- **Issue #352**: остался **открытым** (state=OPEN); комментарий от sivatorov
+  (id 6044987210) на месте — issues самостоятельно не закрываются.
+
+### Ассеты релиза
+
+| Ассет | Размер (байт) | Примечание |
+|---|---|---|
+| `ConfigurationManagement.exe` | 84 085 288 | Windows WPF single-file (`publish/out-0.3.9.328-windows/`); размер совпадает с таблицей «Артефакты» ✓ |
+| `SHA256SUMS.txt` | 94 | контрольные суммы Windows (`publish/out-0.3.9.328-windows/SHA256SUMS.txt`) |
+| `ConfigurationManagement` | 52 570 613 | Linux Avalonia single-file (`publish/out-0.3.9.328-linux/`); размер совпадает ✓ |
+| `configuration-management_0.3.9.328_amd64.deb` | 45 343 770 | `.deb`; размер совпадает ✓ |
+| `SHA256SUMS-linux-0.3.9.328.txt` | 201 | контрольные суммы Linux — копия `publish/out-0.3.9.328-linux/SHA256SUMS.txt`; GitHub не допускает два ассета с именем `SHA256SUMS.txt`, поэтому загружен с версией в имени (содержимое идентично оригиналу, 201 байт) |
+| `ConfigurationManagement-linux-x64` | 52 568 943 | прикреплён автоматически workflow `release.yml` по тегу (Linux-сборка в Actions) |
+
+Всего 6 ассетов: 5 загружены вручную (`gh release upload`), 1 — от Linux-workflow.
+Размеры `ConfigurationManagement.exe`, `ConfigurationManagement` и `.deb` совпадают
+с SHA-таблицей раздела «Артефакты»; оба SHA-файла содержат хэши этих бинарников.
