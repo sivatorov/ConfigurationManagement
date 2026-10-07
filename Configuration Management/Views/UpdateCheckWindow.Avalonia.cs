@@ -53,8 +53,18 @@ namespace Configuration_Management
         private readonly StackPanel _progressPanel = new() { IsVisible = false };
         private readonly ProgressBar _progressBar = new() { Minimum = 0, Maximum = 1 };
         private readonly TextBlock _progressText = new();
+
+        // Блок цепочки обновлений (issue #352): секция с таблицей вариантов и прогрессом.
+        private readonly StackPanel _chainSection = new() { IsVisible = false };
+        private readonly TextBlock _chainHintText = new();
+        private readonly TextBlock _chainStatusValue = new();
+        private readonly StackPanel _chainRowsPanel = new();
+        private readonly StackPanel _chainProgressPanel = new() { IsVisible = false };
+        private readonly ProgressBar _chainProgressBar = new() { Minimum = 0, Maximum = 1 };
+        private readonly TextBlock _chainProgressText = new();
         private Button _checkButton = new();
         private Button _downloadButton = new();
+        private Button _downloadChainButton = new();
 
         /// <param name="infobase">Информационная база, для которой выполняется проверка обновлений.</param>
         public UpdateCheckWindow(Infobase infobase)
@@ -77,6 +87,10 @@ namespace Configuration_Management
             {
                 if (e.PropertyName == nameof(_row.Progress))
                     UpdateProgressDisplay();
+                else if (e.PropertyName == nameof(_row.ChainProgress)
+                         || e.PropertyName == nameof(_row.ChainProgressText)
+                         || e.PropertyName == nameof(_row.IsChainDownloading))
+                    UpdateChainProgressDisplay();
                 else if (e.PropertyName == nameof(_row.LatestVersion)
                          || e.PropertyName == nameof(_row.Url)
                          || e.PropertyName == nameof(_row.Status)
@@ -147,6 +161,9 @@ namespace Configuration_Management
                         () => _updates.CheckForUpdatesAsync(configName, currentVersion, url, token), token);
                     _row.ApplyResult(result);
                     SaveUpdateCache(result);
+                    // Цепочка обновлений (issue #352): при наличии нового релиза строим
+                    // варианты от текущей версии до последней и показываем их в таблице.
+                    await BuildChainsAsync(url, token);
                 }
             }
             catch (OperationCanceledException)
@@ -209,6 +226,9 @@ namespace Configuration_Management
             // При ошибке авторизации показываем панель действий: имя учётной записи ИТС,
             // «Открыть login.1c.ru в браузере», «Учётные данные ИТС…» (issue #323/#330/#334).
             ShowAuthActions(_row.Status == ConfigUpdateStatus.Failed && IsAuthErrorKey(_row.Error));
+
+            // Блок цепочки обновлений (issue #352): таблица вариантов и кнопка «Скачать цепочку».
+            RefreshChainDisplay();
         }
 
         /// <summary>Показывает/скрывает панель действий при ошибке авторизации и заполняет имя
@@ -459,6 +479,246 @@ namespace Configuration_Management
             };
         }
 
+        /// <summary>
+        /// Строит цепочку обновлений (issue #352): получает полный каталог версий конфигурации
+        /// через <see cref="Services.IOneCUpdatesService.GetUpdateCatalogAsync"/> и вычисляет
+        /// варианты от текущей версии до последней (<see cref="UpdateChainBuilder"/>). Ошибки
+        /// каталога не роняют результат основной проверки: состояние цепочки сбрасывается,
+        /// остаётся прежнее поведение — «Скачать» только последнюю версию.
+        /// </summary>
+        private async Task BuildChainsAsync(string url, CancellationToken token)
+        {
+            _row.ResetChains();
+            if (!_row.HasNewer || string.IsNullOrWhiteSpace(_row.CurrentVersion)
+                || string.IsNullOrWhiteSpace(_row.LatestVersion))
+            {
+                RefreshChainDisplay();
+                return;
+            }
+
+            try
+            {
+                var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(url, token), token);
+                if (catalog.Status == PortalFetchStatus.Ok)
+                {
+                    var set = UpdateChainBuilder.Build(_row.CurrentVersion, _row.LatestVersion, catalog.Releases);
+                    _row.SetChains(set);
+                }
+                else
+                {
+                    _logger.Warn($"Не удалось получить каталог версий для цепочки обновлений ({catalog.ErrorKey}).");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Проверка отменена — цепочка не строится (прежнее поведение).
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Ошибка построения цепочки обновлений для «{_row.Name}»", ex);
+            }
+
+            RefreshChainDisplay();
+        }
+
+        /// <summary>Обновляет блок цепочки обновлений: видимость секции и кнопки «Скачать цепочку»,
+        /// статус и состав таблицы вариантов (issue #352).</summary>
+        private void RefreshChainDisplay()
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                var hasChain = _row.HasChain;
+                _chainSection.IsVisible = hasChain;
+                _downloadChainButton.IsVisible = hasChain;
+                _downloadChainButton.IsEnabled = _row.CanDownloadChain;
+
+                if (!hasChain)
+                {
+                    _chainRowsPanel.Children.Clear();
+                    return;
+                }
+
+                _chainStatusValue.Text = _row.ChainStatusText;
+                RebuildChainRows();
+            });
+        }
+
+        /// <summary>Перестраивает строки таблицы вариантов цепочки («№» и «Список версий»).</summary>
+        private void RebuildChainRows()
+        {
+            _chainRowsPanel.Children.Clear();
+            foreach (var variant in _row.ChainVariants)
+                _chainRowsPanel.Children.Add(MakeChainRow(variant));
+        }
+
+        /// <summary>Строка таблицы вариантов: номер и список версий (issue #352);
+        /// клик по строке выбирает вариант для «Скачать цепочку», подсказка — тип варианта.</summary>
+        private Control MakeChainRow(UpdateChainVariantViewModel variant)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(36)));
+            grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
+
+            var number = new TextBlock
+            {
+                Text = variant.Number.ToString(),
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Themes.ThemeBrushes.Bind(number, TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            Grid.SetColumn(number, 0);
+            grid.Children.Add(number);
+
+            var versions = new TextBlock
+            {
+                Text = variant.VersionsText,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Themes.ThemeBrushes.Bind(versions, TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            ToolTip.SetTip(versions, variant.KindText);
+            Grid.SetColumn(versions, 1);
+            grid.Children.Add(versions);
+
+            grid.PointerReleased += (_, e) =>
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left)
+                    _row.SelectedVariant = variant;
+            };
+
+            return grid;
+        }
+
+        /// <summary>Обновляет панель прогресса цепочки: какой файл скачивается и сколько осталось.</summary>
+        private void UpdateChainProgressDisplay()
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                _chainProgressPanel.IsVisible = _row.IsChainDownloading;
+                _chainProgressBar.Value = Math.Clamp(_row.ChainProgress, 0, 1);
+                _chainProgressText.Text = _row.ChainProgressText;
+                _downloadChainButton.IsEnabled = _row.CanDownloadChain;
+            });
+        }
+
+        /// <summary>Кнопка «Скачать цепочку» (issue #352).</summary>
+        private async void OnDownloadChainClick()
+        {
+            await DownloadChainAsync();
+        }
+
+        /// <summary>
+        /// Скачивает выбранную цепочку обновлений в указанный каталог (issue #352):
+        /// последовательно все версии варианта (от текущей к последней) с прогрессом —
+        /// какой файл скачивается и сколько ещё осталось.
+        /// </summary>
+        private async Task DownloadChainAsync()
+        {
+            if (!_row.CanDownloadChain || string.IsNullOrWhiteSpace(_row.Url))
+                return;
+
+            var variant = _row.SelectedVariant ?? _row.ChainVariants.FirstOrDefault();
+            if (variant is null || variant.Steps.Count == 0)
+                return;
+
+            var folder = _dialogs.OpenFolderDialog(
+                T("Updates.Chain.ChooseFolder"),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            if (string.IsNullOrWhiteSpace(folder))
+                return;
+
+            _row.IsChainDownloading = true;
+            _row.ChainProgress = 0;
+            UpdateChainProgressDisplay();
+
+            try
+            {
+                var total = variant.Steps.Count;
+                var ok = 0;
+                var failed = 0;
+                var baseName = SanitizeFileName(_row.Name);
+
+                for (var i = 0; i < total; i++)
+                {
+                    var step = variant.Steps[i];
+                    var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
+                    var targetPath = Path.Combine(folder, $"{baseName}_{step.Version}.zip");
+
+                    _row.ChainProgressText = string.Format(
+                        T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version);
+                    _row.ChainProgress = (double)i / total;
+
+                    var progress = new Progress<double>(p => Dispatcher.UIThread.Post(() =>
+                        _row.ChainProgress = Math.Clamp((i + p) / total, 0, 1)));
+                    var saved = await Task.Run(() =>
+                        _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+
+                    if (!string.IsNullOrWhiteSpace(saved))
+                    {
+                        ok++;
+                        _logger.Info($"Скачана версия {step.Version} цепочки: {saved}");
+                    }
+                    else
+                    {
+                        failed++;
+                        _logger.Warn($"Не удалось скачать версию {step.Version} цепочки ({url}).");
+                    }
+
+                    _row.ChainProgress = (double)(i + 1) / total;
+                    _row.ChainProgressText = string.Format(
+                            T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version)
+                        + " " + string.Format(T("Updates.Chain.Remaining"), total - i - 1);
+                }
+
+                if (failed > 0)
+                {
+                    _dialogs.ShowWarning(string.Format(T("Updates.Chain.LoadedFailed"), failed),
+                        T("Updates.CheckTitle"));
+                }
+                else
+                {
+                    _dialogs.ShowInfo(string.Format(T("Updates.Chain.LoadedOk"), ok, total, folder),
+                        T("Updates.CheckTitle"));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Ошибка загрузки цепочки обновлений «{_row.Name}»", ex);
+                _dialogs.ShowError(T("Updates.NetworkError"), T("Updates.CheckTitle"));
+            }
+            finally
+            {
+                _row.IsChainDownloading = false;
+                UpdateChainProgressDisplay();
+            }
+        }
+
+        /// <summary>Колонка сводного ряда «Текущая / Последняя / Статус» (issue #352).</summary>
+        private static Grid MakeSummaryColumn(string labelKey, TextBlock value, int column)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 0, column < 2 ? 14 : 0, 0) };
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+            var label = new TextBlock
+            {
+                Text = labelKey,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            Themes.ThemeBrushes.Bind(label, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            Grid.SetRow(label, 0);
+            grid.Children.Add(label);
+
+            value.VerticalAlignment = VerticalAlignment.Center;
+            value.TextTrimming = TextTrimming.CharacterEllipsis;
+            Grid.SetRow(value, 1);
+            grid.Children.Add(value);
+
+            return grid;
+        }
+
         private Control BuildRoot()
         {
             var grid = new Grid { Margin = new Thickness(16) };
@@ -487,17 +747,28 @@ namespace Configuration_Management
             Themes.ThemeBrushes.Bind(card, Border.BorderBrushProperty, "BorderColorBrush");
 
             var fields = new StackPanel { Spacing = 8 };
-            fields.Children.Add(MakeFieldRow(T("Updates.CurrentVersion"), _currentVersionText));
-            fields.Children.Add(MakeFieldRow(T("Updates.LatestVersion"), _latestVersionText));
+
+            // Сводка в один ряд: Текущая версия | Последняя версия | Статус (issue #352).
+            var summary = new Grid();
+            summary.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)));
+            summary.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)));
+            summary.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
+            _currentVersionText.FontSize = 14;
+            _currentVersionText.FontWeight = FontWeight.SemiBold;
+            _latestVersionText.FontSize = 14;
+            _latestVersionText.FontWeight = FontWeight.SemiBold;
+            _statusText.FontSize = 14;
+            _statusText.FontWeight = FontWeight.SemiBold;
+            summary.Children.Add(MakeSummaryColumn(T("Updates.CurrentVersion"), _currentVersionText, 0));
+            summary.Children.Add(MakeSummaryColumn(T("Updates.LatestVersion"), _latestVersionText, 1));
+            summary.Children.Add(MakeSummaryColumn(T("Updates.Status"), _statusText, 2));
+            fields.Children.Add(summary);
 
             _baseNameText.FontWeight = FontWeight.SemiBold;
             _baseNameText.FontSize = 14;
             fields.Children.Add(MakeFieldRow(T("Updates.Name"), _baseNameText));
 
             fields.Children.Add(MakeFieldRow(T("Updates.Url"), _urlText));
-
-            _statusText.FontWeight = FontWeight.SemiBold;
-            fields.Children.Add(MakeFieldRow(T("Updates.Status"), _statusText));
 
             _errorText.TextWrapping = TextWrapping.Wrap;
             _errorText.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
@@ -549,7 +820,45 @@ namespace Configuration_Management
             _progressPanel.Children.Add(progressStack);
             fields.Children.Add(_progressPanel);
 
-            card.Child = fields;
+            // Блок цепочки обновлений (issue #352): видим при наличии вариантов.
+            var chainTitle = new TextBlock
+            {
+                Text = T("Updates.Chain.Title"),
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold
+            };
+            _chainSection.Children.Add(chainTitle);
+
+            _chainHintText.Text = T("Updates.Chain.Hint");
+            _chainHintText.FontSize = 12;
+            _chainHintText.TextWrapping = TextWrapping.Wrap;
+            Themes.ThemeBrushes.Bind(_chainHintText, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            _chainSection.Children.Add(_chainHintText);
+
+            _chainStatusValue.FontSize = 12;
+            _chainStatusValue.TextWrapping = TextWrapping.Wrap;
+            Themes.ThemeBrushes.Bind(_chainStatusValue, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            _chainSection.Children.Add(_chainStatusValue);
+
+            _chainSection.Children.Add(_chainRowsPanel);
+
+            _chainProgressBar.Height = 6;
+            _chainProgressText.FontSize = 12;
+            _chainProgressText.TextWrapping = TextWrapping.Wrap;
+            Themes.ThemeBrushes.Bind(_chainProgressText, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            var chainProgressStack = new StackPanel { Spacing = 4 };
+            chainProgressStack.Children.Add(_chainProgressBar);
+            chainProgressStack.Children.Add(_chainProgressText);
+            _chainProgressPanel.Children.Add(chainProgressStack);
+            _chainSection.Children.Add(_chainProgressPanel);
+
+            fields.Children.Add(_chainSection);
+
+            card.Child = new ScrollViewer
+            {
+                Content = fields,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            };
             Grid.SetRow(card, 1);
             grid.Children.Add(card);
 
@@ -570,6 +879,17 @@ namespace Configuration_Management
             _checkButton.Styled(ControlThemes.SecondaryButton);
             _checkButton.Click += (_, _) => OnCheckClick();
 
+            _downloadChainButton = new Button
+            {
+                Content = T("Updates.Chain.Download"),
+                MinWidth = 170,
+                Height = 40,
+                IsVisible = false,
+                IsEnabled = false,
+            };
+            _downloadChainButton.Styled(ControlThemes.DialogConfirmButton);
+            _downloadChainButton.Click += (_, _) => OnDownloadChainClick();
+
             _downloadButton = new Button { Content = T("Updates.Download"), MinWidth = 150, Height = 40, IsEnabled = false };
             _downloadButton.Styled(ControlThemes.DialogConfirmButton);
             _downloadButton.Click += (_, _) => OnDownloadRow(_row);
@@ -578,6 +898,7 @@ namespace Configuration_Management
             close.Click += (_, _) => Close();
 
             buttons.Children.Add(_checkButton);
+            buttons.Children.Add(_downloadChainButton);
             buttons.Children.Add(_downloadButton);
             buttons.Children.Add(close);
             Grid.SetColumn(buttons, 1);

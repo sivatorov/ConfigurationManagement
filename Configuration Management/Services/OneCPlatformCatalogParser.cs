@@ -65,6 +65,26 @@ public static class OneCPlatformCatalogParser
         @"""(?:size|filesize)""\s*:\s*(?<bytes>\d{1,15})",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Регулярное выражение HTML-тегов (для снятия разметки строки таблицы при
+    /// извлечении колонки «Список версий», issue #352).</summary>
+    private static readonly Regex HtmlTagRegex = new("<[^>]+>", RegexOptions.Compiled | RegexOptions.Singleline);
+
+    /// <summary>Регулярное выражение числового токена версии («3.0.167.18», «8.3.27.2214») —
+    /// поиск версий в тексте ячейки «Список версий» (issue #352).</summary>
+    private static readonly Regex VersionTokenRegex = new(
+        @"\b(?<v>\d{1,4}(\.\d{1,4}){1,3})\b", RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение ячейки <c><td>…</td></c> строки таблицы
+    /// (для пропуска первой ячейки с версией при извлечении «Списка версий», issue #352).</summary>
+    private static readonly Regex TableCellRegex = new(
+        @"<td[^>]*>(?<cell>.*?)</td>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение даты «дд.мм.гггг»: токены вида «01.10.2026» из соседних
+    /// колонок (например, «Дата выхода») не считаются версиями «Списка версий» (issue #352).</summary>
+    private static readonly Regex DateLikeTokenRegex = new(
+        @"^\d{1,2}\.\d{1,2}\.(?:19|20)\d{2}$", RegexOptions.Compiled);
+
     /// <summary>
     /// Возвращает все версии со страницы каталога <c>releases.1c.ru/project/Platform83</c>:
     /// перебирает все строки таблицы <c>id="versionsTable"</c> и извлекает из каждой первый
@@ -79,8 +99,9 @@ public static class OneCPlatformCatalogParser
         if (string.IsNullOrWhiteSpace(html))
             return Array.Empty<PlatformRelease>();
 
-        // Пара «версия → ссылка на страницу файлов»; сохраняем порядок появления в HTML.
-        var entries = new List<KeyValuePair<string, string>>();
+        // Тройка «версия → ссылка на страницу файлов → список версий для обновления»
+        // (колонка «Список версий», issue #352); сохраняем порядок появления в HTML.
+        var entries = new List<(string Version, string Href, List<string> Sources)>();
 
         // 1) Основной путь: таблица #versionsTable, все строки <tr>, первый version_files-линк.
         var tableMatch = VersionsTableRegex.Match(html);
@@ -95,8 +116,13 @@ public static class OneCPlatformCatalogParser
                     continue;
 
                 var version = NormalizeVersion(link.Groups["ver"].Value);
-                if (IsValidVersionText(version))
-                    entries.Add(new KeyValuePair<string, string>(version, link.Groups["href"].Value.Trim()));
+                if (!IsValidVersionText(version))
+                    continue;
+
+                // Колонка «Список версий»: остальной текст строки (версии, из которых
+                // можно обновиться напрямую до этой версии).
+                var sources = ExtractSources(row, version);
+                entries.Add((version, link.Groups["href"].Value.Trim(), sources));
             }
         }
 
@@ -107,23 +133,67 @@ public static class OneCPlatformCatalogParser
             {
                 var version = NormalizeVersion(link.Groups["ver"].Value);
                 if (IsValidVersionText(version))
-                    entries.Add(new KeyValuePair<string, string>(version, link.Groups["href"].Value.Trim()));
+                    entries.Add((version, link.Groups["href"].Value.Trim(), new List<string>()));
             }
         }
 
-        // Дедупликация по версии: сохраняем первую встреченную ссылку.
-        var byVersion = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (version, href) in entries)
+        // Дедупликация по версии: сохраняем первую встреченную ссылку и список версий.
+        var byVersion = new Dictionary<string, (string Href, List<string> Sources)>(StringComparer.Ordinal);
+        foreach (var (version, href, sources) in entries)
         {
             if (!byVersion.ContainsKey(version))
-                byVersion[version] = href;
+                byVersion[version] = (href, sources);
         }
 
         var releases = byVersion
-            .Select(kv => new PlatformRelease { Version = kv.Key, VersionFilesUrl = kv.Value })
+            .Select(kv => new PlatformRelease
+            {
+                Version = kv.Key,
+                VersionFilesUrl = kv.Value.Href,
+                Sources = kv.Value.Sources,
+            })
             .ToList();
         releases.Sort((x, y) => CompareVersions(y.Version, x.Version));
         return releases;
+    }
+
+    /// <summary>
+    /// Извлекает «Список версий» из строки таблицы #versionsTable (issue #352): перебирает
+    /// ячейки строки ПОСЛЕ первой (первая содержит ссылку version_files с самой версией),
+    /// снимает HTML-разметку и ищет числовые токены версий вида «3.0.167.18». Даты
+    /// («01.10.2026») из соседних колонок не считаются версиями. Устойчиво к форматам
+    /// ячейки: список через запятую, диапазон через «—», произвольный текст вокруг.
+    /// Пустая/отсутствующая колонка даёт пустой список без исключений.
+    /// </summary>
+    private static List<string> ExtractSources(string row, string ownVersion)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(row))
+            return result;
+
+        var cells = TableCellRegex.Matches(row);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 1; i < cells.Count; i++)
+        {
+            var cellText = HtmlTagRegex.Replace(cells[i].Groups["cell"].Value, " ");
+            foreach (Match match in VersionTokenRegex.Matches(cellText))
+            {
+                var candidate = NormalizeVersion(match.Groups["v"].Value);
+                if (!IsValidVersionText(candidate))
+                    continue;
+                // Даты («01.10.2026») версиями не являются.
+                if (DateLikeTokenRegex.IsMatch(candidate))
+                    continue;
+                if (!string.IsNullOrWhiteSpace(ownVersion) &&
+                    string.Equals(candidate, ownVersion, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!seen.Add(candidate))
+                    continue;
+                result.Add(candidate);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

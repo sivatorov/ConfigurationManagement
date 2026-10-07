@@ -78,6 +78,13 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Ячейка таблицы вариантов цепочки обновлений (issue #352). -->
+        <Style x:Key="ChainCellText" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="8,0,8,0"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -94,30 +101,52 @@
 
         <!-- Карточка сведений о конфигурации -->
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0">
+            <StackPanel>
             <Border BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
                     CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}" Padding="16">
                 <StackPanel>
-                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{loc:Loc Updates.CurrentVersion}"/>
-                    <TextBlock x:Name="CurrentVersionText" FontSize="15" FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis"/>
+                    <!-- Сводка в один ряд: Текущая версия | Последняя версия | Статус (issue #352). -->
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*"/>
+                            <ColumnDefinition Width="1.2*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{loc:Loc Updates.LatestVersion}"/>
-                    <TextBlock x:Name="LatestVersionText" FontSize="15" FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasNewer}" Value="True">
-                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.CurrentVersion}"/>
+                            <TextBlock x:Name="CurrentVersionText" FontSize="15" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
 
-                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{loc:Loc Updates.Status}"/>
-                    <TextBlock x:Name="StatusText" FontSize="14" FontWeight="SemiBold"/>
+                        <StackPanel Grid.Column="1" Margin="0,0,16,0">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.LatestVersion}"/>
+                            <TextBlock x:Name="LatestVersionText" FontSize="15" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasNewer}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.Status}"/>
+                            <TextBlock x:Name="StatusText" FontSize="14" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Grid>
 
                     <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{loc:Loc Updates.Url}"/>
                     <!-- Адрес каталога релизов — кликабельная ссылка (issue #323): клик открывает
@@ -166,9 +195,54 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+
+                <!-- Блок цепочки обновлений (issue #352): видим при наличии вариантов. -->
+                <Border x:Name="ChainPanel" Visibility="Collapsed" Margin="0,12,0,0"
+                        BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                        CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}" Padding="16">
+                    <StackPanel>
+                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="{loc:Loc Updates.Chain.Title}"/>
+
+                        <TextBlock x:Name="ChainHintText" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{loc:Loc Updates.Chain.Hint}"/>
+
+                        <TextBlock x:Name="ChainStatusValue" FontSize="12" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding ChainStatusText}"/>
+
+                        <DataGrid x:Name="ChainGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserSortColumns="False" RowHeaderWidth="0" SelectionMode="Single"
+                                  Margin="0,8,0,0" MinHeight="44" MaxHeight="160"
+                                  BorderThickness="1" BorderBrush="{DynamicResource BorderBrushColor}"
+                                  Background="Transparent" GridLinesVisibility="Horizontal"
+                                  ItemsSource="{Binding ChainVariants}"
+                                  SelectedItem="{Binding SelectedVariant}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Width="48" Header="{loc:Loc Updates.Chain.Column.Number}"
+                                                    Binding="{Binding Number}"
+                                                    ElementStyle="{StaticResource ChainCellText}"/>
+                                <DataGridTextColumn Width="*" Header="{loc:Loc Updates.Chain.Column.Versions}"
+                                                    Binding="{Binding VersionsText}"
+                                                    ElementStyle="{StaticResource ChainCellText}"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- Прогресс загрузки цепочки: какой файл скачивается и сколько осталось. -->
+                        <StackPanel x:Name="ChainProgressPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                            <ProgressBar Height="6" Maximum="1" Minimum="0" Value="{Binding ChainProgress}"
+                                         Foreground="{DynamicResource AccentBrush}"/>
+                            <TextBlock x:Name="ChainProgressTextBlock" FontSize="12" Margin="0,6,0,0"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{Binding ChainProgressText}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </ScrollViewer>
 
-        <!-- Нижняя панель: Проверить / Скачать / Закрыть -->
+        <!-- Нижняя панель: Проверить / Скачать цепочку / Скачать / Закрыть -->
         <Grid Grid.Row="3" Margin="0,14,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -183,6 +257,16 @@
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="Refresh" Width="16" Height="16"/>
                         <TextBlock Text="{loc:Loc Updates.StartCheck}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DownloadChainButton" MinWidth="180" Height="40" Margin="0,0,10,0"
+                        Style="{StaticResource PrimaryButtonStyle}" Visibility="Collapsed"
+                        Click="OnDownloadChainClick">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="DownloadMultiple" Width="16" Height="16"
+                                                 Foreground="White"/>
+                        <TextBlock Text="{loc:Loc Updates.Chain.Download}" Margin="6,0,0,0"
+                                   VerticalAlignment="Center" Foreground="White"/>
                     </StackPanel>
                 </Button>
                 <Button x:Name="DownloadButton" MinWidth="160" Height="40" Margin="0,0,10,0"

@@ -77,6 +77,18 @@ public interface IOneCUpdatesService
     /// <param name="ct">Токен отмены.</param>
     Task<PortalPageResult> FetchPageAsync(string url, CancellationToken ct = default);
 
+    /// <summary>
+    /// Получает полный каталог версий конфигурации со страницы <c>releases.1c.ru/project/<ник></c>
+    /// (issue #352): все строки таблицы #versionsTable, включая колонку «Список версий»
+    /// (<see cref="PlatformRelease.Sources"/>), отсортированные по убыванию. Используется для
+    /// построения цепочки обновлений, когда последняя версия не обновляется напрямую с текущей.
+    /// Ошибки сети/авторизации не бросают исключение — итог описывается статусом
+    /// <see cref="ConfigUpdateCatalogResult.Status"/> и ключом локализации «Updates.*».
+    /// </summary>
+    /// <param name="url">Адрес страницы каталога релизов (project/<ник>).</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<ConfigUpdateCatalogResult> GetUpdateCatalogAsync(string url, CancellationToken ct = default);
+
     /// <summary>Предопределённый набор типовых конфигураций 1С.</summary>
     System.Collections.Generic.IReadOnlyList<OneCConfigType> BuiltInConfigTypes { get; }
 }

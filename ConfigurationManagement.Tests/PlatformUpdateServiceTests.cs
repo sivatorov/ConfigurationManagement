@@ -493,6 +493,9 @@ public sealed class PlatformUpdateServiceTests
 
         public Task<PortalPageResult> FetchPageAsync(string url, CancellationToken ct = default)
             => Task.FromResult(new PortalPageResult { Status = PortalFetchStatus.NetworkError });
+
+        public Task<ConfigUpdateCatalogResult> GetUpdateCatalogAsync(string url, CancellationToken ct = default)
+            => Task.FromResult(new ConfigUpdateCatalogResult { Status = PortalFetchStatus.NetworkError });
     }
 
     /// <summary>Заглушка журнала приложения.</summary>

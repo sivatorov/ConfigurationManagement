@@ -261,4 +261,94 @@ public sealed class OneCPlatformCatalogParserTests
     {
         Assert.Equal("Platform83", OneCPlatformCatalogParser.PlatformNick);
     }
+
+    [Fact]
+    public void ParseVersions_SourcesColumn_FillsSources()
+    {
+        // Колонка «Список версий» (issue #352): версии, из которых можно обновиться
+        // напрямую до версии строки (список через запятую).
+        const string html = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=AccountingCorp30&ver=3.0.160.12">3.0.160.12</a></td><td>3.0.158.71, 3.0.155.23</td></tr>
+              <tr><td><a href="/version_files?nick=AccountingCorp30&ver=3.0.158.71">3.0.158.71</a></td><td>3.0.150.5</td></tr>
+              <tr><td><a href="/version_files?nick=AccountingCorp30&ver=3.0.150.5">3.0.150.5</a></td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(html);
+
+        Assert.Equal(3, releases.Count);
+        var newest = releases.Single(r => r.Version == "3.0.160.12");
+        Assert.Equal(new[] { "3.0.158.71", "3.0.155.23" }, newest.Sources);
+        var middle = releases.Single(r => r.Version == "3.0.158.71");
+        Assert.Equal(new[] { "3.0.150.5" }, middle.Sources);
+        var oldest = releases.Single(r => r.Version == "3.0.150.5");
+        Assert.Empty(oldest.Sources);
+    }
+
+    [Fact]
+    public void ParseVersions_SourcesColumn_ExcludesOwnVersion()
+    {
+        // Собственная версия строки не попадает в Sources.
+        const string html = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=AccountingCorp30&ver=3.0.160.12">3.0.160.12</a></td><td>3.0.160.12, 3.0.158.71</td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(html);
+
+        var newest = releases.Single();
+        Assert.Equal(new[] { "3.0.158.71" }, newest.Sources);
+    }
+
+    [Fact]
+    public void ParseVersions_SourcesColumn_RangeSyntax_ParsesBothEnds()
+    {
+        // Диапазон «8.3.27.1500 — 8.3.27.1688» даёт оба конца как кандидатов.
+        const string html = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=Platform83&ver=8.3.27.2214">8.3.27.2214</a></td><td>8.3.27.1500 — 8.3.27.1688</td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(html);
+
+        var newest = releases.Single();
+        Assert.Equal(new[] { "8.3.27.1500", "8.3.27.1688" }, newest.Sources);
+    }
+
+    [Fact]
+    public void ParseVersions_DateColumn_IsNotMistakenForSources()
+    {
+        // Даты («Дата выхода») не попадают в Sources (issue #352).
+        const string html = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=AccountingCorp30&ver=3.0.160.12">3.0.160.12</a></td><td>01.10.2026</td><td>3.0.158.71</td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(html);
+
+        var newest = releases.Single();
+        Assert.Equal(new[] { "3.0.158.71" }, newest.Sources);
+    }
+
+    [Fact]
+    public void ParseVersions_NoSourcesColumn_ReturnsEmptySources()
+    {
+        // Существующие фикстуры без колонки «Список версий» (в т.ч. с датами) —
+        // пустой Sources, регрессии нет.
+        var releases = OneCPlatformCatalogParser.ParseVersions(VersionsTableHtml);
+
+        Assert.All(releases, r => Assert.Empty(r.Sources));
+    }
 }

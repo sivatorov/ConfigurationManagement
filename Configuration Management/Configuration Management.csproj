@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>0.3.9.327</Version>
-    <AssemblyVersion>0.3.9.327</AssemblyVersion>
-    <FileVersion>0.3.9.327</FileVersion>
-    <InformationalVersion>0.3.9.327</InformationalVersion>
+    <Version>0.3.9.328</Version>
+    <AssemblyVersion>0.3.9.328</AssemblyVersion>
+    <FileVersion>0.3.9.328</FileVersion>
+    <InformationalVersion>0.3.9.328</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -357,6 +357,9 @@
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ConfigLinkItemViewModel.cs" />
     <Compile Include="ViewModels\UpdateCheckRowViewModel.cs" />
+    <!-- Строка таблицы вариантов цепочки обновлений (issue #352): чистый .NET без
+         WPF-зависимостей, используется и Windows, и Linux; подключается явно. -->
+    <Compile Include="ViewModels\UpdateChainVariantViewModel.cs" />
     <Compile Include="ViewModels\ActualReleasesViewModel.cs" />
     <!-- Учётные данные ИТС (issue #333): чистые ViewModel справочника и строки списка,
          обе платформы; подключаются явно (имена не совпадают с глобом *.Avalonia.cs). -->

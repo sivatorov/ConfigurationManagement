@@ -761,6 +761,43 @@ public class OneCUpdatesService : IOneCUpdatesService
         => ParallelDownloader.CanParallelize(totalBytes, ParallelDownloader.DefaultMaxParallelism);
 
     /// <summary>
+    /// Абсолютный адрес страницы файлов релиза (<c>version_files</c>) из href каталога
+    /// (issue #352): относительные ссылки («/version_files?nick=…&ver=…») дополняются
+    /// хостом портала, абсолютные и пустые возвращаются без изменений. Запасной базой
+    /// для резолва служит адрес страницы каталога.
+    /// </summary>
+    /// <param name="href">Ссылка из таблицы каталога (может быть относительной).</param>
+    /// <param name="fallbackBaseUrl">Адрес страницы каталога (для резолва относительной ссылки).</param>
+    internal static string ToAbsoluteVersionFilesUrl(string? href, string? fallbackBaseUrl)
+    {
+        var url = (href ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(url))
+            return fallbackBaseUrl ?? string.Empty;
+
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        if (url.StartsWith("/", StringComparison.Ordinal))
+            return $"https://releases.1c.ru{url}";
+
+        if (!string.IsNullOrWhiteSpace(fallbackBaseUrl) &&
+            Uri.TryCreate(fallbackBaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            try
+            {
+                return new Uri(baseUri, url).ToString();
+            }
+            catch
+            {
+                // Оставляем ссылку как есть при некорректном слиянии.
+            }
+        }
+
+        return url;
+    }
+
+    /// <summary>
     /// Формирует имя итогового файла дистрибутива платформы: префикс версии + имя файла
     /// (символы, недопустимые в имени файла, заменяются на '_'). Пустые части пропускаются.
     /// </summary>
@@ -916,6 +953,46 @@ public class OneCUpdatesService : IOneCUpdatesService
     /// <inheritdoc />
     public async Task<PortalPageResult> FetchPageAsync(string url, CancellationToken ct = default)
         => await FetchPageCoreAsync(url, ct).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<ConfigUpdateCatalogResult> GetUpdateCatalogAsync(string url, CancellationToken ct = default)
+    {
+        var page = await FetchPageAsync(url, ct).ConfigureAwait(false);
+        if (page.Status != PortalFetchStatus.Ok)
+            return CatalogFailure(page.Status);
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(page.Text ?? string.Empty);
+        if (releases.Count == 0)
+        {
+            // Страница получена, но ни одной версии не распознано — структура каталога
+            // могла измениться либо пришёл неожиданный контент (issue #352).
+            _logger.Warn($"[Updates] Каталог получен, но версии не распознаны: {url}");
+            return new ConfigUpdateCatalogResult
+            {
+                Status = PortalFetchStatus.NetworkError,
+                ErrorKey = "Updates.Unavailable",
+            };
+        }
+
+        return new ConfigUpdateCatalogResult { Status = PortalFetchStatus.Ok, Releases = releases };
+    }
+
+    /// <summary>Собирает результат ошибки каталога с ключом локализации «Updates.*» по статусу
+    /// (конвенция ключей окна F9, issue #352).</summary>
+    private static ConfigUpdateCatalogResult CatalogFailure(PortalFetchStatus status)
+    {
+        var key = status switch
+        {
+            PortalFetchStatus.AuthRequired => "Updates.AuthRequired",
+            PortalFetchStatus.AuthFailed => "Updates.AuthFailed",
+            PortalFetchStatus.LoginLimitReached => "Updates.LoginLimitReached",
+            PortalFetchStatus.FormUnavailable => "Updates.FormUnavailable",
+            PortalFetchStatus.NotFound => "Updates.NotFound",
+            PortalFetchStatus.Cancelled => "Updates.Cancelled",
+            _ => "Updates.NetworkError",
+        };
+        return new ConfigUpdateCatalogResult { Status = status, ErrorKey = key };
+    }
 
     /// <summary>Выполняет авторизованный GET страницы портала и возвращает текст ответа вместе
     /// со статусом: Ok — тело получено; AuthRequired — требуется вход (редирект/страница входа,

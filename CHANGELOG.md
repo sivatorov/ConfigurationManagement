@@ -9,6 +9,21 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.328] — 2026-10-07
+
+### Добавлено
+
+- **Цепочки обновлений конфигурации для базы (issue #352)** — в окне «Проверка обновлений» (F9) при наличии нового релиза теперь проверяется, можно ли обновить текущую версию конфигурации напрямую до последней (по колонке «Список версий» таблицы `#versionsTable` на `releases.1c.ru`), и при необходимости строится цепочка обновлений:
+  - **сводка в один ряд** — «Текущая версия | Последняя версия | Статус»;
+  - **таблица вариантов цепочки** с колонками «№» и «Список версий»: вариант 1 «снизу вверх» (каждый шаг — максимальная версия, на которую можно прыгнуть с текущей, и так до нужной) и вариант 2 «оптимальный» (минимальное число прыжков, поиск по графу), показывается, если отличается от варианта 1;
+  - **кнопка «Скачать цепочку»** — выбор каталога и последовательная загрузка всех версий выбранного варианта (от текущей к последней) с прогрессом: «какой файл скачивается и сколько ещё осталось»;
+  - **честная деградация** — при отсутствии данных о совместимости версий сохраняется прежнее поведение (загрузка только последней версии), показывается статус «Нет данных о совместимости версий».
+  - Новое: [`UpdateChainBuilder.cs`](Configuration%20Management/Services/UpdateChainBuilder.cs) (чистые алгоритмы построения цепочки), поле [`PlatformRelease.Sources`](Configuration%20Management/Models/PlatformRelease.cs) и его парсинг из колонки «Список версий» в [`OneCPlatformCatalogParser.cs`](Configuration%20Management/Services/OneCPlatformCatalogParser.cs), метод [`IOneCUpdatesService.GetUpdateCatalogAsync`](Configuration%20Management/Services/IOneCUpdatesService.cs). UI обеих платформ: [`UpdateCheckWindow.xaml`](Configuration%20Management/Views/UpdateCheckWindow.xaml) / [`.xaml.cs`](Configuration%20Management/Views/UpdateCheckWindow.xaml.cs) и [`UpdateCheckWindow.Avalonia.cs`](Configuration%20Management/Views/UpdateCheckWindow.Avalonia.cs).
+
+### Тесты
+
+Полный набор `dotnet test` зелёный (**1941**); кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Новые: [`UpdateChainBuilderTests.cs`](ConfigurationManagement.Tests/UpdateChainBuilderTests.cs) (новый, +9: прямое обновление; жадный == оптимальный — одна строка; жадный ≠ оптимальный — две строки; жадный заходит в тупик, оптимальный проходит; пути нет; нет данных о совместимости; пустая текущая версия; цель отсутствует в каталоге; предикат `CanJump`), [`OneCPlatformCatalogParserTests.cs`](ConfigurationManagement.Tests/OneCPlatformCatalogParserTests.cs) (+5: колонка «Список версий» заполняет `Sources`; собственная версия исключается; диапазон «—» даёт оба конца; даты не считаются версиями; регресс фикстур без колонки — пустой `Sources`).
+
 ## [0.3.9.327] — 2026-10-07
 
 ### Исправлено

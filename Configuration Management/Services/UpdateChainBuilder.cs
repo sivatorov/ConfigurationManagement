@@ -1,0 +1,251 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Configuration_Management.Models;
+
+namespace Configuration_Management.Services;
+
+/// <summary>
+/// Чистый построитель цепочек обновлений конфигурации (issue #352): по каталогу версий
+/// с колонкой «Список версий» (<see cref="PlatformRelease.Sources"/>) определяет, можно ли
+/// обновить текущую версию напрямую до последней, и строит варианты цепочки:
+///   1) «снизу вверх» — каждый шаг максимальная версия, на которую можно прыгнуть с текущей
+///      (жадный поиск, идёт до нужной версии);
+///   2) «оптимальный» — минимальное число прыжков (поиск в ширину по графу совместимости),
+///      показывается, если построен и отличается от п.1.
+/// Без сети и UI — покрывается тестами.
+/// </summary>
+public static class UpdateChainBuilder
+{
+    /// <summary>
+    /// Строит цепочки обновления от <paramref name="currentVersion"/> до
+    /// <paramref name="targetVersion"/> по каталогу <paramref name="releases"/>.
+    /// Пустая/непарсимая текущая версия или пустой каталог — пустой результат
+    /// (без исключений).
+    /// </summary>
+    public static UpdateChainSet Build(
+        string currentVersion,
+        string targetVersion,
+        IReadOnlyList<PlatformRelease> releases)
+    {
+        if (string.IsNullOrWhiteSpace(currentVersion) || string.IsNullOrWhiteSpace(targetVersion))
+            return new UpdateChainSet();
+
+        var catalog = (releases ?? Array.Empty<PlatformRelease>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Version))
+            .ToList();
+        if (catalog.Count == 0)
+            return new UpdateChainSet();
+
+        // Нет данных о совместимости версий — цепочка не строится (деградация к прежнему
+        // поведению «скачать только последнюю версию»).
+        var hasSourceData = catalog.Any(r => r.Sources is { Count: > 0 });
+        if (!hasSourceData)
+            return new UpdateChainSet { HasSourceData = false };
+
+        var target = catalog.FirstOrDefault(r =>
+            SameVersion(r.Version, targetVersion));
+        if (target is null)
+            return new UpdateChainSet { HasSourceData = true };
+
+        if (CanJump(currentVersion, target))
+            return new UpdateChainSet { HasSourceData = true, IsDirectUpdate = true };
+
+        var bottomUp = BuildBottomUp(currentVersion, targetVersion, catalog);
+        var optimal = BuildOptimal(currentVersion, targetVersion, catalog);
+
+        var variants = new List<UpdateChainVariant>();
+        if (bottomUp is not null)
+        {
+            variants.Add(new UpdateChainVariant
+            {
+                Number = variants.Count + 1,
+                Kind = UpdateChainKind.BottomUp,
+                Steps = bottomUp,
+            });
+        }
+
+        if (optimal is not null && !SameChain(bottomUp, optimal))
+        {
+            variants.Add(new UpdateChainVariant
+            {
+                Number = variants.Count + 1,
+                Kind = UpdateChainKind.Optimal,
+                Steps = optimal,
+            });
+        }
+
+        return new UpdateChainSet
+        {
+            HasSourceData = true,
+            IsDirectUpdate = false,
+            Variants = variants,
+        };
+    }
+
+    /// <summary>
+    /// True — версию <paramref name="from"/> можно обновить напрямую до релиза
+    /// <paramref name="to"/>: <paramref name="to"/> численно новее и содержит
+    /// <paramref name="from"/> в своём «Списке версий» (<see cref="PlatformRelease.Sources"/>).
+    /// Сравнение версий — числовыми сегментами, регистронезависимое.
+    /// </summary>
+    public static bool CanJump(string from, PlatformRelease to)
+    {
+        if (string.IsNullOrWhiteSpace(from) || to is null || string.IsNullOrWhiteSpace(to.Version))
+            return false;
+
+        if (OneCPlatformCatalogParser.CompareVersions(to.Version, from) <= 0)
+            return false;
+
+        var fromNorm = Normalize(from);
+        return (to.Sources ?? new List<string>()).Any(s =>
+            string.Equals(Normalize(s), fromNorm, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Вариант 1 «снизу вверх»: каждый шаг — максимальная версия, на которую можно
+    /// прыгнуть с текущей (см. <see cref="CanJump"/>), повтор до достижения последней
+    /// версии. Возвращает шаги (от текущей к последней, включая последнюю) или null,
+    /// если на каком-то шаге кандидатов нет (тупик).
+    /// </summary>
+    private static IReadOnlyList<PlatformRelease>? BuildBottomUp(
+        string currentVersion,
+        string targetVersion,
+        IReadOnlyList<PlatformRelease> catalog)
+    {
+        var steps = new List<PlatformRelease>();
+        var current = currentVersion;
+
+        // Защита от бесконечного цикла на ошибочных данных: каждый шаг строго увеличивает
+        // версию, поэтому шагов не больше числа релизов каталога.
+        for (var guard = 0; guard <= catalog.Count; guard++)
+        {
+            if (OneCPlatformCatalogParser.CompareVersions(current, targetVersion) >= 0)
+                return steps.Count > 0 ? steps : null;
+
+            var next = catalog
+                .Where(r => CanJump(current, r))
+                .OrderByDescending(r => r.Version, VersionComparer.Instance)
+                .FirstOrDefault();
+            if (next is null)
+                return null;
+
+            steps.Add(next);
+            current = next.Version;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Вариант 2 «оптимальный»: поиск в ширину (BFS) по направленному графу
+    /// «версия → более новая версия, в чей «Список версий» входит исходная».
+    /// Веса рёбер единичные, поэтому первый найденный путь к последней версии —
+    /// кратчайший (минимальное число прыжков). Null — цель недостижима.
+    /// </summary>
+    private static IReadOnlyList<PlatformRelease>? BuildOptimal(
+        string currentVersion,
+        string targetVersion,
+        IReadOnlyList<PlatformRelease> catalog)
+    {
+        // Версии строго новее стартовой, по возрастанию — стабильный порядок обхода.
+        var newer = catalog
+            .Where(r => OneCPlatformCatalogParser.CompareVersions(r.Version, currentVersion) > 0)
+            .OrderBy(r => r.Version, VersionComparer.Instance)
+            .ToList();
+
+        // prev[версия] — релиз, из которого пришли в эту версию; null — стартовая версия.
+        var prev = new Dictionary<string, PlatformRelease?>(StringComparer.OrdinalIgnoreCase);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Normalize(currentVersion) };
+        var queue = new Queue<PlatformRelease>();
+
+        // Первый слой: релизы, достижимые напрямую из текущей версии.
+        foreach (var release in newer)
+        {
+            if (!CanJump(currentVersion, release))
+                continue;
+
+            prev[Normalize(release.Version)] = null;
+            if (SameVersion(release.Version, targetVersion))
+                return new[] { release };
+
+            if (visited.Add(Normalize(release.Version)))
+                queue.Enqueue(release);
+        }
+
+        while (queue.Count > 0)
+        {
+            var node = queue.Dequeue();
+            foreach (var release in newer)
+            {
+                var key = Normalize(release.Version);
+                if (visited.Contains(key))
+                    continue;
+                if (!CanJump(node.Version, release))
+                    continue;
+
+                prev[key] = node;
+                if (SameVersion(release.Version, targetVersion))
+                    return Reconstruct(prev, release);
+
+                visited.Add(key);
+                queue.Enqueue(release);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Восстанавливает путь к цели по карте предшественников (без стартовой версии).</summary>
+    private static IReadOnlyList<PlatformRelease> Reconstruct(
+        IReadOnlyDictionary<string, PlatformRelease?> prev, PlatformRelease target)
+    {
+        var path = new List<PlatformRelease> { target };
+        var key = Normalize(target.Version);
+        while (prev.TryGetValue(key, out var node) && node is not null)
+        {
+            path.Add(node);
+            key = Normalize(node.Version);
+        }
+
+        path.Reverse();
+        return path;
+    }
+
+    /// <summary>True — последовательности версий двух вариантов совпадают (одна строка).</summary>
+    private static bool SameChain(IReadOnlyList<PlatformRelease>? a, IReadOnlyList<PlatformRelease>? b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a is null || b is null)
+            return false;
+        if (a.Count != b.Count)
+            return false;
+
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (!SameVersion(a[i].Version, b[i].Version))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool SameVersion(string a, string b)
+        => string.Equals(Normalize(a), Normalize(b), StringComparison.OrdinalIgnoreCase);
+
+    private static string Normalize(string version)
+        => (version ?? string.Empty).Trim();
+
+    /// <summary>Компаратор версий по убыванию/возрастанию числовыми сегментами
+    /// (через <see cref="OneCPlatformCatalogParser.CompareVersions"/>).</summary>
+    private sealed class VersionComparer : IComparer<string>
+    {
+        /// <summary>Единственный экземпляр компаратора.</summary>
+        public static readonly VersionComparer Instance = new();
+
+        /// <inheritdoc />
+        public int Compare(string? x, string? y)
+            => OneCPlatformCatalogParser.CompareVersions(x ?? string.Empty, y ?? string.Empty);
+    }
+}

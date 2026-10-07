@@ -15,6 +15,13 @@ public class PlatformRelease
     /// <summary>Ссылка на страницу файлов релиза (<c>version_files?nick=…&ver=…</c>).</summary>
     public string VersionFilesUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Версии, из которых можно обновиться НАПРЯМУЮ до этой версии (колонка
+    /// «Список версий» таблицы #versionsTable каталога релизов, issue #352).
+    /// Пусто — данные о совместимости отсутствуют (прямой путь неизвестен).
+    /// </summary>
+    public List<string> Sources { get; set; } = new();
+
     /// <summary>Файлы дистрибутива релиза (заполняются лениво).</summary>
     public List<PlatformReleaseFile> Files { get; set; } = new();
 }

@@ -104,6 +104,9 @@ public partial class UpdateCheckWindow : Window
                     () => _updates.CheckForUpdatesAsync(configName, currentVersion, url, token), token);
                 _row.ApplyResult(result);
                 SaveUpdateCache(result);
+                // Цепочка обновлений (issue #352): при наличии нового релиза строим
+                // варианты от текущей версии до последней и показываем их в таблице.
+                await BuildChainsAsync(url, token);
             }
         }
         catch (OperationCanceledException)
@@ -165,6 +168,9 @@ public partial class UpdateCheckWindow : Window
         // При ошибке авторизации показываем панель действий: имя учётной записи ИТС,
         // «Открыть login.1c.ru в браузере», «Учётные данные ИТС…» (issue #323/#330/#334).
         ShowAuthActions(_row.Status == ConfigUpdateStatus.Failed && IsAuthErrorKey(_row.Error));
+
+        // Блок цепочки обновлений (issue #352): таблица вариантов и кнопка «Скачать цепочку».
+        UpdateChainDisplay();
     }
 
     /// <summary>Показывает/скрывает панель действий при ошибке авторизации и заполняет имя
@@ -376,6 +382,154 @@ public partial class UpdateCheckWindow : Window
         {
             row.IsDownloading = false;
             UpdateProgressDisplay();
+        }
+    }
+
+    /// <summary>
+    /// Строит цепочку обновлений (issue #352): получает полный каталог версий конфигурации
+    /// через <see cref="IOneCUpdatesService.GetUpdateCatalogAsync"/> и вычисляет варианты
+    /// от текущей версии до последней (<see cref="UpdateChainBuilder"/>). Ошибки каталога
+    /// не роняют результат основной проверки: состояние цепочки сбрасывается и остаётся
+    /// прежнее поведение — «Скачать» только последнюю версию.
+    /// </summary>
+    private async Task BuildChainsAsync(string url, CancellationToken token)
+    {
+        _row.ResetChains();
+        if (!_row.HasNewer || string.IsNullOrWhiteSpace(_row.CurrentVersion)
+            || string.IsNullOrWhiteSpace(_row.LatestVersion))
+        {
+            UpdateChainDisplay();
+            return;
+        }
+
+        try
+        {
+            var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(url, token), token);
+            if (catalog.Status == PortalFetchStatus.Ok)
+            {
+                var set = UpdateChainBuilder.Build(_row.CurrentVersion, _row.LatestVersion, catalog.Releases);
+                _row.SetChains(set);
+            }
+            else
+            {
+                _logger.Warn($"Не удалось получить каталог версий для цепочки обновлений ({catalog.ErrorKey}).");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Проверка отменена — цепочка не строится (прежнее поведение).
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка построения цепочки обновлений для «{_row.Name}»", ex);
+        }
+
+        UpdateChainDisplay();
+    }
+
+    /// <summary>Обновляет видимость и состояние блока цепочки обновлений (issue #352):
+    /// таблица вариантов, кнопка «Скачать цепочку» и панель прогресса цепочки.</summary>
+    private void UpdateChainDisplay()
+    {
+        var hasChain = _row.HasChain;
+        ChainPanel.Visibility = hasChain ? Visibility.Visible : Visibility.Collapsed;
+        DownloadChainButton.Visibility = hasChain ? Visibility.Visible : Visibility.Collapsed;
+        DownloadChainButton.IsEnabled = _row.CanDownloadChain;
+        ChainProgressPanel.Visibility = _row.IsChainDownloading ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Кнопка «Скачать цепочку» (issue #352).</summary>
+    private async void OnDownloadChainClick(object sender, RoutedEventArgs e)
+    {
+        await DownloadChainAsync();
+    }
+
+    /// <summary>
+    /// Скачивает выбранную цепочку обновлений в указанный каталог (issue #352):
+    /// последовательно все версии варианта (от текущей к последней) с прогрессом —
+    /// какой файл скачивается и сколько ещё осталось.
+    /// </summary>
+    private async Task DownloadChainAsync()
+    {
+        if (!_row.CanDownloadChain || string.IsNullOrWhiteSpace(_row.Url))
+            return;
+
+        var variant = _row.SelectedVariant ?? _row.ChainVariants.FirstOrDefault();
+        if (variant is null || variant.Steps.Count == 0)
+            return;
+
+        var folder = _dialogs.OpenFolderDialog(
+            LocalizationManager.T("Updates.Chain.ChooseFolder"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+
+        _row.IsChainDownloading = true;
+        _row.ChainProgress = 0;
+        UpdateChainDisplay();
+
+        try
+        {
+            var total = variant.Steps.Count;
+            var ok = 0;
+            var failed = 0;
+            var baseName = SanitizeFileName(_row.Name);
+
+            for (var i = 0; i < total; i++)
+            {
+                var step = variant.Steps[i];
+                var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
+                var targetPath = Path.Combine(folder, $"{baseName}_{step.Version}.zip");
+
+                _row.ChainProgressText = string.Format(
+                    LocalizationManager.T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version);
+                _row.ChainProgress = (double)i / total;
+
+                var progress = new Progress<double>(p =>
+                    _row.ChainProgress = Math.Clamp((i + p) / total, 0, 1));
+                var saved = await Task.Run(() =>
+                    _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+
+                if (!string.IsNullOrWhiteSpace(saved))
+                {
+                    ok++;
+                    _logger.Info($"Скачана версия {step.Version} цепочки: {saved}");
+                }
+                else
+                {
+                    failed++;
+                    _logger.Warn($"Не удалось скачать версию {step.Version} цепочки ({url}).");
+                }
+
+                _row.ChainProgress = (double)(i + 1) / total;
+                _row.ChainProgressText = string.Format(
+                        LocalizationManager.T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version)
+                    + " " + string.Format(LocalizationManager.T("Updates.Chain.Remaining"), total - i - 1);
+            }
+
+            if (failed > 0)
+            {
+                _dialogs.ShowWarning(string.Format(
+                    LocalizationManager.T("Updates.Chain.LoadedFailed"), failed),
+                    LocalizationManager.T("Updates.CheckTitle"));
+            }
+            else
+            {
+                _dialogs.ShowInfo(string.Format(
+                    LocalizationManager.T("Updates.Chain.LoadedOk"), ok, total, folder),
+                    LocalizationManager.T("Updates.CheckTitle"));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка загрузки цепочки обновлений «{_row.Name}»", ex);
+            _dialogs.ShowError(LocalizationManager.T("Updates.NetworkError"),
+                LocalizationManager.T("Updates.CheckTitle"));
+        }
+        finally
+        {
+            _row.IsChainDownloading = false;
+            UpdateChainDisplay();
         }
     }
 
