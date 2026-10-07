@@ -604,6 +604,22 @@ public static class BatchSelectionHelper
     public static bool ShouldContinueRestore(Infobase? currentSelection, Infobase target)
         => currentSelection is null || ReferenceEquals(currentSelection, target);
 
+    /// <summary>
+    /// Нужно ли снять мультивыделение при клавиатурной навигации без модификаторов
+    /// (issue #350): набор «для выделенных» активен и целевая строка отличается от
+    /// «текущей». Семантика обычного клика: движение курсором стрелками ↑/↓ снимает
+    /// пометки, как клик мышью. Если целевая строка совпадает с текущей (стрелка ничего
+    /// не двигает) или набор пуст — ничего не трогаем. Идентификаторы сравниваются
+    /// регистрозависимо (Ordinal), как в наборе мультивыделения.
+    /// </summary>
+    /// <param name="currentIds">Текущий набор идентификаторов мультивыделения.</param>
+    /// <param name="currentId">Идентификатор «текущей» (последней выбранной) базы.</param>
+    /// <param name="targetId">Идентификатор целевой строки навигации.</param>
+    public static bool ShouldClearBatchOnKeyboardNavigation(
+        IReadOnlyCollection<string>? currentIds, string? currentId, string? targetId)
+        => currentIds is { Count: > 0 }
+           && !string.Equals(currentId, targetId, StringComparison.Ordinal);
+
     private static int IndexOf(IReadOnlyList<string> list, string value)
     {
         for (var i = 0; i < list.Count; i++)

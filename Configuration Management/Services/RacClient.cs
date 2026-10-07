@@ -41,6 +41,16 @@ public sealed class RacClient : IRacClient
 
     private readonly IAppLogger _logger;
 
+    /// <summary>
+    /// Запомненный рабочий формат команды «job list» по ключу подключения
+    /// (адрес:порт|user|clusterId, issue #324): rac 8.5.4.1878 отклоняет
+    /// <c>--cluster=<uuid></c> (код -1) и принимает только <c>--cluster <uuid></c>.
+    /// Без кэша каждая загрузка данных кластера запускала rac дважды (первая попытка
+    /// всегда падала), что заметно удлиняло подключение/автообновление.
+    /// Значение — индекс формата: 0 = "--cluster=<uuid>", 1 = "--cluster <uuid>".
+    /// </summary>
+    private readonly Dictionary<string, int> _jobListFormats = new(StringComparer.Ordinal);
+
     public RacClient(IAppLogger logger)
     {
         _logger = logger;
@@ -143,41 +153,77 @@ public sealed class RacClient : IRacClient
     {
         // issue #324: rac 8.5.4.1878 отклоняет «job list --cluster=<uuid>» (код -1,
         // «Ошибка разбора параметра: --cluster=…»), хотя остальные list-команды с тем же
-        // параметром работают. Пробуем форматы по очереди: прежний --cluster=<uuid> и
-        // --cluster <uuid> (двумя токенами); первый успешный (exit=0) используется.
-        // Точная причина на rac 8.5.4 уточняется у пользователя (вывод job list --help);
-        // здесь — устойчивость без дополнительных запросов.
-        (string Name, string[] Args)[] attempts =
-        {
-            ("--cluster=<uuid>", new[] { "job", "list", $"--cluster={clusterId}" }),
-            ("--cluster <uuid>", new[] { "job", "list", "--cluster", clusterId.ToString() })
-        };
+        // параметром работают. Форматы: прежний --cluster=<uuid> (0) и --cluster <uuid> (1).
+        // После первого успеха формат запоминается по ключу подключения — повторные
+        // загрузки запускают rac один раз (раньше каждая загрузка тратила ~1 с на
+        // заведомо падающую первую попытку).
+        var formatKey = JobListFormatKey(parameters, clusterId);
+        var startIndex = _jobListFormats.TryGetValue(formatKey, out var known) ? known : 0;
 
         string? output = null;
         RacClientException? lastError = null;
-        foreach (var attempt in attempts)
+        var failures = new List<string>();
+        var usedFallback = false;
+
+        // До двух попыток: сначала известный/первый формат, при неуспехе — второй.
+        for (var attempt = 0; attempt < 2 && output is null; attempt++)
         {
+            var index = (startIndex + attempt) % 2;
             try
             {
-                output = await RunAsync(parameters, cancellationToken, attempt.Args).ConfigureAwait(false);
+                output = await RunAsync(parameters, cancellationToken, JobListArgs(index, clusterId))
+                    .ConfigureAwait(false);
                 lastError = null;
-                break;
+                if (index != 0)
+                    usedFallback = true;
+                // Запоминаем рабочий формат; при смене версии платформы неудачная попытка
+                // ниже удалит ключ, и на следующем вызове форматы перепробуются заново.
+                _jobListFormats[formatKey] = index;
             }
             catch (RacClientException ex)
             {
                 lastError = ex;
-                _logger.Warn(
-                    $"RAC: job list (формат '{attempt.Name}') завершился ошибкой: {ex.Message} — пробуем следующий формат.");
+                failures.Add($"формат '{(index == 0 ? "--cluster=<uuid>" : "--cluster <uuid>")}': {ex.Message}");
             }
         }
 
         if (output is null)
+        {
+            // Все форматы неуспешны — только тогда [WARN] в журнал (issue #324: раньше
+            // WARN писался после первой попытки даже при успехе второй и сбивал с толку).
+            foreach (var failure in failures)
+                _logger.Warn($"RAC: job list ({failure})");
             throw lastError ?? new RacClientException("job list: не удалось получить вывод rac.");
+        }
+
+        if (usedFallback)
+        {
+            _logger.Info(
+                "RAC: job list — первый формат '--cluster=<uuid>' не поддержан rac, " +
+                "применён формат '--cluster <uuid>' (успешно).");
+        }
 
         var jobs = RacOutputParser.ToJobs(output);
         EnsureParsedOrThrow(output, jobs.Count, "job list");
         return jobs;
     }
+
+    /// <summary>
+    /// Аргументы команды «job list» по индексу формата (issue #324): 0 —
+    /// <c>--cluster=<uuid></c> (отклоняется rac 8.5.4), 1 — <c>--cluster <uuid></c>
+    /// двумя токенами (работает). Internal — для юнит-тестов без запуска rac.
+    /// </summary>
+    internal static string[] JobListArgs(int formatIndex, Guid clusterId) => formatIndex == 0
+        ? new[] { "job", "list", $"--cluster={clusterId}" }
+        : new[] { "job", "list", "--cluster", clusterId.ToString() };
+
+    /// <summary>
+    /// Ключ запомненного формата «job list» (issue #324): точка подключения, учётная
+    /// запись и кластер. Без пароля — пароль в ключе не хранится (секреты не должны
+    /// попадать в строковые ключи словаря и логи). Internal — для юнит-тестов.
+    /// </summary>
+    internal static string JobListFormatKey(RacConnectionParams parameters, Guid clusterId)
+        => $"{parameters.Address}:{parameters.Port}|{parameters.User}|{clusterId}";
 
     /// <summary>
     /// Нераспознанный вывод rac (issue #324): rac завершился с кодом 0 и вернул НЕпустой вывод,
@@ -298,6 +344,9 @@ public sealed class RacClient : IRacClient
         params string[] commandAndArgs)
     {
         var args = BuildArguments(parameters, commandAndArgs);
+        // Диагностика «подключение стало дольше» (issue #324): время выполнения одной
+        // rac-команды видно в журнале — где остаются секунды (старт rac или сервер).
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         var rac = OneCPlatformLocator.FindRacExecutable();
         if (rac is null)
@@ -388,10 +437,13 @@ public sealed class RacClient : IRacClient
                 throw new RacClientException(message);
             }
 
-            // Итог выполнения в журнале: код выхода и объём вывода — по ним видно,
-            // что rac вернул данные (или пустой список) при «монитор не видит кластер» (issue #324).
+            // Итог выполнения в журнале: код выхода, объём вывода и длительность —
+            // по ним видно, что rac вернул данные (или пустой список) и где задержка
+            // при «монитор не видит кластер» / «подключение стало дольше» (issue #324).
+            stopwatch.Stop();
             _logger.Info(
-                $"RAC: выполнено, exit={process.ExitCode}, stdout={stdout.Length} симв., stderr={stderr.Length} симв.");
+                $"RAC: выполнено, exit={process.ExitCode}, stdout={stdout.Length} симв., " +
+                $"stderr={stderr.Length} симв., за {stopwatch.ElapsedMilliseconds} мс");
             return stdout;
         }
         catch (RacClientException)

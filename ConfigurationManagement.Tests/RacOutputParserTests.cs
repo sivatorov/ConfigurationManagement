@@ -1108,4 +1108,47 @@ public sealed class RacOutputParserTests
         Assert.False(RacOutputParser.LooksLikeKeyValueOutput(null));
         Assert.False(RacOutputParser.LooksLikeKeyValueOutput(string.Empty));
     }
+
+    [Fact]
+    public void ToClusters_EmptyName_DoesNotExposeKeyInsteadOfValue()
+    {
+        // issue #324 («ключ вместо названия»): в key-value блоке rac может вернуть
+        // ключ «name» без значения — парсер не должен подставлять сам ключ в Name;
+        // за отображение пустого имени отвечает RacClusterRow.DisplayText (fallback).
+        const string output =
+            "cluster                                   : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "host                                      : ALF\n" +
+            "port                                      : 27541\n" +
+            "name                                      :\n";
+
+        var cluster = Assert.Single(RacOutputParser.ToClusters(output));
+
+        Assert.Equal(Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9"), cluster.Id);
+        Assert.Equal(27541, cluster.Port);
+        Assert.Equal(string.Empty, cluster.Name);
+    }
+
+    [Fact]
+    public void ToJobs_ParsesKeyValueBlocks_ForRac854StyleOutput()
+    {
+        // Фактический вывод «job list --cluster <uuid>» на rac 8.5.4 (issue #324)
+        // приходит блоками «ключ : значение» со стартером «job : GUID»; имя задания —
+        // в «name», ключ-инфобейза — в «infobase». Разбор не должен давать 0 строк
+        // (иначе EnsureParsedOrThrow остановит автообновление).
+        const string output =
+            "job                                       : 1a2b3c4d-0000-0000-0000-000000000001\n" +
+            "name                                      : \"Обновление информационной базы\"\n" +
+            "infobase                                  : 1a2b3c4d-0000-0000-0000-0000000000ab\n" +
+            "method-name                               : \"ОбновлениеИнформационнойБазы\"\n" +
+            "predefined                                : 0\n" +
+            "schedule                                  : \"{\\\"frequency\\\":\\\"daily\\\"}\"\n" +
+            "state                                     : \"scheduled\"\n";
+
+        var job = Assert.Single(RacOutputParser.ToJobs(output));
+
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-000000000001"), job.Id);
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-0000000000ab"), job.InfobaseId);
+        Assert.Equal("Обновление информационной базы", job.Name);
+        Assert.Equal("ОбновлениеИнформационнойБазы", job.MethodName);
+    }
 }

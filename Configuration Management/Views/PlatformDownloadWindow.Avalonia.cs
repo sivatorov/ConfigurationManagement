@@ -70,7 +70,9 @@ namespace Configuration_Management
                 defaultDirectory: initialDirectory,
                 isWindows: false,
                 notify: (title, message, kind, evt) => _notifier.Show(title, message, kind, evt),
-                appLogger: _logger);
+                appLogger: _logger,
+                // issue #330: заполнение списка версий и связанных свойств — в UI-потоке.
+                dispatchToUi: action => Dispatcher.UIThread.Post(action));
 
             Content = BuildRoot();
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;

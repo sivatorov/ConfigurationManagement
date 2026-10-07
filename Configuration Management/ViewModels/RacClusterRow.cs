@@ -25,8 +25,15 @@ public sealed class RacClusterRow
     /// <summary>Порт кластера.</summary>
     public int Port => _cluster.Port;
 
-    /// <summary>Текст для выпадающего списка: «Имя (порт)», порт 0 опускается.</summary>
-    public string DisplayText => Port > 0 ? $"{Name} ({Port})" : Name;
+    /// <summary>
+    /// Текст для выпадающего списка: «Имя (порт)», порт 0 опускается. Пустое имя
+    /// (issue #324: rac не заполнил ключ «name» в выводе) не должно отображаться как
+    /// «ключ вместо значения» — показываем нейтральный плейсхолдер с портом.
+    /// </summary>
+    public string DisplayText =>
+        string.IsNullOrWhiteSpace(Name)
+            ? (Port > 0 ? $"({Port})" : "—")
+            : (Port > 0 ? $"{Name} ({Port})" : Name);
 
     /// <summary>Оригинальная модель кластера (для передачи в команды rac).</summary>
     public RacCluster Cluster => _cluster;

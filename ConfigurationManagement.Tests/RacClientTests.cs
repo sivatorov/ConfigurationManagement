@@ -289,4 +289,46 @@ public sealed class RacClientTests
         // Разбор дал строки данных — правило не срабатывает даже при непустом выводе.
         RacClient.EnsureParsedOrThrow("cluster\tname\n", 1, "process list");
     }
+
+    // ---------- job list: форматы и ключ кэша (issue #324) ----------
+
+    [Fact]
+    public void JobListArgs_Format0_UsesEqualsToken()
+    {
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(new[] { "job", "list", $"--cluster={clusterId}" }, RacClient.JobListArgs(0, clusterId));
+    }
+
+    [Fact]
+    public void JobListArgs_Format1_UsesTwoTokens()
+    {
+        // rac 8.5.4.1878 отклоняет формат 0 (код -1, «Ошибка разбора параметра») и
+        // принимает два токена «--cluster <uuid>» — рабочий формат (issue #324).
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(new[] { "job", "list", "--cluster", clusterId.ToString() }, RacClient.JobListArgs(1, clusterId));
+    }
+
+    [Fact]
+    public void JobListFormatKey_IncludesConnectionAndCluster_NotPassword()
+    {
+        // Ключ кэша формата: точка подключения + учётная запись + кластер; пароль
+        // не должен попадать в ключ (секреты не хранятся в словаре/логах).
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+        var parameters = new RacConnectionParams
+        {
+            Address = "srv1",
+            Port = 1545,
+            User = "Admin",
+            Password = "secret-password"
+        };
+
+        var key = RacClient.JobListFormatKey(parameters, clusterId);
+
+        Assert.Contains("srv1:1545", key);
+        Assert.Contains("Admin", key);
+        Assert.Contains(clusterId.ToString(), key);
+        Assert.DoesNotContain("secret-password", key);
+    }
 }

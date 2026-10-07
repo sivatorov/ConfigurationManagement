@@ -74,7 +74,8 @@ public sealed class PlatformUpdateViewModelTests
         Func<PlatformVersionInfo, IProgress<string>?, CancellationToken,
             Task<(bool Success, string? ErrorKey)>>? deleteVersion = null,
         Func<string, string>? buildUninstall = null,
-        Action<string>? copyCommand = null)
+        Action<string>? copyCommand = null,
+        Action<Action>? dispatchToUi = null)
     {
         return new PlatformUpdateViewModel(
             service ?? OkService(),
@@ -96,7 +97,8 @@ public sealed class PlatformUpdateViewModelTests
             runningBinPaths ?? (() => Array.Empty<string>()),
             deleteVersion,
             buildUninstall,
-            copyCommand);
+            copyCommand,
+            dispatchToUi);
     }
 
     // ---------- CheckUpdatesAsync ----------
@@ -1069,6 +1071,53 @@ public sealed class PlatformUpdateViewModelTests
 
         public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    // ---------- UI-маршалинг обновления коллекции (issue #334) ----------
+
+    [Fact]
+    public async Task CheckUpdatesAsync_SuccessRunsViaDispatcher()
+    {
+        // issue #334: успешный каталог заполняет ObservableCollection Rows строго через
+        // маршаллер UI-потока (WPF CollectionView бросает NotSupportedException при
+        // изменении SourceCollection из фонового потока). В тесте маршаллер — синхронный
+        // накопитель: действие должно быть передано ему и выполнено.
+        var service = OkService(Release("8.3.27.2214"));
+        var dispatched = new List<Action>();
+        Action<Action> dispatcher = action =>
+        {
+            dispatched.Add(action);
+            action();
+        };
+        var vm = CreateVm(service, dispatchToUi: dispatcher);
+
+        await vm.CheckUpdatesAsync();
+
+        Assert.Single(dispatched);        // ровно один маршалинг (успешный путь)
+        Assert.Single(vm.Rows);           // действие реально выполнилось (Rows заполнены)
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task CheckUpdatesAsync_ErrorDoesNotDispatch()
+    {
+        // Ошибка каталога (AuthRequired) не трогает коллекцию и не вызывает маршалинг.
+        var service = new FakePlatformUpdateService
+        {
+            AvailableResult = new PlatformCatalogResult { Status = PortalFetchStatus.AuthRequired },
+        };
+        var dispatched = new List<Action>();
+        Action<Action> dispatcher = action =>
+        {
+            dispatched.Add(action);
+            action();
+        };
+        var vm = CreateVm(service, dispatchToUi: dispatcher);
+
+        await vm.CheckUpdatesAsync();
+
+        Assert.Empty(dispatched);
+        Assert.Empty(vm.Rows);
     }
 
     /// <summary>Fake логгера приложения: собирает сообщения в списки для проверки этапов.</summary>

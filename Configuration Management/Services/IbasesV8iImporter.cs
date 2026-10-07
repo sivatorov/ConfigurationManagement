@@ -70,6 +70,16 @@ public static class IbasesV8iImporter
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
+        // Диагностика импорта групп (issue #351): состояние коллекции и фильтра
+        // удалённых пользователем пустых групп до применения изменений. Это помогает
+        // понять, почему папки «пропадают»: были ли группы в коллекции изначально,
+        // не вернулись ли они из deleted_groups.json и сколько баз осталось без группы.
+        LogInfo(
+            $"Импорт ibases.v8i: групп в коллекции {groups.Count}, удалённых путей " +
+            $"(deleted_groups.json): [{(deletedPaths is null or { Count: 0 }
+                ? "-"
+                : string.Join("; ", deletedPaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)))}]");
+
         // Создаём недостающие группы из импортируемых баз.
         var groupsBefore = groups.Count;
         EnsureGroups(entries, groups, result, deletedPaths);
@@ -82,9 +92,11 @@ public static class IbasesV8iImporter
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var basesWithoutGroup = infobases.Count(b => string.IsNullOrWhiteSpace(b.Group));
         LogInfo(
             $"Импорт ibases.v8i: групп было {groupsBefore}, стало {groups.Count}, " +
             $"создано {result.GroupsCreated}, удалено дубликатов {Math.Max(0, result.GroupsCreated + groupsBefore - groups.Count)}, " +
+            $"баз без группы {basesWithoutGroup}, " +
             $"пути групп: [{string.Join("; ", groupPathsAfter)}]");
 
         foreach (var entry in entries)
@@ -357,76 +369,203 @@ public static class IbasesV8iImporter
     }
 
     /// <summary>
-    /// Удаляет из коллекции группы с дублирующимся полным путём (регистронезависимо),
-    /// сохраняя первую встреченную. Используется для очистки «унаследованных» дубликатов
-    /// папок, возникавших при повторных синхронизациях со штатным стартером.
+    /// Удаляет из коллекции настоящие дубликаты групп с одинаковым полным путём
+    /// (регистронезависимо), сохраняя одну из них. Используется для очистки
+    /// «унаследованных» дубликатов папок, возникавших при повторных синхронизациях
+    /// со штатным стартером (issue #165).
     /// </summary>
     /// <remarks>
-    /// Помимо удаления дубликатов обязательно переназначает родителя у дочерних групп,
-    /// чей <see cref="Group.ParentId"/> указывал на удалённый дубликат. Без этого дети
-    /// «осиротевали»: их полный путь переставал строиться (родитель не находился),
-    /// и на следующей синхронизации <see cref="CreateGroupWithParents"/> не находил такую
-    /// группу по полному пути и создавал новый дубликат — отсюда постоянное повторное
-    /// появление дублей у вложенных папок (issue #165).
+    /// <para>
+    /// Совпадения одного лишь канонического полного пути НЕ достаточно для удаления:
+    /// у разных живых групп он может совпадать (например, одноимённая корневая группа
+    /// и «осиротевшая» группа того же имени, чей родитель ещё не существует, или группы
+    /// с одинаковым именем, выстроенные разными родительскими цепочками). Удаление по
+    /// одному пути стирало такие группы — «пропадали все папки» (issue #351). Дубликатом
+    /// группа считается только при дополнительном совпадении: одинаковый ID группы ИЛИ
+    /// одинаковые имя листа и родитель. Группы с разными Id и одинаковым путём без этих
+    /// признаков сохраняются все (в журнал пишется предупреждение для диагностики).
+    /// </para>
+    /// <para>
+    /// При конфликте сохраняется группа с содержимым (дочерними группами): удаление
+    /// родителя вместе с детьми — худший исход, поэтому победителем становится группа,
+    /// на которую ссылаются дети, а пустой дубликат удаляется.
+    /// </para>
+    /// <para>
+    /// После дедупликации родитель дочерних групп, ссылавшихся на удалённый дубликат,
+    /// переназначается на сохранённую группу (прямо по Id; если Id отсутствует — по
+    /// запомненному полному пути). Без этого дети «осиротевали» бы: их полный путь
+    /// переставал строиться, и следующая синхронизация плодила бы новые дубликаты
+    /// вложенных папок (issue #165).
+    /// </para>
     /// </remarks>
     private static void RemoveDuplicateGroupsByPath(IList<Group> groups)
     {
+        if (groups.Count == 0)
+            return;
+
         // Полный путь каждой группы вычисляем по исходному списку (до удаления),
         // чтобы дубликаты с одним и тем же путём корректно сопоставились, даже если
-        // их родитель сам является дубликатом.
-        var keep = new List<Group>(groups.Count);
-        // Первая группа, встреченная для каждого полного пути (для дедупликации).
-        var keptByPath = new Dictionary<string, Group>(StringComparer.OrdinalIgnoreCase);
-        // Соответствие «Id удалённого дубликата → Id сохранённой группы»,
-        // чтобы после дедупликации перенаправить ссылки дочерних групп.
-        var removedToKept = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
+        // их родитель сам является дубликатом. Пути запоминаются и используются для
+        // восстановления родителя осиротевших детей после дедупликации (fallback по пути).
+        var originalPaths = new Dictionary<Group, string>(groups.Count);
+        var byPath = new Dictionary<string, List<Group>>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
         {
-            // Канонизируем полный путь: нормализуем разделители («/», «\» → « / ») и
-            // обрезаем пробелы у сегментов. Это гарантирует, что два дубликата одной и той же
-            // вложенной папки сопоставятся, даже если их путь был построен с разным разделителем,
-            // регистром сегментов или ведущими/хвостовыми пробелами в именах (например, после
-            // импорта из файла, переписанного штатным стартером 1С).
             var path = NormalizeGroupPath(GroupHierarchyHelper.GetFullPath(group, groups));
             if (string.IsNullOrWhiteSpace(path))
-            {
-                // Группы без пути (без имени) не участвуют в дедупликации.
-                keep.Add(group);
-                continue;
-            }
-
-            if (keptByPath.TryGetValue(path, out var kept))
-            {
-                // Дубликат пути — сохраняем первую встреченную группу и запоминаем
-                // перенаправление Id для дочерних групп.
-                if (!string.IsNullOrWhiteSpace(group.Id) && !string.IsNullOrWhiteSpace(kept.Id))
-                    removedToKept[group.Id] = kept.Id;
-                continue;
-            }
-
-            keptByPath[path] = group;
-            keep.Add(group);
+                continue; // Группы без пути (без имени) не участвуют в дедупликации.
+            originalPaths[group] = path;
+            if (!byPath.TryGetValue(path, out var bucket))
+                byPath[path] = bucket = new List<Group>();
+            bucket.Add(group);
         }
 
-        if (keep.Count == groups.Count)
+        var keep = new List<Group>(groups.Count);
+        // Пары «удаляемый дубликат → сохранённая группа» для переназначения детей.
+        var removedPairs = new List<(Group Removed, Group Kept)>();
+
+        foreach (var pair in byPath)
+        {
+            var path = pair.Key;
+            var bucket = pair.Value;
+            if (bucket.Count == 1)
+            {
+                keep.Add(bucket[0]);
+                continue;
+            }
+
+            var winner = bucket[0];
+            var candidates = new List<Group>();
+            foreach (var candidate in bucket.Skip(1))
+            {
+                if (IsSameGroupDuplicate(candidate, winner))
+                {
+                    candidates.Add(candidate);
+                }
+                else
+                {
+                    // Разные живые группы с одним путём (сирота и корневая одноимённая,
+                    // группы с разными родителями): НЕ удаляем — это была бы потеря папок
+                    // (issue #351). Пишем предупреждение для диагностики.
+                    LogInfo(
+                        $"Дедупликация групп: путь \"{path}\": группы с Id \"{winner.Id}\" " +
+                        $"и \"{candidate.Id}\" разные, оставлены обе");
+                    keep.Add(candidate);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                keep.Add(winner);
+                continue;
+            }
+
+            // Сохраняем группу с содержимым: если у кандидата есть дочерние группы,
+            // а у текущего победителя нет — победителем становится кандидат, иначе
+            // папка потеряла бы своих детей вместе с удалённым дубликатом (issue #351).
+            foreach (var candidate in candidates.ToList())
+            {
+                if (HasChildGroups(candidate, groups) && !HasChildGroups(winner, groups))
+                {
+                    candidates.Remove(candidate);
+                    candidates.Add(winner);
+                    winner = candidate;
+                }
+            }
+
+            keep.Add(winner);
+            foreach (var removed in candidates)
+            {
+                removedPairs.Add((removed, winner));
+                LogInfo(
+                    $"Дедупликация групп: путь \"{path}\", сохранена Id=\"{winner.Id}\", " +
+                    $"удалена Id=\"{removed.Id}\"");
+            }
+        }
+
+        if (keep.Count == groups.Count && removedPairs.Count == 0)
             return;
 
         // Перенаправляем ParentId дочерних групп, ссылавшихся на удалённые дубликаты,
         // на сохранённые группы. Это сохраняет иерархию и предотвращает повторное
-        // создание дубликатов вложенных папок при следующих синхронизациях.
+        // создание дубликатов вложенных папок при следующих синхронизациях (issue #165).
+        var redirected = 0;
+        foreach (var (removed, kept) in removedPairs)
+        {
+            if (string.IsNullOrWhiteSpace(removed.Id) || string.IsNullOrWhiteSpace(kept.Id))
+                continue;
+            foreach (var group in keep)
+            {
+                if (string.Equals(group.ParentId ?? string.Empty, removed.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    group.ParentId = kept.Id;
+                    redirected++;
+                }
+            }
+        }
+
+        // Инвариант (issue #351): группы, чей родитель пропал после дедупликации
+        // (например, у удалённого дубликата или сохранённой группы не было Id, поэтому
+        // прямое переназначение выше не сработало), перевешиваем на группу с полным
+        // путём родителя, запомненным ДО удаления. Так иерархия не разрушается, а папки
+        // не становятся корневыми («не пропадают») из-за потери родителя.
         foreach (var group in keep)
         {
             if (string.IsNullOrWhiteSpace(group.ParentId))
                 continue;
-            if (removedToKept.TryGetValue(group.ParentId, out var newParentId))
-                group.ParentId = newParentId;
+            if (GroupExistsById(keep, group.ParentId))
+                continue;
+
+            if (!originalPaths.TryGetValue(group, out var ownPath))
+                continue;
+            var (_, parentPath) = SplitLeafAndParent(ownPath);
+            if (string.IsNullOrWhiteSpace(parentPath))
+                continue;
+
+            var parent = FindGroupByFullPath(keep, parentPath, string.Empty, null);
+            if (parent is not null && !string.Equals(parent.Id, group.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                group.ParentId = parent.Id;
+                redirected++;
+            }
         }
 
         groups.Clear();
         foreach (var group in keep)
             groups.Add(group);
+
+        LogInfo($"Дедупликация групп: удалено {removedPairs.Count} дубликатов, переназначено детей {redirected}");
     }
+
+    /// <summary>
+    /// Является ли группа <paramref name="candidate"/> настоящим дубликатом группы
+    /// <paramref name="kept"/>: совпадает ID группы ИЛИ совпадают имя листа и родитель.
+    /// Одного совпадения канонического полного пути недостаточно — «осиротевшая» группа
+    /// с тем же именем, что и корневая, не является её дубликатом и удалению не подлежит
+    /// (issue #351).
+    /// </summary>
+    private static bool IsSameGroupDuplicate(Group candidate, Group kept)
+    {
+        if (!string.IsNullOrWhiteSpace(candidate.Id)
+            && !string.IsNullOrWhiteSpace(kept.Id)
+            && string.Equals(candidate.Id, kept.Id, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var sameName = string.Equals(
+            NormalizeGroupName(candidate.Name),
+            NormalizeGroupName(kept.Name),
+            StringComparison.OrdinalIgnoreCase);
+        var sameParent = string.Equals(
+            candidate.ParentId ?? string.Empty,
+            kept.ParentId ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+        return sameName && sameParent;
+    }
+
+    /// <summary>Есть ли у группы дочерние группы в коллекции (по <see cref="Group.ParentId"/>).</summary>
+    private static bool HasChildGroups(Group group, IList<Group> groups)
+        => groups.Any(g => !string.IsNullOrWhiteSpace(g.ParentId)
+                           && string.Equals(g.ParentId, group.Id, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Создаёт группу по полному пути (например, «Учёт\Бухгалтерия»),

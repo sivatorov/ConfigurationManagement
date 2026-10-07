@@ -47,7 +47,8 @@ public sealed class PlatformDownloadViewModelTests
         Action<string>? onRunInstaller = null,
         string? directory = null,
         bool is64Bit = true,
-        bool isWindows = true)
+        bool isWindows = true,
+        Action<Action>? dispatchToUi = null)
     {
         var dir = directory ?? Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
         return new PlatformDownloadViewModel(
@@ -58,7 +59,8 @@ public sealed class PlatformDownloadViewModelTests
             path => { onRunInstaller?.Invoke(path); return true; },
             is64Bit: is64Bit,
             defaultDirectory: dir,
-            isWindows: isWindows);
+            isWindows: isWindows,
+            dispatchToUi: dispatchToUi);
     }
 
     // ---------- Каталог и выбор файла ----------
@@ -88,6 +90,61 @@ public sealed class PlatformDownloadViewModelTests
         Assert.NotNull(vm.PickedFile);
         Assert.Equal("8.3.27.2214_x64.zip", vm.PickedFile!.FileName);
         Assert.Contains("8.3.27.2214", vm.PickedFile.FileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_FillsReleasesViaDispatcher()
+    {
+        // issue #330: каталог заполняет ObservableCollection Releases строго через маршаллер
+        // UI-потока (WPF CollectionView бросает NotSupportedException при изменении
+        // SourceCollection из фонового потока). Маршаллер в тесте — синхронный накопитель.
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214"), Release("8.3.27.1688") },
+            },
+        };
+        var dispatched = new List<Action>();
+        Action<Action> dispatcher = action =>
+        {
+            dispatched.Add(action);
+            action();
+        };
+        var vm = CreateVm(service, dispatchToUi: dispatcher);
+
+        await vm.LoadCatalogAsync();
+
+        // Маршалинг применён: первый вызов — заполнение каталога, второй — подгрузка
+        // файлов выбранной версии (SelectedRelease = Releases[0] запускает
+        // LoadReleaseFilesAsync → RepickFile, тоже через маршаллер; fake-сервис
+        // возвращает завершённую задачу, поэтому продолжения выполняются синхронно).
+        Assert.Equal(2, dispatched.Count);
+        Assert.Equal(2, vm.Releases.Count);        // действие выполнилось (список заполнен)
+        Assert.Equal("8.3.27.2214", vm.SelectedRelease!.Version);
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_ErrorDoesNotDispatch()
+    {
+        // Ошибка каталога не трогает коллекцию и не вызывает маршалинг.
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult { Status = PortalFetchStatus.AuthRequired },
+        };
+        var dispatched = new List<Action>();
+        Action<Action> dispatcher = action =>
+        {
+            dispatched.Add(action);
+            action();
+        };
+        var vm = CreateVm(service, dispatchToUi: dispatcher);
+
+        await vm.LoadCatalogAsync();
+
+        Assert.Empty(dispatched);
+        Assert.Empty(vm.Releases);
     }
 
     [Fact]

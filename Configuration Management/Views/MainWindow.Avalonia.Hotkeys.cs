@@ -268,6 +268,19 @@ namespace Configuration_Management
                 return;
             }
 
+            // issue #350: движение курсором стрелками ↑/↓ снимает мультивыделение, как
+            // обычный клик мышью. Условия: без модификаторов (Ctrl/Shift-стрелки не
+            // задеваем), фокус внутри дерева (в полях ввода стрелки правят текст),
+            // набор активен. Событие НЕ помечаем обработанным — навигацию продолжает
+            // штатный TreeView.
+            if ((e.Key is Key.Up or Key.Down)
+                && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.Alt)) == 0
+                && FocusIsInsideTree(FocusManager?.GetFocusedElement())
+                && _vm.HasBatchSelection)
+            {
+                _vm.ClearBatchSelection();
+            }
+
             // Ctrl+Alt++ / Ctrl+Alt+- — развернуть/свернуть ветку под курсором (issue #341):
             // явный разбор как и для «всех групп» ниже (KeyBinding на части раскладок
             // срабатывает не всегда, а прямой вызов команды детерминирован). Проверяем
@@ -717,6 +730,23 @@ namespace Configuration_Management
             if (_vm is null || _vm.IsCustomActionRunning)
                 return;
             await _vm.ExecuteCustomActionAsync(action, context);
+        }
+
+        /// <summary>
+        /// Находится ли клавиатурный фокус внутри дерева баз (issue #350). Используется
+        /// для стрелок: снимать мультивыделение нужно только когда пользователь навигирует
+        /// по дереву, а не правит текст или работает с другим контролом окна.
+        /// </summary>
+        private bool FocusIsInsideTree(Avalonia.Input.IInputElement? focused)
+        {
+            if (focused is not Avalonia.Visual visual || _tree is null)
+                return false;
+            for (var current = visual; current is not null; current = current.GetVisualParent())
+            {
+                if (ReferenceEquals(current, _tree))
+                    return true;
+            }
+            return false;
         }
     }
 }

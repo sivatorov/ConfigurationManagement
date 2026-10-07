@@ -115,7 +115,9 @@ namespace Configuration_Management
                     {
                         // Буфер обмена недоступен — команда остаётся в журнале окна.
                     }
-                });
+                },
+                // issue #334: обновление списка версий и связанных свойств — в UI-потоке.
+                dispatchToUi: action => Dispatcher.UIThread.Post(action));
 
             BuildRows();
             foreach (var row in _viewModel.Rows)

@@ -9,6 +9,72 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.327] — 2026-10-07
+
+### Исправлено
+
+- **Пропадали все папки в списке баз после обновления (issue #351, комментарий RizvanShikhammatov от 2026-10-07); «синхронизация не помогает», в штатном стартере 1С папки на месте** — импорт ibases.v8i дедуплицировал группы по одному лишь каноническому полному пути и мог удалить живую группу (например, «осиротевшую» папку с тем же именем, что и корневая, или группу, на которую ссылаются дети), а повторные синхронизации воспроизводили потерю — потому «синхронизация не помогает»:
+  - **[`IbasesV8iImporter.RemoveDuplicateGroupsByPath`](Configuration%20Management/Services/IbasesV8iImporter.cs)** — дедупликация теперь требует, кроме совпадения пути, ещё и признак настоящего дубликата: одинаковый ID группы ИЛИ одинаковые имя листа и родитель (Name+ParentId). Группы с разными Id и одинаковым путём (сирота и одноимённая корневая, разные родительские цепочки) сохраняются все — в журнал пишется предупреждение для диагностики; регрессы #165/#280 (создание дублей папок при повторных синхронизациях) остаются закрытыми;
+  - **не удаляются группы с содержимым** — при конфликте путей победителем становится группа, на которую ссылаются дочерние группы, а пустой дубликат удаляется;
+  - **дети не «осиротевают»** — родитель дочерних групп, ссылавшихся на удалённый дубликат, переназначается на сохранённую группу (по Id, а если Id отсутствует — по запомненному до дедупликации полному пути); инвариант: после дедупликации каждая группа с ParentId имеет живого родителя;
+  - **[диагностика импорта](Configuration%20Management/Services/IbasesV8iImporter.cs)** — в журнал при каждом импорте пишутся: количество групп до/после, список путей удалённых пользователем пустых групп (deleted_groups.json), число удалённых дубликатов, число баз без группы и пары «путь / сохранён Id / удалён Id» при удалении дубликата — по этим строкам видно, почему папки «пропадают»;
+  - **[`GroupNodeViewModel.BuildTree`](Configuration%20Management/ViewModels/GroupNodeViewModel.cs)** — инвариант «сироты → корневые» закреплён тестом: группа с несуществующим родителем не выбрасывается из дерева; поведение `_showEmptyGroups` (пустые группы скрыты, пока флаг выключен) задокументировано тестом.
+
+### Тесты
+
+Полный набор `dotnet test` зелёный; кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Новые: [`IbasesV8iImporterTests.cs`](ConfigurationManagement.Tests/IbasesV8iImporterTests.cs) (новый, +6: группы с одинаковым именем на разных уровнях не сливаются; сирота с именем корневой не удаляется; группа с детьми не удаляется; дети дубликата перевешиваются; tombstone с базами восстанавливает группу; round-trip Folder `/НАН/Весь кобошоп` ↔ «НАН / Весь кобошоп»), [`GroupNodeViewModelTests.cs`](ConfigurationManagement.Tests/GroupNodeViewModelTests.cs) (+2: осиротевшие группы становятся корневыми; пустые группы скрыты при выключенном показе).
+
+## [0.3.9.326] — 2026-10-07
+
+### Исправлено
+
+- **Монитор серверов 1С (issue #324, комментарий 7OH от 2026-10-07): ускорено подключение, «ключ вместо названия» в списке кластеров, лишний WARN в журнале при успешном job list**:
+  - **скорость** — [`GetJobsAsync`](Configuration%20Management/Services/RacClient.cs): формат команды `job list` (rac 8.5.4 принимает только `--cluster <uuid>` двумя токенами, а `--cluster=<uuid>` отклоняет кодом -1) запоминается после первого успеха по ключу подключения (`адрес:порт|пользователь|кластер`) — повторные загрузки данных (ручные и автообновление) запускают rac **один раз**, а не дважды, как в 0.3.9.321+ (это и есть «подключение стало заметно дольше»); при смене версии платформы неудачный закэшированный формат сбрасывается и форматы перепробуются заново; в журнал каждой rac-команды добавлена длительность («…за N мс») — видно, где остаются секунды;
+  - **[WARN после успеха](Configuration%20Management/Services/RacClient.cs)** — предупреждения о неудачных форматах больше не пишутся по одному: [WARN] появляется только когда ВСЕ форматы неуспешны; если вторая попытка (`--cluster <uuid>`) успешна — в журнал идёт `Info` «первый формат не поддержан rac, применён …» без WARN;
+  - **имя кластера в выпадающем списке** — [`RacClusterRow.DisplayText`](Configuration%20Management/ViewModels/RacClusterRow.cs): пустое значение `name` из rac (парсер его не подменяет ключом) отображается нейтральным плейсхолдером `(порт)`, а не «ключом вместо значения»; парсер `ToClusters` покрыт тестом на блок с пустым `name`;
+  - **job list доходит до вкладки «Задачи»** — `ToJobs` покрыт тестом на key-value схему rac 8.5.4 (стартер `job : GUID`, `infobase`/`name`/`method-name`), чтобы `EnsureParsedOrThrow` не останавливал автообновление из-за нераспознанного вывода.
+
+### Тесты
+
+Полный набор `dotnet test` зелёный; кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Новые/обновлённые: [`RacClientTests.cs`](ConfigurationManagement.Tests/RacClientTests.cs) (+3: сборка аргументов форматов job list 0/1, ключ кэша без пароля), [`RacOutputParserTests.cs`](ConfigurationManagement.Tests/RacOutputParserTests.cs) (+2: кластер с пустым именем не подменяется ключом; job list key-value 8.5.4), [`RacClusterRowTests.cs`](ConfigurationManagement.Tests/RacClusterRowTests.cs) (новый, +4: DisplayText «Имя (порт)», без порта, пустое имя → «(порт)», пустое имя и порт → «—»).
+
+## [0.3.9.325] — 2026-10-07
+
+### Исправлено
+
+- **Обновление платформы (Ctrl+F9) и «Скачивание версии платформы 1С»: падение NotSupportedException при получении каталога (issues #334 и #330, общий корень)** — по логам 7OH от 2026-10-07:
+  ```
+  [INFO] Обновление платформы: получение каталога версий с портала 1С
+  [ERROR] … NotSupportedException: Данный тип CollectionView не поддерживает изменения
+          в своем SourceCollection из потока, отличного от потока Dispatcher.
+  ```
+  Причина: многомесячные фиксы входа (0.3.9.307–0.3.9.323) довели каталог до **успеха**, и
+  падение «переехало» с авторизации на следующее звено — заполнение `ObservableCollection`
+  из фонового потока: после `ConfigureAwait(false)` продолжение идёт на пуле потоков,
+  а WPF CollectionView (ItemsSource DataGrid) запрещает изменять SourceCollection вне
+  потока Dispatcher.
+  - **[`Services/UiDispatch.cs`](Configuration%20Management/Services/UiDispatch.cs) (новый)** — единый маршаллер `Run(dispatchToUi, action)` по образцу `ServerMonitorViewModel._dispatchToUi`: null — прямой вызов (юнит-тесты), иначе действие доставляется переданным делегатом;
+  - **[`PlatformUpdateViewModel`](Configuration%20Management/ViewModels/PlatformUpdateViewModel.cs)** — параметр `dispatchToUi`; успешный путь `CheckUpdatesAsync` (заполнение `Rows`, `SelectedRow`, журнал завершения) выполняется строго в UI-потоке;
+  - **[`PlatformDownloadViewModel`](Configuration%20Management/ViewModels/PlatformDownloadViewModel.cs)** — параметр `dispatchToUi`; `LoadCatalogAsync` (заполнение `Releases`, `SelectedRelease`) и `LoadReleaseFilesAsync` (`RepickFile` — `AvailableDownloadTypes`/`PickedFile`) — в UI-потоке;
+  - окна WPF ([`PlatformUpdateWindow.xaml.cs`](Configuration%20Management/Views/PlatformUpdateWindow.xaml.cs), [`PlatformDownloadWindow.xaml.cs`](Configuration%20Management/Views/PlatformDownloadWindow.xaml.cs)) передают `Dispatcher.InvokeAsync`, Avalonia ([`*.Avalonia.cs`](Configuration%20Management/Views/PlatformUpdateWindow.Avalonia.cs)) — `Dispatcher.UIThread.Post`.
+
+### Тесты
+
+Полный набор `dotnet test` зелёный; кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Новые/обновлённые: [`UiDispatchTests.cs`](ConfigurationManagement.Tests/UiDispatchTests.cs) (новый, +5: прямой вызов, через делегат, «отложенный» маршаллер, null-action, проброс исключения), [`PlatformUpdateViewModelTests.cs`](ConfigurationManagement.Tests/PlatformUpdateViewModelTests.cs) (+2: успешный каталог доставляется через маршаллер, ошибка не маршализуется), [`PlatformDownloadViewModelTests.cs`](ConfigurationManagement.Tests/PlatformDownloadViewModelTests.cs) (+2: то же для окна скачивания).
+
+## [0.3.9.324] — 2026-10-07
+
+### Исправлено
+
+- **Мультивыделение и навигация стрелками (issue #350)** — выделив несколько строк мышкой (Ctrl/Shift) и нажимая ↑/↓ на клавиатуре, пользователь видел, что пометки «для выделенных» остаются, хотя курсор ушёл на другую строку (в других системах движение курсором снимает выделение, как клик мышью). Причина: стрелки применяли выбор через `SelectRowItem` без снятия набора `ClearBatchSelection` — в отличие от обычных кликов, которые снимают набор явно.
+  - **[`BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation`](Configuration%20Management/Services/BatchSelectionHelper.cs)** — чистый предикат: набор активен и целевая строка отличается от текущей → мультивыделение снимается (стрелка на месте или пустой набор набор не трогают);
+  - **[`HandleArrowNavigation`](Configuration%20Management/Views/MainWindow.Hotkeys.cs) (WPF)** — перед выбором строки по ↑/↓ (без модификаторов; Ctrl/Shift+стрелки в обработчик не попадают) набор снимается по предикату;
+  - **[`OnWindowKeyDown`](Configuration%20Management/Views/MainWindow.Avalonia.Hotkeys.cs) (Avalonia)** — симметрично: стрелка без модификаторов при фокусе внутри дерева снимает набор (событие не помечается обработанным — навигацию продолжает штатный TreeView).
+
+### Тесты
+
+Полный набор `dotnet test` зелёный; кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Новые/обновлённые: [`BatchSelectionHelperTests.cs`](ConfigurationManagement.Tests/BatchSelectionHelperTests.cs) (+4: активный набор + другая цель → true; цель == текущая → false; пустой набор → false; null-аргументы → false). Само оконное поведение (как и другие фиксы выделения) юнит-тестами не покрывается — проверяется пользователем по сценарию из issue.
+
 ## [0.3.9.323] — 2026-10-07
 
 ### Исправлено

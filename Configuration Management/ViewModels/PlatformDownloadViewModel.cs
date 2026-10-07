@@ -52,6 +52,14 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private readonly Services.IAppLogger? _appLogger;
     private readonly bool _isWindows;
 
+    /// <summary>
+    /// Маршаллер изменения UI-состояния в поток Dispatcher (issues #330/#334): обновление
+    /// коллекций (<see cref="Releases"/>) и связанных свойств выполняется ТОЛЬКО в UI-потоке,
+    /// иначе WPF CollectionView бросает NotSupportedException. null — прямой вызов
+    /// (юнит-тесты); окна передают платформенный маршаллер через <see cref="UiDispatch"/>.
+    /// </summary>
+    private readonly Action<Action>? _dispatchToUi;
+
     private readonly StringBuilder _log = new();
     private PlatformDownloadRowViewModel? _selectedRelease;
     private bool _isBusy;
@@ -243,9 +251,11 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         string? defaultDirectory = null,
         bool isWindows = true,
         Action<string, string, NotificationKind, NotificationEvent>? notify = null,
-        Services.IAppLogger? appLogger = null)
+        Services.IAppLogger? appLogger = null,
+        Action<Action>? dispatchToUi = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _dispatchToUi = dispatchToUi;
         _resolveAccount = resolveAccount ?? (() => null);
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
         _openFolder = openFolder ?? (_ => false);
@@ -347,19 +357,26 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 return;
             }
 
-            Releases.Clear();
-            foreach (var release in result.Releases)
-                Releases.Add(new PlatformDownloadRowViewModel(release));
-
-            if (Releases.Count == 0)
+            // issue #330: продолжение после ConfigureAwait(false) идёт на пуле потоков,
+            // а заполнение ObservableCollection Releases (WPF CollectionView DataGrid)
+            // бросает NotSupportedException. Все изменения коллекции и зависимых свойств
+            // (SelectedRelease, AvailableDownloadTypes и пр.) — только в UI-потоке.
+            UiDispatch.Run(_dispatchToUi, () =>
             {
-                AppendLog(LocalizationManager.T("PlatformUpdate.Error.NotFound"));
-                return;
-            }
+                Releases.Clear();
+                foreach (var release in result.Releases)
+                    Releases.Add(new PlatformDownloadRowViewModel(release));
 
-            AppendLog(string.Format(
-                LocalizationManager.T("PlatformDownload.Status.Releases"), Releases.Count));
-            SelectedRelease = Releases[0];
+                if (Releases.Count == 0)
+                {
+                    AppendLog(LocalizationManager.T("PlatformUpdate.Error.NotFound"));
+                    return;
+                }
+
+                AppendLog(string.Format(
+                    LocalizationManager.T("PlatformDownload.Status.Releases"), Releases.Count));
+                SelectedRelease = Releases[0];
+            });
         }
         catch (Exception ex)
         {
@@ -393,7 +410,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 return;
             }
 
-            RepickFile();
+            // RepickFile меняет свойства, связанные с UI (AvailableDownloadTypes,
+            // DownloadTypeOptions, PickedFile) — также строго в UI-потоке (issue #330).
+            UiDispatch.Run(_dispatchToUi, RepickFile);
         }
         catch (Exception ex)
         {

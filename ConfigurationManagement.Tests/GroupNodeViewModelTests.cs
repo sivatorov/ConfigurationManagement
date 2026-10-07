@@ -288,4 +288,42 @@ public sealed class GroupNodeViewModelTests
         Assert.True(sibling.IsExpanded);   // сосед не тронут
         Assert.True(root.IsExpanded);      // родитель не тронут
     }
+
+    // ===================== Инварианты дерева (issue #351) =====================
+
+    [Fact]
+    public void BuildTree_OrphanGroupsBecomeRoots()
+    {
+        // Инвариант «папки не пропадают» (issue #351): группа с ParentId, указывающим
+        // на отсутствующую в списке группу (сирота), НЕ теряется — становится корневой.
+        // Так даже после дедупликации или ручной правки списка групп папки остаются
+        // видимыми в дереве, а не выбрасываются из него.
+        var groups = new List<Group>
+        {
+            new() { Id = "a", Name = "Учёт" },
+            new() { Id = "b", Name = "Бухгалтерия", ParentId = "gone" }
+        };
+
+        var roots = GroupNodeViewModel.BuildTree(groups);
+
+        Assert.Equal(2, roots.Count);
+        Assert.Contains(roots, r => r.Group?.Id == "a");
+        Assert.Contains(roots, r => r.Group?.Id == "b");
+    }
+
+    [Fact]
+    public void PopulateItems_EmptyGroupsHiddenWhenFlagFalse()
+    {
+        // Поведение _showEmptyGroups (гипотеза C, issue #351): пустая группа (без баз
+        // и без непустых потомков) попадает в Items узла только при includeEmptyGroups=true.
+        var child = new GroupNodeViewModel(new Group { Id = "c1", Name = "Пустая" });
+        var root = new GroupNodeViewModel(new Group { Id = "r1", Name = "Корень" });
+        root.Children.Add(child);
+
+        root.PopulateItems(includeEmptyGroups: false);
+        Assert.DoesNotContain(child, root.Items);
+
+        root.PopulateItems(includeEmptyGroups: true);
+        Assert.Contains(child, root.Items);
+    }
 }

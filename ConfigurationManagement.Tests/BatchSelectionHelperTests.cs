@@ -720,6 +720,46 @@ public sealed class BatchSelectionHelperTests
         Assert.False(BatchSelectionHelper.ShouldContinueRestore(other, target));
     }
 
+    // ============ Мультивыделение и клавиатурная навигация (issue #350) ============
+
+    [Fact]
+    public void ShouldClearBatchOnKeyboardNavigation_ActiveSetAndDifferentTarget_ReturnsTrue()
+    {
+        // Набор активен, стрелка двигает курсор на ДРУГУЮ базу — мультивыделение снимается,
+        // как при обычном клике мышью.
+        var set = new HashSet<string>(new[] { "b1", "b2" }, StringComparer.Ordinal);
+
+        Assert.True(BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+            set, currentId: "b2", targetId: "b3"));
+    }
+
+    [Fact]
+    public void ShouldClearBatchOnKeyboardNavigation_SameTarget_ReturnsFalse()
+    {
+        // Стрелка не меняет строку (цель == текущая) — набор не трогаем.
+        var set = new HashSet<string>(new[] { "b1", "b2" }, StringComparer.Ordinal);
+
+        Assert.False(BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+            set, currentId: "b2", targetId: "b2"));
+    }
+
+    [Fact]
+    public void ShouldClearBatchOnKeyboardNavigation_EmptySet_ReturnsFalse()
+    {
+        // Пометок нет — очищать нечего.
+        Assert.False(BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+            Array.Empty<string>(), currentId: "b1", targetId: "b2"));
+    }
+
+    [Fact]
+    public void ShouldClearBatchOnKeyboardNavigation_NullSetOrIds_ReturnsFalse()
+    {
+        Assert.False(BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+            null, currentId: null, targetId: null));
+        Assert.False(BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+            new HashSet<string>(new[] { "b1" }), currentId: null, targetId: null));
+    }
+
     // ============ Расширенный признак стабилизации после закрытия меню (issue #340, 0.3.9.308) ============
 
     private const long StabilizeWindowMs = BatchSelectionHelper.MenuCloseStabilizeWindowMs;

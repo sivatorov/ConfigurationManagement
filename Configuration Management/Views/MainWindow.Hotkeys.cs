@@ -1351,6 +1351,20 @@ namespace Configuration_Management
                     : Services.TreeNavigationHelper.PreviousVisible(currentIndex);
                 if (targetIndex < 0 || targetIndex == currentIndex)
                     return false;
+
+                // issue #350: движение курсором стрелками снимает мультивыделение, как
+                // обычный клик мышью без модификаторов (Ctrl/Shift сюда не попадают —
+                // обработчик требует ModifierKeys.None). Набор не трогается, если целевая
+                // строка та же или пометок нет.
+                if (currentIndex >= 0
+                    && Services.BatchSelectionHelper.ShouldClearBatchOnKeyboardNavigation(
+                        _viewModel.SelectedInfobaseIds,
+                        UnwrapInfobase(rows[currentIndex].DataContext)?.Id,
+                        UnwrapInfobase(rows[targetIndex].DataContext)?.Id))
+                {
+                    _viewModel.ClearBatchSelection();
+                }
+
                 SelectRowItem(rows[targetIndex]);
                 return true;
             }

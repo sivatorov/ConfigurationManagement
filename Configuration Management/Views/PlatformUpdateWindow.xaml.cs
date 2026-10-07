@@ -79,7 +79,10 @@ public partial class PlatformUpdateWindow : Window
                 .Select(p => p!)
                 .ToList(),
             deleteVersionDirectory: (version, log, ct) =>
-                PlatformInstaller.DeleteVersionDirectoryAsync(version, log, ct));
+                PlatformInstaller.DeleteVersionDirectoryAsync(version, log, ct),
+            // issue #334: обновление списка версий и связанных свойств — в UI-потоке
+            // (WPF CollectionView запрещает изменения из фонового потока NotSupportedException).
+            dispatchToUi: action => Dispatcher.InvokeAsync(action));
 
         DataContext = _viewModel;
         RowsGrid.ItemsSource = _viewModel.Rows;

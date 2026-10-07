@@ -208,6 +208,9 @@ public partial class MainViewModel
     /// <summary>Есть ли хотя бы одна база в мультивыделении.</summary>
     public bool HasBatchSelection => _batchSelectedIds.Count > 0;
 
+    /// <summary>Идентификаторы баз в мультивыделении (для предикатов навигации, issue #350).</summary>
+    public IReadOnlyCollection<string> SelectedInfobaseIds => _batchSelectedIds;
+
     /// <summary>
     /// Приводит флаг <see cref="Infobase.IsBatchSelected"/> всех баз в соответствие
     /// с набором (используется при очистке и после внешних изменений списка).

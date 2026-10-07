@@ -58,7 +58,10 @@ public partial class PlatformDownloadWindow : Window
             defaultDirectory: initialDirectory,
             isWindows: true,
             notify: (title, message, kind, evt) => notifier.Show(title, message, kind, evt),
-            appLogger: logger);
+            appLogger: logger,
+            // issue #330: заполнение списка версий и связанных свойств — в UI-потоке
+            // (WPF CollectionView запрещает изменения из фонового потока NotSupportedException).
+            dispatchToUi: action => Dispatcher.InvokeAsync(action));
 
         DataContext = _viewModel;
         VersionsGrid.ItemsSource = _viewModel.Releases;

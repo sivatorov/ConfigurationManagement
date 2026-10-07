@@ -55,6 +55,14 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     /// false — Linux-ветка (показ команды sudo с копированием в буфер).</summary>
     private readonly bool _useWindowsDelete;
 
+    /// <summary>
+    /// Маршаллер изменения UI-состояния в поток Dispatcher (issues #334/#330): обновление
+    /// коллекций (<see cref="Rows"/>) и связанных свойств выполняется ТОЛЬКО в UI-потоке,
+    /// иначе WPF CollectionView бросает NotSupportedException. null — прямой вызов
+    /// (юнит-тесты); окна передают платформенный маршаллер через <see cref="UiDispatch"/>.
+    /// </summary>
+    private readonly Action<Action>? _dispatchToUi;
+
     private readonly StringBuilder _log = new();
     private IReadOnlyList<PlatformRelease> _availableReleases = new List<PlatformRelease>();
     private bool _isBusy;
@@ -161,9 +169,11 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Func<PlatformVersionInfo, IProgress<string>?, CancellationToken,
             Task<(bool Success, string? ErrorKey)>>? deleteVersionDirectory = null,
         Func<string, string>? buildUninstallCommand = null,
-        Action<string>? copyToClipboard = null)
+        Action<string>? copyToClipboard = null,
+        Action<Action>? dispatchToUi = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _dispatchToUi = dispatchToUi;
         _infobaseRepository = infobaseRepository ?? throw new ArgumentNullException(nameof(infobaseRepository));
         _loadInstalledVersions = loadInstalledVersions ?? throw new ArgumentNullException(nameof(loadInstalledVersions));
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
@@ -279,11 +289,18 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                 return;
             }
 
-            _availableReleases = result.Releases ?? new List<PlatformRelease>();
-            RebuildRows(LoadInstalledAsync(), _availableReleases);
-            AppendLog(string.Format(
-                LocalizationManager.T("PlatformUpdate.Progress.Done"),
-                _availableReleases.FirstOrDefault()?.Version ?? "—"));
+            // issue #334: продолжение после ConfigureAwait(false) идёт на пуле потоков,
+            // а RebuildRows меняет ObservableCollection Rows (WPF CollectionView DataGrid) —
+            // NotSupportedException «изменение SourceCollection из потока, отличного от
+            // Dispatcher». Все изменения коллекции и зависимых свойств — только в UI-потоке.
+            UiDispatch.Run(_dispatchToUi, () =>
+            {
+                _availableReleases = result.Releases ?? new List<PlatformRelease>();
+                RebuildRows(LoadInstalledAsync(), _availableReleases);
+                AppendLog(string.Format(
+                    LocalizationManager.T("PlatformUpdate.Progress.Done"),
+                    _availableReleases.FirstOrDefault()?.Version ?? "—"));
+            });
             _appLogger?.Info($"Обновление платформы: получено {_availableReleases.Count} версий каталога");
         }
         catch (Exception ex)
