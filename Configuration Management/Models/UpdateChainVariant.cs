@@ -46,6 +46,11 @@ public sealed class UpdateChainSet
     /// (последняя входит в «Список версий»… точнее, текущая входит в её список).</summary>
     public bool IsDirectUpdate { get; init; }
 
+    /// <summary>True — текущая версия НЕ найдена в каталоге: ни как релиз, ни в
+    /// «Списках версий» других релизов (issue #352: 1С отзывает релизы — пользователю
+    /// показывается предупреждение «Версии нет на сайте»).</summary>
+    public bool IsCurrentVersionMissing { get; init; }
+
     /// <summary>Варианты цепочки (0..2): №1 — снизу вверх (если построен),
     /// №2 — оптимальный (если построен и отличается от №1).</summary>
     public IReadOnlyList<UpdateChainVariant> Variants { get; init; } = new List<UpdateChainVariant>();

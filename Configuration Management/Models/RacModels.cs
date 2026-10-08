@@ -18,6 +18,10 @@ public sealed class RacCluster
 
     /// <summary>Порт кластера (колонка «port»).</summary>
     public int Port { get; set; }
+
+    /// <summary>Имя компьютера кластера (ключ «host» в блоке key-value; issue #324:
+    /// используется как запасной подпись в списке кластеров, когда rac не отдал name).</summary>
+    public string Host { get; set; } = string.Empty;
 }
 
 /// <summary>

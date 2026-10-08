@@ -24,6 +24,55 @@ public sealed class UpdateChainBuilderTests
         => variant.Steps.Select(s => s.Version).ToArray();
 
     [Fact]
+    public void CurrentVersionMissingInCatalog_FlagsIsCurrentVersionMissing()
+    {
+        // issue #352: текущую версию (отозванный релиз) нет ни как релиз каталога,
+        // ни в «Списках версий» других релизов — сигнализируем «Версии нет на сайте».
+        var releases = new List<PlatformRelease>
+        {
+            R("3.0.160.12", "3.0.158.71"),
+            R("3.0.158.71", "3.0.155.23"),
+        };
+
+        var set = UpdateChainBuilder.Build("3.0.100.1", "3.0.160.12", releases);
+
+        Assert.True(set.HasSourceData);
+        Assert.True(set.IsCurrentVersionMissing);
+        Assert.False(set.IsDirectUpdate);
+    }
+
+    [Fact]
+    public void CurrentVersionPresentInSources_NotFlaggedMissing()
+    {
+        // Версия упомянута в «Списке версий» более нового релиза — она существует на сайте.
+        var releases = new List<PlatformRelease>
+        {
+            R("3.0.160.12", "3.0.150.5"),
+            R("3.0.158.71", "3.0.150.5"),
+        };
+
+        var set = UpdateChainBuilder.Build("3.0.150.5", "3.0.160.12", releases);
+
+        Assert.True(set.HasSourceData);
+        Assert.False(set.IsCurrentVersionMissing);
+    }
+
+    [Fact]
+    public void CurrentVersionIsReleaseItself_NotFlaggedMissing()
+    {
+        // Текущая версия — релиз каталога (даже без данных совместимости) — есть на сайте.
+        var releases = new List<PlatformRelease>
+        {
+            R("3.0.150.5"),
+            R("3.0.160.12", "3.0.158.71"),
+        };
+
+        var set = UpdateChainBuilder.Build("3.0.150.5", "3.0.160.12", releases);
+
+        Assert.False(set.IsCurrentVersionMissing);
+    }
+
+    [Fact]
     public void DirectUpdate_CurrentInTargetSources_ReturnsIsDirectUpdate()
     {
         // Последняя версия принимает обновление напрямую с текущей — цепочка не нужна.

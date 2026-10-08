@@ -468,6 +468,41 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
+    public async Task AutoRefresh_DisabledBeforeConnect_TimerDoesNotStart()
+    {
+        // issue #324: галка автообновления снята ДО подключения — таймер не должен
+        // запускаться (раньше ConnectAsync стартовал его безусловно) и индикатор
+        // должен оставаться «выключено».
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+        vm.SetAutoRefreshEnabled(false);
+
+        await vm.ConnectAsync();
+
+        Assert.True(vm.HasConnected);
+        Assert.False(vm.IsAutoRefreshEnabled);
+        Assert.False(vm.AutoRefreshActive);
+    }
+
+    [Fact]
+    public async Task LoadClusterData_NetworkError_StopsAutoRefresh()
+    {
+        // issue #324: обычная ошибка загрузки (не только парсинг) останавливает таймер —
+        // бесконечный ретрай каждые 5 с после разрыва соединения не нужен. Ручное
+        // «Обновить» остаётся доступным; после успеха таймер возобновится.
+        var vm = new ServerMonitorViewModel(
+            new FakeRacClient(singleCluster: true, throwOnLoad: true), new RecordingDialogs());
+
+        await vm.ConnectAsync();
+        // Единственный кластер выбран автоматически → фоновая загрузка данных падает
+        // с обычным исключением (не RacOutputParseException); ждём её завершения.
+        await Task.Delay(50);
+
+        Assert.True(vm.HasConnected);
+        Assert.False(vm.AutoRefreshActive);
+        Assert.False(string.IsNullOrEmpty(vm.ErrorMessage));
+    }
+
+    [Fact]
     public async Task LoadClusterDataAsync_BusyFlag_SkipsOverlappingRequests()
     {
         // Fake-клиент с задержкой: пока первый запрос выполняется, второй не должен
@@ -645,11 +680,13 @@ public sealed class ServerMonitorViewModelTests
         private readonly TimeSpan _delay;
         private readonly bool _throwOnParse;
         private readonly bool _singleCluster;
+        private readonly bool _throwOnLoad;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnAction = false,
             bool actionFails = false, TimeSpan? delay = null,
-            bool throwOnParse = false, bool singleCluster = false)
+            bool throwOnParse = false, bool singleCluster = false,
+            bool throwOnLoad = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnAction = throwOnAction;
@@ -657,6 +694,7 @@ public sealed class ServerMonitorViewModelTests
             _delay = delay ?? TimeSpan.Zero;
             _throwOnParse = throwOnParse;
             _singleCluster = singleCluster;
+            _throwOnLoad = throwOnLoad;
         }
 
         /// <summary>Текст последней ошибки действия (как в реальном клиенте).</summary>
@@ -723,6 +761,8 @@ public sealed class ServerMonitorViewModelTests
             ProcessCalls++;
             if (_throwOnParse)
                 throw new RacOutputParseException("тест: вывод rac не распознан");
+            if (_throwOnLoad)
+                throw new InvalidOperationException("тест: сетевая ошибка загрузки");
             if (_delay > TimeSpan.Zero)
                 await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
             return new[]

@@ -331,4 +331,74 @@ public sealed class RacClientTests
         Assert.Contains(clusterId.ToString(), key);
         Assert.DoesNotContain("secret-password", key);
     }
+
+    // ============ cluster info из кэша cluster list (issue #324) ============
+
+    private const string TwoClustersKvOutput = """
+        cluster : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9
+        host : ALF
+        port : 27541
+        name : "Локальный кластер"
+        expiration-timeout : 60
+
+        cluster : 2a4b1e0c-1111-4b1a-909f-cff4c8de61d9
+        host : SRV2
+        port : 1741
+        name : "Второй кластер"
+        expiration-timeout : 120
+        """;
+
+    [Fact]
+    public void ExtractClusterBlock_FirstCluster_ReturnsBlockLines()
+    {
+        var block = RacClient.ExtractClusterBlock(
+            TwoClustersKvOutput, Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9"));
+
+        Assert.NotNull(block);
+        Assert.Contains("Локальный кластер", block);
+        Assert.Contains("expiration-timeout : 60", block);
+        Assert.DoesNotContain("Второй кластер", block);
+    }
+
+    [Fact]
+    public void ExtractClusterBlock_SecondCluster_ReturnsOnlySecondBlock()
+    {
+        var block = RacClient.ExtractClusterBlock(
+            TwoClustersKvOutput, Guid.Parse("2a4b1e0c-1111-4b1a-909f-cff4c8de61d9"));
+
+        Assert.NotNull(block);
+        Assert.Contains("Второй кластер", block);
+        Assert.Contains("expiration-timeout : 120", block);
+        Assert.DoesNotContain("Локальный кластер", block);
+    }
+
+    [Fact]
+    public void ExtractClusterBlock_ClusterNotFound_ReturnsNull()
+    {
+        Assert.Null(RacClient.ExtractClusterBlock(
+            TwoClustersKvOutput, Guid.Parse("00000000-0000-0000-0000-000000000001")));
+    }
+
+    [Fact]
+    public void ExtractClusterBlock_EmptyOrInvalid_ReturnsNull()
+    {
+        var id = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+        Assert.Null(RacClient.ExtractClusterBlock(null, id));
+        Assert.Null(RacClient.ExtractClusterBlock(string.Empty, id));
+        Assert.Null(RacClient.ExtractClusterBlock("port : 1541", id));
+    }
+
+    [Fact]
+    public void ToClusterInfo_FromExtractedBlock_FillsNameAndPort()
+    {
+        // Блок из cluster list должен разбираться так же, как вывод cluster info:
+        // это основание для переиспользования кэша вместо запуска rac (issue #324).
+        var block = RacClient.ExtractClusterBlock(
+            TwoClustersKvOutput, Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9"))!;
+
+        var info = RacOutputParser.ToClusterInfo(block);
+
+        Assert.Equal("Локальный кластер", info.Name);
+        Assert.Equal(27541, info.Port);
+    }
 }

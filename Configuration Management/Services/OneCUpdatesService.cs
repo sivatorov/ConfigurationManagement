@@ -240,6 +240,25 @@ public class OneCUpdatesService : IOneCUpdatesService
         return Uri.TryCreate(nickUrl, UriKind.Absolute, out _) ? nickUrl : string.Empty;
     }
 
+    /// <summary>
+    /// Дополняет адрес страницы релизов параметром <c>allUpdates=true#updates</c> (issue #352):
+    /// без него releases.1c.ru отдаёт только ПОСЛЕДНИЕ релизы, и цепочки обновлений не
+    /// строятся — каталог не видит полной таблицы версий. Идемпотентно: параметр не
+    /// дублируется. Разделитель выбирается по наличию уже существующего query.
+    /// Internal — для юнит-тестов (OneCUpdatesUrlTests).
+    /// </summary>
+    internal static string BuildAllUpdatesCatalogUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+
+        if (url.Contains("allUpdates=true", StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        var separator = url.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return $"{url.TrimEnd('/')}{separator}allUpdates=true#updates";
+    }
+
     /// <inheritdoc />
     public async Task<ConfigUpdateCheckResult> CheckForUpdatesAsync(
         string configName, string currentVersion, string url, CancellationToken ct = default)

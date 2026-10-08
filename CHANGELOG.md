@@ -9,6 +9,28 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.9.329] — 2026-10-08
+
+### Исправлено
+
+- **Сброс отбора по тегу при выключении показа тегов (issue #354)** — при выключении «Показывать теги в строке» фильтр по тегу больше не сбрасывается: сеттер `ShowTags` в [`MainViewModel.Display.cs`](Configuration%20Management/ViewModels/MainViewModel.Display.cs) больше не вызывает `ClearTagFilters` — WPF-чипы фильтров скрываются декларативно (стиль `MainWindow.xaml`), а сам отбор сохраняется, паритет с Avalonia-версией.
+- **Монитор серверов 1С (issue #324, комментарий 7OH от 2026-10-07)**:
+  - **имя кластера вместо «ключа»** — [`RacOutputParser.ToClusterInfo`](Configuration%20Management/Services/RacOutputParser.cs) снимает кавычки rac 8.5.4 (`name : "Локальный кластер"` → значение без кавычек), `ToClusters` читает `host`; [`RacClusterRow.DisplayText`](Configuration%20Management/ViewModels/RacClusterRow.cs) при пустом `name` показывает «хост (порт)»; имена кластеров пишутся в журнал для диагностики;
+  - **честный статус автообновления** — [`ServerMonitorViewModel`](Configuration%20Management/ViewModels/ServerMonitorViewModel.cs) показывает фактическое состояние таймера: «Автообновления вкл (N с)» / «выкл» / «остановлено (ошибка загрузки)» (новый ключ `ServerMonitor.AutoRefreshStopped`, ru/en) — снятая перед подключением галка больше не показывает «вкл», а остановка по ошибке разобрать вывод видна;
+  - **долгое подключение (~5 с)** — устранён пропуск первичной загрузки данных: `ConnectAsync` назначал кластер под busy-флагом, `TryEnterBusy` молча отклонял загрузку, данные приходили только через таймер через ~5 с; плюс кэш вывода `cluster list` для `cluster info` (−1 rac-вызов за цикл) и кэш пути rac в [`OneCPlatformLocator`](Configuration%20Management/Services/OneCPlatformLocator.cs) (TTL 5 минут).
+- **Цепочки обновлений конфигурации (issue #352, комментарий 7OH от 2026-10-07)**:
+  - **таблица цепочек теперь появляется** — [`OneCUpdatesService.BuildAllUpdatesCatalogUrl`](Configuration%20Management/Services/OneCUpdatesService.cs) строит идемпотентный URL `https://releases.1c.ru/project/…?allUpdates=true#updates`, оба `BuildChainsAsync` (WPF и Avalonia) запрашивают **полный** каталог релизов, а не урезанную страницу;
+  - **«Версии нет на сайте»** — [`UpdateChainBuilder`](Configuration%20Management/Services/UpdateChainBuilder.cs) выставляет флаг `IsCurrentVersionMissing` (отозванный релиз не найден ни как релиз, ни в «Списках версий»), оба окна F9 (WPF/Avalonia) показывают красную пометку под текущей версией (ключ `Updates.Chain.VersionMissing`, ru/en).
+- **Скачивание версии платформы 1С и Автообновление платформы (issues #330 и #334, комментарии 7OH от 2026-10-07)**:
+  - **выбор типа дистрибутива работает** — [`PlatformDownloadViewModel`](Configuration%20Management/ViewModels/PlatformDownloadViewModel.cs): явный тип дистрибутива (не «Авто») реально меняет скачиваемый файл — кнопки «Скачать»/«Запустить установщик» становятся активны; под комбобоксом показывается реальное имя скачиваемого файла (обе платформы);
+  - **дерево версий** — [`PlatformVersionTreeBuilder`](Configuration%20Management/Services/PlatformVersionTreeBuilder.cs): «8.5.42» — лист линии 8.5 (группировка только для 4-сегментных версий 8.x.yy.xxxx), сортировка по убыванию;
+  - **раскладка окна** — [`PlatformDownloadWindow.xaml`](Configuration%20Management/Views/PlatformDownloadWindow.xaml): список ~25% ширины (`2*/8*`), кнопка «Выбрать…» у «Папки загрузки» без обрезания; Avalonia-версия синхронизирована;
+  - **«setup.exe не найден в архиве» (#334)** — тесты инсталлятора Windows обновлены под корректные allUpdates-URL и magic-байты zip; фейки тестов дополнены `GetAllAvailableReleasesAsync`.
+
+### Тесты
+
+Полный набор `dotnet test` зелёный (**1966**); кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок. Проект тестов снова компилируется (фейки без `GetAllAvailableReleasesAsync` исправлены); устаревшие тесты обновлены под корректные allUpdates-URL и magic-байты zip.
+
 ## [0.3.9.328] — 2026-10-07
 
 ### Добавлено

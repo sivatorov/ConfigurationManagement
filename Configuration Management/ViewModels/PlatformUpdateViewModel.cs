@@ -63,6 +63,13 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     /// </summary>
     private readonly Action<Action>? _dispatchToUi;
 
+    /// <summary>
+    /// Диалог выбора варианта дистрибутива (issue #334): по списку доступных для текущей
+    /// ОС файлов возвращает выбранный вариант или null (отмена → рекомендуемый). null —
+    /// диалог не показывается (тесты, окружение без UI), берётся рекомендуемый вариант.
+    /// </summary>
+    private readonly Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? _chooseDistribution;
+
     private readonly StringBuilder _log = new();
     private IReadOnlyList<PlatformRelease> _availableReleases = new List<PlatformRelease>();
     private bool _isBusy;
@@ -170,10 +177,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             Task<(bool Success, string? ErrorKey)>>? deleteVersionDirectory = null,
         Func<string, string>? buildUninstallCommand = null,
         Action<string>? copyToClipboard = null,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
+        _chooseDistribution = chooseDistribution;
         _infobaseRepository = infobaseRepository ?? throw new ArgumentNullException(nameof(infobaseRepository));
         _loadInstalledVersions = loadInstalledVersions ?? throw new ArgumentNullException(nameof(loadInstalledVersions));
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
@@ -300,8 +309,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                 AppendLog(string.Format(
                     LocalizationManager.T("PlatformUpdate.Progress.Done"),
                     _availableReleases.FirstOrDefault()?.Version ?? "—"));
+                // issue #334: лог пишется ПОСЛЕ применения результата. Маршаллер UI
+                // асинхронный (Dispatcher.InvokeAsync/Post не ждут), раньше строка ниже
+                // читала СТАРОЕ значение _availableReleases — «получено 0 версий каталога»
+                // даже при успешном ответе портала.
+                _appLogger?.Info($"Обновление платформы: получено {_availableReleases.Count} версий каталога");
             });
-            _appLogger?.Info($"Обновление платформы: получено {_availableReleases.Count} версий каталога");
         }
         catch (Exception ex)
         {
@@ -339,12 +352,19 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             if (!await EnsureReleaseFilesAsync(row).ConfigureAwait(false))
                 return;
 
-            var picked = _service.PickDistribution(row.Release!.Files);
+            // issue #334: сначала показываем пользователю варианты дистрибутива для его
+            // ОС (x86/x64, полный/тонкий клиент) — «а какую оно пытается скачивать?»,
+            // затем скачиваем и устанавливаем выбранный файл.
+            var picked = await ResolvePickedFileAsync(row).ConfigureAwait(false);
             if (picked is null)
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.NoSetup"));
                 return;
             }
+
+            AppendLog(string.Format(
+                LocalizationManager.T("PlatformUpdate.Progress.SelectedDistribution"),
+                picked.FileName));
 
             var targetDir = Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
             var zipPath = Path.Combine(targetDir, OneCUpdatesService.BuildTargetFileName(row.Version, picked.FileName));
@@ -453,12 +473,17 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             if (!await EnsureReleaseFilesAsync(row).ConfigureAwait(false))
                 return;
 
-            var picked = _service.PickDistribution(row.Release!.Files);
+            // issue #334: выбор варианта дистрибутива (см. DownloadAndInstallAsync).
+            var picked = await ResolvePickedFileAsync(row).ConfigureAwait(false);
             if (picked is null)
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.NoSetup"));
                 return;
             }
+
+            AppendLog(string.Format(
+                LocalizationManager.T("PlatformUpdate.Progress.SelectedDistribution"),
+                picked.FileName));
 
             var defaultName = OneCUpdatesService.BuildTargetFileName(row.Version, picked.FileName);
             var targetPath = _saveFileDialog(defaultName);
@@ -757,6 +782,29 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
         row.NotifyFilesChanged();
         return true;
+    }
+
+    /// <summary>
+    /// Разрешает файл дистрибутива для выбранной строки (issue #334): строит варианты
+    /// для текущей ОС через <see cref="PlatformDistributionPicker.BuildOptions"/>; при
+    /// нескольких вариантах показывает диалог выбора (делегат, реализация — в окнах:
+    /// окна сами маршалируют показ в UI-поток); при одном варианте или отсутствии
+    /// делегата — рекомендуемый. null — файлов нет.
+    /// </summary>
+    private Task<PlatformReleaseFile?> ResolvePickedFileAsync(PlatformUpdateRowViewModel row)
+    {
+        var files = row.Release?.Files ?? (IReadOnlyList<PlatformReleaseFile>)Array.Empty<PlatformReleaseFile>();
+        var options = PlatformDistributionPicker.BuildOptions(
+            files, OperatingSystem.IsWindows(), Environment.Is64BitOperatingSystem);
+        if (options.Count == 0)
+            return Task.FromResult<PlatformReleaseFile?>(null);
+
+        if (options.Count == 1 || _chooseDistribution is null)
+            return Task.FromResult<PlatformReleaseFile?>(options[0].File);
+
+        var chosen = _chooseDistribution(options);
+        var file = chosen?.File ?? options.FirstOrDefault(o => o.IsRecommended)?.File ?? options[0].File;
+        return Task.FromResult<PlatformReleaseFile?>(file);
     }
 
     /// <summary>Перестраивает список строк: сопоставление установленных и доступных

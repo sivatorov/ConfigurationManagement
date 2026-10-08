@@ -404,7 +404,10 @@ public partial class UpdateCheckWindow : Window
 
         try
         {
-            var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(url, token), token);
+            // issue #352: каталог запрашивается с allUpdates=true — без параметра портал
+            // отдаёт только последние релизы, и цепочка не строится.
+            var catalogUrl = OneCUpdatesService.BuildAllUpdatesCatalogUrl(url);
+            var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(catalogUrl, token), token);
             if (catalog.Status == PortalFetchStatus.Ok)
             {
                 var set = UpdateChainBuilder.Build(_row.CurrentVersion, _row.LatestVersion, catalog.Releases);
@@ -436,6 +439,11 @@ public partial class UpdateCheckWindow : Window
         DownloadChainButton.Visibility = hasChain ? Visibility.Visible : Visibility.Collapsed;
         DownloadChainButton.IsEnabled = _row.CanDownloadChain;
         ChainProgressPanel.Visibility = _row.IsChainDownloading ? Visibility.Visible : Visibility.Collapsed;
+
+        // issue #352: «Версии нет на сайте» — красным под текущей версией.
+        CurrentVersionMissingText.Visibility = _row.CurrentVersionMissing
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     /// <summary>Кнопка «Скачать цепочку» (issue #352).</summary>

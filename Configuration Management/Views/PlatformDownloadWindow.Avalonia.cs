@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -17,15 +19,15 @@ using Configuration_Management.ViewModels;
 namespace Configuration_Management
 {
     /// <summary>
-    /// Окно «Скачивание версии платформы 1С» (issue #330): список версий каталога
-    /// releases.1c.ru, выбор разрядности (32/64) и типа дистрибутива, скачивание файла
-    /// в выбранную папку с прогрессом. Установка НЕ выполняется автоматически — после
-    /// скачивания пользователь сам открывает папку или запускает установщик (Linux:
-    /// показ готовой команды sudo / инструкции, тихая установка не выполняется).
-    /// Авторизация портала — через учётную запись ИТС из справочника (#333). Вся
-    /// логика — в чистой <see cref="PlatformDownloadViewModel"/>; сервисы берутся
-    /// из <see cref="AppServices"/>. Avalonia/Linux-версия WPF-окна
-    /// <see cref="PlatformDownloadWindow"/>.
+    /// Окно «Скачивание версии платформы 1С» (issue #330): дерево версий каталога
+    /// releases.1c.ru (линии 8.3/8.5 → группы сборок → полные версии), выбор варианта
+    /// дистрибутива для текущей ОС, скачивание файла в выбранную папку с прогрессом.
+    /// Установка НЕ выполняется автоматически — после скачивания пользователь сам
+    /// открывает папку или запускает установщик (Linux: показ готовой команды sudo /
+    /// инструкции, тихая установка не выполняется). Авторизация портала — через учётную
+    /// запись ИТС из справочника (#333). Вся логика — в чистой
+    /// <see cref="PlatformDownloadViewModel"/>; сервисы берутся из <see cref="AppServices"/>.
+    /// Avalonia/Linux-версия WPF-окна <see cref="PlatformDownloadWindow"/>.
     /// </summary>
     public sealed class PlatformDownloadWindow : ModalWindowBase
     {
@@ -39,16 +41,16 @@ namespace Configuration_Management
 
         private readonly PlatformDownloadViewModel _viewModel;
         private readonly Models.AppSettings _settings;
-        private ListBox? _versionsList;
+        private TreeView? _versionsTree;
         private TextBox? _logBox;
 
         /// <summary>Открывает окно «Скачивание версии платформы 1С».</summary>
         public PlatformDownloadWindow()
         {
             Title = T("PlatformDownload.WindowTitle");
-            Width = 900;
-            Height = 680;
-            MinWidth = 740;
+            Width = 980;
+            Height = 700;
+            MinWidth = 760;
             MinHeight = 560;
             FontSize = 13;
             CanResize = true;
@@ -87,7 +89,7 @@ namespace Configuration_Management
 
         private async void OnOpened(object? sender, EventArgs e)
         {
-            if (_versionsList?.ItemCount == 0)
+            if (_viewModel.VersionTree.Count == 0)
                 await _viewModel.LoadCatalogAsync();
         }
 
@@ -205,17 +207,14 @@ namespace Configuration_Management
             Grid.SetRow(description, 1);
             grid.Children.Add(description);
 
+            // Основная область: дерево версий слева (~25%) + параметры справа (issue #330).
             var body = new Grid { Margin = new Thickness(0, 12, 0, 0) };
-            body.RowDefinitions.Add(new RowDefinition(new GridLength(1, GridUnitType.Star)));
-            body.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            body.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            body.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            body.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            body.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            body.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(340)));
+            body.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
             Grid.SetRow(body, 2);
             grid.Children.Add(body);
 
-            // Список версий.
+            // Дерево версий: линии 8.3/8.5 → группы сборок → полные версии.
             var listBorder = new Border
             {
                 BorderThickness = new Thickness(1),
@@ -224,55 +223,76 @@ namespace Configuration_Management
             ThemeBrushes.Bind(listBorder, Border.BackgroundProperty, "CardBackgroundColorBrush");
             ThemeBrushes.Bind(listBorder, Border.BorderBrushProperty, "BorderColorBrush");
 
-            _versionsList = new ListBox
+            _versionsTree = new TreeView
             {
+                ItemsSource = _viewModel.VersionTree,
                 Margin = new Thickness(4)
             };
-            _versionsList.ItemsSource = _viewModel.Releases;
-            _versionsList.SelectionChanged += (_, _) =>
+            _versionsTree.ItemTemplate = new FuncTreeDataTemplate(
+                typeof(PlatformCatalogNode),
+                (node, _) => new TextBlock
+                {
+                    Text = node is PlatformCatalogNode catalogNode ? catalogNode.Name : string.Empty,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 1)
+                },
+                node => node is PlatformCatalogNode catalogNode
+                    ? catalogNode.Children
+                    : Array.Empty<PlatformCatalogNode>());
+            _versionsTree.SelectionChanged += (_, _) =>
             {
-                _viewModel.SelectedRelease = _versionsList.SelectedItem as PlatformDownloadRowViewModel;
+                _viewModel.SelectedVersionNode = _versionsTree.SelectedItem as PlatformCatalogNode;
             };
-            listBorder.Child = _versionsList;
-            Grid.SetRow(listBorder, 0);
+            listBorder.Child = _versionsTree;
+            Grid.SetColumn(listBorder, 0);
             body.Children.Add(listBorder);
 
+            // Правая колонка: параметры сверху вниз.
+            var right = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var rightPanel = new StackPanel { Margin = new Thickness(14, 0, 0, 0), Spacing = 10 };
+
             // Разрядность.
-            var archPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 10, 0, 0) };
+            var archPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             archPanel.Children.Add(MakeLabel(T("PlatformDownload.Architecture")));
-            var archBox = new ComboBox { Width = 150, Height = 30 };
+            var archBox = new ComboBox { Width = 160, Height = 30 };
             archBox.Items.Add("x64");
             archBox.Items.Add("x86");
             archBox.SelectedIndex = _viewModel.Is64Bit ? 0 : 1;
             archBox.SelectionChanged += (_, _) => _viewModel.Is64Bit = archBox.SelectedIndex == 0;
             archPanel.Children.Add(archBox);
-            Grid.SetRow(archPanel, 1);
-            body.Children.Add(archPanel);
+            rightPanel.Children.Add(archPanel);
 
-            // Тип дистрибутива + файл.
-            var typePanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
-            typePanel.Children.Add(MakeLabel(T("PlatformDownload.DistributionType")));
-            var typeBox = new ComboBox { Width = 200, Height = 30 };
-            typeBox.ItemsSource = _viewModel.DownloadTypeOptions;
-            typeBox.SelectionChanged += (_, _) =>
+            // Файл дистрибутива: варианты для текущей ОС (issue #330).
+            var fileLabel = MakeLabel(T("PlatformDownload.File"), secondary: true);
+            rightPanel.Children.Add(fileLabel);
+            var fileBox = new ComboBox { Height = 30, ItemsSource = _viewModel.DistributionOptions };
+            fileBox.SelectedItem = _viewModel.SelectedDistribution;
+            fileBox.SelectionChanged += (_, _) =>
             {
-                if (typeBox.SelectedItem is DownloadTypeOption option)
-                    _viewModel.DownloadType = option.Type;
+                if (fileBox.SelectedItem is PlatformDistributionOption option)
+                    _viewModel.SelectedDistribution = option;
             };
-            typePanel.Children.Add(typeBox);
-            var fileText = MakeLabel(_viewModel.FileInfoText, secondary: true);
             _viewModel.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(PlatformDownloadViewModel.FileInfoText))
-                    fileText.Text = _viewModel.FileInfoText;
-                if (e.PropertyName == nameof(PlatformDownloadViewModel.DownloadTypeOptions))
-                    typeBox.ItemsSource = _viewModel.DownloadTypeOptions;
+                if (e.PropertyName == nameof(PlatformDownloadViewModel.DistributionOptions))
+                    fileBox.ItemsSource = _viewModel.DistributionOptions;
+                if (e.PropertyName == nameof(PlatformDownloadViewModel.SelectedDistribution) &&
+                    !ReferenceEquals(fileBox.SelectedItem, _viewModel.SelectedDistribution))
+                    fileBox.SelectedItem = _viewModel.SelectedDistribution;
             };
-            typePanel.Children.Add(fileText);
-            Grid.SetRow(typePanel, 2);
-            body.Children.Add(typePanel);
+            rightPanel.Children.Add(fileBox);
 
-            // Учётная запись и каталог.
+            // issue #330: реальное имя файла, который будет скачан (не только подсказка).
+            var pickedFileLine = MakeLabel(
+                _viewModel.PickedFile?.FileName ?? T("PlatformDownload.NoFile"), secondary: true);
+            _viewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlatformDownloadViewModel.PickedFile))
+                    pickedFileLine.Text = _viewModel.PickedFile?.FileName ?? T("PlatformDownload.NoFile");
+            };
+            rightPanel.Children.Add(pickedFileLine);
+
+            // Учётная запись.
             var accountLine = MakeLabel(
                 _viewModel.HasAccount
                     ? string.Format(T("PlatformDownload.AccountValue"), _viewModel.AccountName)
@@ -287,14 +307,14 @@ namespace Configuration_Management
                         : T("PlatformDownload.NoAccount");
                 }
             };
-            Grid.SetRow(accountLine, 3);
-            body.Children.Add(accountLine);
+            rightPanel.Children.Add(accountLine);
 
-            var dirPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+            // Папка загрузки + кнопка выбора.
+            var dirPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             dirPanel.Children.Add(MakeLabel(T("PlatformDownload.Directory")));
             var dirBox = new TextBox
             {
-                Width = 480,
+                Width = 420,
                 Height = 30,
                 Text = _viewModel.TargetDirectory,
                 VerticalContentAlignment = VerticalAlignment.Center
@@ -303,10 +323,43 @@ namespace Configuration_Management
             dirPanel.Children.Add(dirBox);
             var chooseDir = MakeButton(T("PlatformDownload.ChooseDirectory"), () => _viewModel.ChooseDirectory(), secondary: true);
             dirPanel.Children.Add(chooseDir);
-            Grid.SetRow(dirPanel, 4);
-            body.Children.Add(dirPanel);
+            rightPanel.Children.Add(dirPanel);
 
-            // Прогресс и журнал.
+            // Действия после скачивания.
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = false };
+            actions.Children.Add(MakeButton(T("PlatformDownload.OpenFolder"), () => _viewModel.OpenFolder(), secondary: true));
+            actions.Children.Add(MakeButton(T("PlatformDownload.RunInstaller"), () => _viewModel.RunInstaller(), primary: true));
+            _viewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlatformDownloadViewModel.HasDownloaded))
+                    actions.IsVisible = _viewModel.HasDownloaded;
+            };
+            rightPanel.Children.Add(actions);
+
+            // Прогресс.
+            var progressPanel = new Grid { ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) } };
+            var progressBar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 6 };
+            progressBar.Bind(ProgressBar.ValueProperty,
+                new Avalonia.Data.Binding(nameof(PlatformDownloadViewModel.Progress)) { Source = _viewModel });
+            Grid.SetColumn(progressBar, 0);
+            progressPanel.Children.Add(progressBar);
+            var progressText = new TextBlock
+            {
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 11
+            };
+            progressText.Bind(TextBlock.TextProperty,
+                new Avalonia.Data.Binding(nameof(PlatformDownloadViewModel.Progress)) { Source = _viewModel, StringFormat = "{0:P0}" });
+            Grid.SetColumn(progressText, 1);
+            progressPanel.Children.Add(progressText);
+            rightPanel.Children.Add(progressPanel);
+
+            right.Content = rightPanel;
+            Grid.SetColumn(right, 1);
+            body.Children.Add(right);
+
+            // Нижняя панель: результат, журнал, кнопки.
             var bottom = new Border
             {
                 Margin = new Thickness(0, 12, 0, 0),
@@ -331,21 +384,6 @@ namespace Configuration_Management
                     resultLine.Text = _viewModel.ResultText;
             };
             bottomStack.Children.Add(resultLine);
-
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = false };
-            actions.Children.Add(MakeButton(T("PlatformDownload.OpenFolder"), () => _viewModel.OpenFolder(), secondary: true));
-            actions.Children.Add(MakeButton(T("PlatformDownload.RunInstaller"), () => _viewModel.RunInstaller(), primary: true));
-            _viewModel.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(PlatformDownloadViewModel.HasDownloaded))
-                    actions.IsVisible = _viewModel.HasDownloaded;
-            };
-            bottomStack.Children.Add(actions);
-
-            var progressBar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 6 };
-            progressBar.Bind(ProgressBar.ValueProperty,
-                new Avalonia.Data.Binding(nameof(PlatformDownloadViewModel.Progress)) { Source = _viewModel });
-            bottomStack.Children.Add(progressBar);
 
             _logBox = new TextBox
             {
@@ -389,8 +427,8 @@ namespace Configuration_Management
 
             bottomStack.Children.Add(buttons);
             bottom.Child = bottomStack;
-            Grid.SetRow(bottom, 5);
-            body.Children.Add(bottom);
+            Grid.SetRow(bottom, 2);
+            grid.Children.Add(bottom);
 
             return grid;
         }

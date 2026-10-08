@@ -503,6 +503,9 @@ public sealed class PlatformDownloadViewModelTests
         public Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default)
             => Task.FromResult(AvailableResult);
 
+        public Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default)
+            => Task.FromResult(AvailableResult);
+
         public Task<PlatformCatalogResult> GetAvailableReleasesForNickAsync(string nick, CancellationToken ct = default)
             => Task.FromResult(AvailableResult);
 

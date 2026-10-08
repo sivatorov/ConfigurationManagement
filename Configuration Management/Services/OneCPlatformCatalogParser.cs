@@ -95,6 +95,15 @@ public static class OneCPlatformCatalogParser
     /// Пустой/битый HTML возвращает пустой список без исключений.
     /// </summary>
     public static IReadOnlyList<PlatformRelease> ParseVersions(string html)
+        => ParseVersions(html, null);
+
+    /// <summary>
+    /// Вариант <see cref="ParseVersions(string)"/> с указанием ника каталога
+    /// (<c>Platform83</c>/<c>Platform85</c>, issue #334): ник сохраняется в
+    /// <see cref="PlatformRelease.Nick"/> и используется при построении адреса
+    /// страницы файлов релиза, если у релиза нет ссылки <c>version_files</c>.
+    /// </summary>
+    public static IReadOnlyList<PlatformRelease> ParseVersions(string html, string? nick)
     {
         if (string.IsNullOrWhiteSpace(html))
             return Array.Empty<PlatformRelease>();
@@ -151,6 +160,7 @@ public static class OneCPlatformCatalogParser
                 Version = kv.Key,
                 VersionFilesUrl = kv.Value.Href,
                 Sources = kv.Value.Sources,
+                Nick = nick ?? string.Empty,
             })
             .ToList();
         releases.Sort((x, y) => CompareVersions(y.Version, x.Version));

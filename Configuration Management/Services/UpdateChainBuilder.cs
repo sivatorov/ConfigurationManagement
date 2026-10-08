@@ -43,13 +43,17 @@ public static class UpdateChainBuilder
         if (!hasSourceData)
             return new UpdateChainSet { HasSourceData = false };
 
+        // Текущая версия отсутствует в каталоге (issue #352): 1С отзывает релизы —
+        // версия не находится ни как релиз, ни в «Списках версий» других релизов.
+        var currentMissing = IsCurrentVersionMissing(currentVersion, catalog);
+
         var target = catalog.FirstOrDefault(r =>
             SameVersion(r.Version, targetVersion));
         if (target is null)
-            return new UpdateChainSet { HasSourceData = true };
+            return new UpdateChainSet { HasSourceData = true, IsCurrentVersionMissing = currentMissing };
 
         if (CanJump(currentVersion, target))
-            return new UpdateChainSet { HasSourceData = true, IsDirectUpdate = true };
+            return new UpdateChainSet { HasSourceData = true, IsDirectUpdate = true, IsCurrentVersionMissing = currentMissing };
 
         var bottomUp = BuildBottomUp(currentVersion, targetVersion, catalog);
         var optimal = BuildOptimal(currentVersion, targetVersion, catalog);
@@ -79,8 +83,37 @@ public static class UpdateChainBuilder
         {
             HasSourceData = true,
             IsDirectUpdate = false,
+            IsCurrentVersionMissing = currentMissing,
             Variants = variants,
         };
+    }
+
+    /// <summary>
+    /// True — версию <paramref name="currentVersion"/> нет в каталоге: она не совпадает
+    /// ни с одной версией релизов и не упомянута в «Списках версий» ни одного релиза
+    /// (issue #352: признак отозванного релиза). Пустая текущая версия — не «отсутствует».
+    /// Internal — для юнит-тестов.
+    /// </summary>
+    internal static bool IsCurrentVersionMissing(string currentVersion, IReadOnlyList<PlatformRelease> catalog)
+    {
+        if (string.IsNullOrWhiteSpace(currentVersion))
+            return false;
+
+        foreach (var release in catalog)
+        {
+            if (SameVersion(release.Version, currentVersion))
+                return false;
+            if (release.Sources is { Count: > 0 })
+            {
+                foreach (var source in release.Sources)
+                {
+                    if (SameVersion(source, currentVersion))
+                        return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

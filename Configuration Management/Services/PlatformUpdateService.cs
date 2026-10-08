@@ -88,14 +88,53 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
         => await GetAvailableReleasesForNickAsync(OneCPlatformCatalogParser.Platform83Nick, ct).ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default)
+    {
+        // Объединённый каталог платформы: все поддерживаемые линии (8.3, 8.5, issue #334).
+        // Сбой одного каталога не роняет общий результат — берём то, что получено;
+        // статус Ok, если получен хотя бы один каталог.
+        PortalFetchStatus? firstFailure = null;
+        string? firstErrorKey = null;
+        var all = new List<PlatformRelease>();
+        foreach (var nick in OneCPlatformCatalogParser.SupportedPlatformNicks)
+        {
+            var result = await GetAvailableReleasesForNickAsync(nick, ct).ConfigureAwait(false);
+            if (result.Status == PortalFetchStatus.Ok)
+            {
+                all.AddRange(result.Releases);
+            }
+            else
+            {
+                _logger.Warn($"[PlatformUpdate] Каталог {nick} недоступен: {result.ErrorKey ?? result.Status.ToString()}");
+                firstFailure ??= result.Status;
+                firstErrorKey ??= result.ErrorKey;
+            }
+        }
+
+        if (all.Count == 0)
+            return firstFailure is null ? Failure(PortalFetchStatus.NetworkError) : Failure(firstFailure.Value);
+
+        // Дедупликация по версии (линии 8.3/8.5 не пересекаются, но страховка) и
+        // сортировка по убыванию числовыми сегментами.
+        var dedup = all
+            .GroupBy(r => r.Version, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+        dedup.Sort((x, y) => OneCPlatformCatalogParser.CompareVersions(y.Version, x.Version));
+        return new PlatformCatalogResult { Status = PortalFetchStatus.Ok, Releases = dedup };
+    }
+
+    /// <inheritdoc />
     public async Task<PlatformCatalogResult> GetAvailableReleasesForNickAsync(string nick, CancellationToken ct = default)
     {
-        var url = BuildCatalogUrl(nick);
+        // Полный адрес каталога с allUpdates=true раскрывает ВСЕ версии, а не только
+        // последние релизы (issue #330: «в списке только версия 8.3.27, не все версии»).
+        var url = BuildCatalogUrl(nick, allUpdates: true);
         var (status, text) = await FetchPageAsync(url, ct).ConfigureAwait(false);
         if (status != PortalFetchStatus.Ok)
             return Failure(status);
 
-        var releases = OneCPlatformCatalogParser.ParseVersions(text!);
+        var releases = OneCPlatformCatalogParser.ParseVersions(text!, nick);
         if (releases.Count == 0)
         {
             // Страница получена, но ни одной версии не распознано — структура каталога
@@ -110,7 +149,16 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
     /// <inheritdoc />
     public async Task<PlatformCatalogResult> LoadReleaseFilesAsync(
         PlatformRelease release, CancellationToken ct = default)
-        => await LoadReleaseFilesForNickAsync(release, OneCPlatformCatalogParser.Platform83Nick, ct).ConfigureAwait(false);
+    {
+        // Ник каталога для построения URL файлов берётся из релиза: версии 8.5 живут
+        // в каталоге Platform85, подстановка Platform83 даёт пустой список файлов и
+        // «setup.exe не найден в архиве» (issue #334).
+        ArgumentNullException.ThrowIfNull(release);
+        var nick = string.IsNullOrWhiteSpace(release.Nick)
+            ? OneCPlatformCatalogParser.Platform83Nick
+            : release.Nick;
+        return await LoadReleaseFilesForNickAsync(release, nick, ct).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public async Task<PlatformCatalogResult> LoadReleaseFilesForNickAsync(
@@ -254,13 +302,18 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
     }
 
     /// <summary>Адрес HTML-каталога версий платформы: <c>releases.1c.ru/project/<nick></c>
-    /// (например, Platform83/Platform85). Пустой/невалидный ник — базовый каталог Platform83.</summary>
-    private static string BuildCatalogUrl(string? nick)
+    /// (например, Platform83/Platform85). При <paramref name="allUpdates"/> добавляется
+    /// параметр <c>allUpdates=true#updates</c>, раскрывающий полный список версий, а не
+    /// только последние релизы (issue #330). Пустой/невалидный ник — каталог Platform83.</summary>
+    private static string BuildCatalogUrl(string? nick, bool allUpdates = false)
     {
         var safeNick = string.IsNullOrWhiteSpace(nick)
             ? OneCPlatformCatalogParser.Platform83Nick
             : nick.Trim();
-        return $"{OneCUpdatesService.ReleasesProjectBaseUrl}/{Uri.EscapeDataString(safeNick)}";
+        var url = $"{OneCUpdatesService.ReleasesProjectBaseUrl}/{Uri.EscapeDataString(safeNick)}";
+        if (allUpdates)
+            url += "?allUpdates=true#updates";
+        return url;
     }
 
     /// <summary>Абсолютный адрес страницы файлов релиза. Если у релиза ссылка не задана —
@@ -271,10 +324,14 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
         var url = (release.VersionFilesUrl ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(url))
         {
-            var safeNick = string.IsNullOrWhiteSpace(nick)
-                ? OneCPlatformCatalogParser.Platform83Nick
-                : nick.Trim();
-            url = $"{OneCUpdatesService.ReleasesBaseUrl}?nick={Uri.EscapeDataString(safeNick)}" +
+            // Приоритет ника: у релиза (каталог, из которого он получен, issue #334),
+            // затем у переданного параметра, затем дефолт Platform83.
+            var effectiveNick = !string.IsNullOrWhiteSpace(release.Nick)
+                ? release.Nick
+                : string.IsNullOrWhiteSpace(nick)
+                    ? OneCPlatformCatalogParser.Platform83Nick
+                    : nick.Trim();
+            url = $"{OneCUpdatesService.ReleasesBaseUrl}?nick={Uri.EscapeDataString(effectiveNick)}" +
                   $"&ver={Uri.EscapeDataString(release.Version)}";
         }
         else if (url.StartsWith("/", StringComparison.Ordinal))

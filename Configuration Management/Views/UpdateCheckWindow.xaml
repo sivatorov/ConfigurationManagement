@@ -119,6 +119,12 @@
                                        Text="{loc:Loc Updates.CurrentVersion}"/>
                             <TextBlock x:Name="CurrentVersionText" FontSize="15" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis"/>
+                            <!-- issue #352: признак отозванного релиза — красное предупреждение
+                                 под текущей версией; видимость переключает UpdateChainDisplay. -->
+                            <TextBlock x:Name="CurrentVersionMissingText" FontSize="12" Margin="0,4,0,0"
+                                       TextWrapping="Wrap" FontWeight="SemiBold" Foreground="#DC2626"
+                                       Visibility="Collapsed"
+                                       Text="{loc:Loc Updates.Chain.VersionMissing}"/>
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Margin="0,0,16,0">

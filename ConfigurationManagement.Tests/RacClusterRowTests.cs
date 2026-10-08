@@ -65,4 +65,49 @@ public sealed class RacClusterRowTests
 
         Assert.Equal("—", row.DisplayText);
     }
+
+    [Fact]
+    public void DisplayText_EmptyName_WithHost_ShowsHostWithPort()
+    {
+        // issue #324: когда rac не отдал «name», но известен «host», показываем
+        // осмысленный хост вместо пустого плейсхолдера.
+        var row = new RacClusterRow(new RacCluster
+        {
+            Id = Guid.NewGuid(),
+            Name = string.Empty,
+            Host = "ALF",
+            Port = 27541,
+        });
+
+        Assert.Equal("ALF (27541)", row.DisplayText);
+    }
+
+    [Fact]
+    public void DisplayText_GuidLikeName_TreatedAsPlaceholder()
+    {
+        // issue #324: GUID (первичный ключ) не должен отображаться вместо имени.
+        var row = new RacClusterRow(new RacCluster
+        {
+            Id = Guid.NewGuid(),
+            Name = Guid.NewGuid().ToString(),
+            Port = 1541,
+        });
+
+        Assert.Equal("(1541)", row.DisplayText);
+    }
+
+    [Fact]
+    public void DisplayText_KeyLikeName_TreatedAsPlaceholder()
+    {
+        // issue #324: «в поле по-прежнему ключ вместо имени» — сам текст ключа «name»
+        // (или его значение целиком, если парсер не снял кавычки) именем не является.
+        var row = new RacClusterRow(new RacCluster
+        {
+            Id = Guid.NewGuid(),
+            Name = "name",
+            Port = 1541,
+        });
+
+        Assert.Equal("(1541)", row.DisplayText);
+    }
 }

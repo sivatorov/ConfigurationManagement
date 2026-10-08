@@ -975,6 +975,9 @@ public sealed class PlatformUpdateViewModelTests
         public Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default)
             => Task.FromResult(AvailableResult);
 
+        public Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default)
+            => Task.FromResult(AvailableResult);
+
         public Task<PlatformCatalogResult> GetAvailableReleasesForNickAsync(string nick, CancellationToken ct = default)
             => Task.FromResult(AvailableResult);
 
@@ -1006,6 +1009,8 @@ public sealed class PlatformUpdateViewModelTests
 
         public Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default) => _result;
 
+        public Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default) => _result;
+
         public Task<PlatformCatalogResult> GetAvailableReleasesForNickAsync(string nick, CancellationToken ct = default)
             => _result;
 
@@ -1023,6 +1028,9 @@ public sealed class PlatformUpdateViewModelTests
     private sealed class ThrowingPlatformUpdateService : IPlatformUpdateService
     {
         public Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default)
+            => throw new InvalidOperationException("Сбой сети (тест)");
+
+        public Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default)
             => throw new InvalidOperationException("Сбой сети (тест)");
 
         public Task<PlatformCatalogResult> GetAvailableReleasesForNickAsync(string nick, CancellationToken ct = default)

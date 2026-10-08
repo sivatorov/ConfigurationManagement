@@ -34,6 +34,10 @@ public static class PlatformInstaller
     /// <summary>Ключ локализации: не удалось распаковать дистрибутив.</summary>
     public const string ErrorExtractFailed = "PlatformUpdate.Error.ExtractFailed";
 
+    /// <summary>Ключ локализации: скачанный файл не является zip-архивом (issue #334:
+    /// вместо дистрибутива могла прийти HTML-страница входа портала/ошибки).</summary>
+    public const string ErrorNotZipFile = "PlatformUpdate.Error.NotZipFile";
+
     /// <summary>Ключ локализации: в дистрибутиве не найден setup.exe.</summary>
     public const string ErrorSetupNotFound = "PlatformUpdate.Error.SetupNotFound";
 
@@ -493,6 +497,18 @@ public static class PlatformInstaller
             // Ранняя проверка отмены — внутри try, чтобы вернуть результат Cancelled,
             // а не пробросить исключение наружу.
             ct.ThrowIfCancellationRequested();
+
+            // issue #334: «setup.exe не найден в архиве» при скачивании HTML вместо zip.
+            // Проверяем magic-байты ДО распаковки и даём понятное сообщение.
+            if (!IsZipArchive(zipPath))
+            {
+                var sizeText = File.Exists(zipPath) ? new FileInfo(zipPath).Length.ToString() : "?";
+                log?.Report(
+                    $"Файл не является zip-архивом (размер {sizeText} байт): возможно, " +
+                    "скачана страница входа портала или ошибки. Повторите проверку каталога.");
+                return new PlatformInstallResult(Success: false, ErrorKey: ErrorNotZipFile, ExitCode: -1);
+            }
+
             log?.Report($"Распаковка дистрибутива в {tmpDir}...");
             if (!extractArchive(zipPath, tmpDir))
             {
@@ -544,6 +560,25 @@ public static class PlatformInstaller
         finally
         {
             TryDeleteDirectory(tmpDir);
+        }
+    }
+
+    /// <summary>True — файл является zip-архивом (magic-байты «PK»). Ошибки чтения — false.</summary>
+    internal static bool IsZipArchive(string? path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return false;
+            using var stream = File.OpenRead(path);
+            Span<byte> header = stackalloc byte[2];
+            if (stream.Read(header) != header.Length)
+                return false;
+            return header[0] == (byte)'P' && header[1] == (byte)'K';
+        }
+        catch
+        {
+            return false;
         }
     }
 

@@ -91,11 +91,46 @@ public static class OneCPlatformLocator
     /// установленной платформы (при <paramref name="infobase"/> — с учётом её настроек,
     /// иначе — новейшая установленная версия). Возвращает полный путь или null.
     /// </summary>
+    /// <remarks>
+    /// Для варианта без базы (монитор серверов, issue #324) результат кэшируется на 5 минут:
+    /// поиск сканирует каталоги установленных платформ и вызывается на КАЖДУЮ rac-команду
+    /// (в цикле обновления монитора их 8), заметно добавляя ко времени подключения.
+    /// Кэш проверяет существование файла и сбрасывается по TTL (после установки новой
+    /// платформы путь обновится сам).
+    /// </remarks>
     public static string? FindRacExecutable(Infobase? infobase = null)
+    {
+        if (infobase is not null)
+            return FindRacExecutableCore(infobase);
+
+        lock (RacCacheLock)
+        {
+            if (_cachedRacPath is not null &&
+                DateTime.UtcNow - _cachedRacAt < RacCacheTtl &&
+                File.Exists(_cachedRacPath))
+                return _cachedRacPath;
+        }
+
+        var found = FindRacExecutableCore(null);
+        lock (RacCacheLock)
+        {
+            _cachedRacPath = found;
+            _cachedRacAt = DateTime.UtcNow;
+        }
+
+        return found;
+    }
+
+    private static string? FindRacExecutableCore(Infobase? infobase)
     {
         var binDir = ResolveBinDirectory(infobase);
         return binDir is null ? null : FindInBinDir(binDir, "rac");
     }
+
+    private static readonly object RacCacheLock = new();
+    private static string? _cachedRacPath;
+    private static DateTime _cachedRacAt;
+    private static readonly TimeSpan RacCacheTtl = TimeSpan.FromMinutes(5);
 
     /// <summary>Числовое сравнение версий 1С («8.3.27.1688»). >0 если a новее b.</summary>
     private static int CompareVersions(string a, string b)

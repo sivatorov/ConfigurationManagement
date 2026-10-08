@@ -117,7 +117,9 @@ namespace Configuration_Management
                     }
                 },
                 // issue #334: обновление списка версий и связанных свойств — в UI-потоке.
-                dispatchToUi: action => Dispatcher.UIThread.Post(action));
+                dispatchToUi: action => Dispatcher.UIThread.Post(action),
+                // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
+                chooseDistribution: ChooseDistribution);
 
             BuildRows();
             foreach (var row in _viewModel.Rows)
@@ -131,6 +133,34 @@ namespace Configuration_Management
         /// <see cref="ModalWindowBase.ShowDialogSync(Window?)"/>, чтобы диалог можно было
         /// вызывать из ViewModel (не наследника окна).</summary>
         public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
+
+        /// <summary>
+        /// Диалог выбора варианта дистрибутива (issue #334): список файлов для текущей ОС,
+        /// предвыбран рекомендуемый; null — отмена (остаётся рекомендуемый). Может
+        /// вызываться из фонового потока — показ переводится в UI-поток.
+        /// </summary>
+        private PlatformDistributionOption? ChooseDistribution(
+            IReadOnlyList<PlatformDistributionOption> options)
+        {
+            PlatformDistributionOption? result = null;
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                var picker = new PlatformDistributionPickerWindow(options);
+                if (picker.ShowDialogSync(this))
+                    result = picker.Result;
+            }
+            else
+            {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    var picker = new PlatformDistributionPickerWindow(options);
+                    if (picker.ShowDialogSync(this))
+                        result = picker.Result;
+                }).Wait();
+            }
+
+            return result;
+        }
 
         private static string T(string key) => LocalizationManager.T(key);
 

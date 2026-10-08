@@ -74,7 +74,10 @@ public sealed class PlatformUpdateServiceTests
 
         await service.GetAvailableReleasesAsync();
 
-        Assert.Equal($"https://releases.1c.ru/project/{OneCPlatformCatalogParser.PlatformNick}", requestedUrl);
+        // issue #330: каталог запрашивается с allUpdates=true — полный список версий.
+        Assert.Equal(
+            $"https://releases.1c.ru/project/{OneCPlatformCatalogParser.PlatformNick}?allUpdates=true#updates",
+            requestedUrl);
     }
 
     [Fact]
@@ -163,7 +166,8 @@ public sealed class PlatformUpdateServiceTests
         var result = await service.GetAvailableReleasesForNickAsync(OneCPlatformCatalogParser.Platform85Nick);
 
         Assert.Equal(PortalFetchStatus.Ok, result.Status);
-        Assert.Equal("https://releases.1c.ru/project/Platform85", requestedUrl);
+        // issue #330/#334: Platform85 запрашивается с allUpdates=true.
+        Assert.Equal("https://releases.1c.ru/project/Platform85?allUpdates=true#updates", requestedUrl);
         Assert.Equal("8.5.1.123", result.Releases[0].Version);
     }
 
@@ -180,7 +184,8 @@ public sealed class PlatformUpdateServiceTests
         var result = await service.GetAvailableReleasesForNickAsync("   ");
 
         Assert.Equal(PortalFetchStatus.Ok, result.Status);
-        Assert.Equal("https://releases.1c.ru/project/Platform83", requestedUrl);
+        // issue #330: даже для пустого ника каталог запрашивается с allUpdates=true.
+        Assert.Equal("https://releases.1c.ru/project/Platform83?allUpdates=true#updates", requestedUrl);
     }
 
     [Fact]

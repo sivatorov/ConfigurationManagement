@@ -44,6 +44,10 @@ namespace Configuration_Management
 
         private readonly TextBlock _baseNameText = new();
         private readonly TextBlock _currentVersionText = new();
+
+        /// <summary>Красное предупреждение «Версии нет на сайте» под текущей версией (issue #352).</summary>
+        private readonly TextBlock _currentVersionMissingText = new() { IsVisible = false };
+
         private readonly TextBlock _latestVersionText = new();
         private readonly TextBlock _urlText = new();
         private readonly TextBlock _statusText = new();
@@ -498,7 +502,10 @@ namespace Configuration_Management
 
             try
             {
-                var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(url, token), token);
+                // issue #352: каталог запрашивается с allUpdates=true — без параметра портал
+                // отдаёт только последние релизы, и цепочка не строится.
+                var catalogUrl = OneCUpdatesService.BuildAllUpdatesCatalogUrl(url);
+                var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(catalogUrl, token), token);
                 if (catalog.Status == PortalFetchStatus.Ok)
                 {
                     var set = UpdateChainBuilder.Build(_row.CurrentVersion, _row.LatestVersion, catalog.Releases);
@@ -539,6 +546,8 @@ namespace Configuration_Management
                 }
 
                 _chainStatusValue.Text = _row.ChainStatusText;
+                // issue #352: красное предупреждение под текущей версией.
+                _currentVersionMissingText.IsVisible = _row.CurrentVersionMissing;
                 RebuildChainRows();
             });
         }
@@ -693,12 +702,15 @@ namespace Configuration_Management
             }
         }
 
-        /// <summary>Колонка сводного ряда «Текущая / Последняя / Статус» (issue #352).</summary>
-        private static Grid MakeSummaryColumn(string labelKey, TextBlock value, int column)
+        /// <summary>Колонка сводного ряда «Текущая / Последняя / Статус» (issue #352).
+        /// <paramref name="extra"/> — необязательная третья строка (предупреждение).</summary>
+        private static Grid MakeSummaryColumn(string labelKey, TextBlock value, int column, TextBlock? extra = null)
         {
             var grid = new Grid { Margin = new Thickness(0, 0, column < 2 ? 14 : 0, 0) };
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            if (extra is not null)
+                grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
             var label = new TextBlock
             {
@@ -715,6 +727,16 @@ namespace Configuration_Management
             value.TextTrimming = TextTrimming.CharacterEllipsis;
             Grid.SetRow(value, 1);
             grid.Children.Add(value);
+
+            if (extra is not null)
+            {
+                extra.FontSize = 12;
+                extra.FontWeight = FontWeight.SemiBold;
+                extra.TextWrapping = TextWrapping.Wrap;
+                extra.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#DC2626"));
+                Grid.SetRow(extra, 2);
+                grid.Children.Add(extra);
+            }
 
             return grid;
         }
@@ -759,7 +781,11 @@ namespace Configuration_Management
             _latestVersionText.FontWeight = FontWeight.SemiBold;
             _statusText.FontSize = 14;
             _statusText.FontWeight = FontWeight.SemiBold;
-            summary.Children.Add(MakeSummaryColumn(T("Updates.CurrentVersion"), _currentVersionText, 0));
+            // issue #352: предупреждение «Версии нет на сайте» — третьей строкой в колонке
+            // «Текущая версия»; видимость переключается в RefreshChainDisplay.
+            _currentVersionMissingText.Text = T("Updates.Chain.VersionMissing");
+            summary.Children.Add(MakeSummaryColumn(T("Updates.CurrentVersion"), _currentVersionText, 0,
+                _currentVersionMissingText));
             summary.Children.Add(MakeSummaryColumn(T("Updates.LatestVersion"), _latestVersionText, 1));
             summary.Children.Add(MakeSummaryColumn(T("Updates.Status"), _statusText, 2));
             fields.Children.Add(summary);

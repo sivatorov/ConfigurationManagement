@@ -154,6 +154,8 @@ public class UpdateCheckRowViewModel : ViewModelBase
 
     private bool _hasSourceData = true;
 
+    private bool _currentVersionMissing;
+
     /// <summary>True — в каталоге есть данные «Список версий»; false — совместимость
     /// неизвестна, доступна только загрузка последней версии.</summary>
     public bool HasSourceData
@@ -253,6 +255,17 @@ public class UpdateCheckRowViewModel : ViewModelBase
         Error = result.Error;
     }
 
+    /// <summary>Текущая версия отсутствует в каталоге (issue #352: релиз отозван 1С).</summary>
+    public bool CurrentVersionMissing
+    {
+        get => _currentVersionMissing;
+        private set
+        {
+            if (SetProperty(ref _currentVersionMissing, value))
+                OnPropertyChanged(nameof(ChainStatusText));
+        }
+    }
+
     /// <summary>Применяет результат построения цепочек обновлений (issue #352):
     /// заполняет таблицу вариантов и статус цепочки. Null — сброс (пустой результат).</summary>
     public void SetChains(UpdateChainSet? set)
@@ -269,11 +282,14 @@ public class UpdateCheckRowViewModel : ViewModelBase
 
         HasSourceData = set.HasSourceData;
         IsDirectUpdate = set.IsDirectUpdate;
+        CurrentVersionMissing = set.IsCurrentVersionMissing;
         HasChain = ChainVariants.Count > 0;
         SelectedVariant = HasChain ? ChainVariants[0] : null;
 
         if (!HasSourceData)
             ChainStatusText = LocalizationManager.T("Updates.Chain.NoData");
+        else if (CurrentVersionMissing)
+            ChainStatusText = LocalizationManager.T("Updates.Chain.VersionMissing");
         else if (IsDirectUpdate)
             ChainStatusText = LocalizationManager.T("Updates.Chain.Direct");
         else if (HasChain)
@@ -288,6 +304,7 @@ public class UpdateCheckRowViewModel : ViewModelBase
         ChainVariants.Clear();
         HasSourceData = true;
         IsDirectUpdate = false;
+        CurrentVersionMissing = false;
         HasChain = false;
         SelectedVariant = null;
         ChainStatusText = string.Empty;

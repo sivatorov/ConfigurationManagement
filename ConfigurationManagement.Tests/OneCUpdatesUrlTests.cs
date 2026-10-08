@@ -35,6 +35,40 @@ public sealed class OneCUpdatesUrlTests
     }
 
     [Fact]
+    public void BuildAllUpdatesCatalogUrl_AddsParameterWithAnchor()
+    {
+        // issue #352: полный каталог версий доступен только с allUpdates=true#updates.
+        var url = OneCUpdatesService.BuildAllUpdatesCatalogUrl("https://releases.1c.ru/project/AccountingCorp30");
+
+        Assert.Equal("https://releases.1c.ru/project/AccountingCorp30?allUpdates=true#updates", url);
+    }
+
+    [Fact]
+    public void BuildAllUpdatesCatalogUrl_ExistingQuery_UsesAmpersand()
+    {
+        var url = OneCUpdatesService.BuildAllUpdatesCatalogUrl(
+            "https://releases.1c.ru/project/AccountingCorp30?ver=3.0");
+
+        Assert.Equal("https://releases.1c.ru/project/AccountingCorp30?ver=3.0&allUpdates=true#updates", url);
+    }
+
+    [Fact]
+    public void BuildAllUpdatesCatalogUrl_Idempotent_DoesNotDuplicate()
+    {
+        const string url = "https://releases.1c.ru/project/Platform83?allUpdates=true#updates";
+
+        Assert.Equal(url, OneCUpdatesService.BuildAllUpdatesCatalogUrl(url));
+    }
+
+    [Fact]
+    public void BuildAllUpdatesCatalogUrl_Empty_ReturnsEmpty()
+    {
+        Assert.Equal(string.Empty, OneCUpdatesService.BuildAllUpdatesCatalogUrl(null));
+        Assert.Equal(string.Empty, OneCUpdatesService.BuildAllUpdatesCatalogUrl(string.Empty));
+        Assert.Equal(string.Empty, OneCUpdatesService.BuildAllUpdatesCatalogUrl("   "));
+    }
+
+    [Fact]
     public void BuildNickUrl_EscapesNonAsciiAndSpaces()
     {
         var url = OneCUpdatesService.BuildNickUrl("Корп Икс");

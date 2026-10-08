@@ -25,8 +25,21 @@ public interface IPlatformUpdateService
     Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Получает объединённый список доступных версий платформы со ВСЕХ поддерживаемых
+    /// каталогов (<c>Platform83</c> и <c>Platform85</c>, issue #330/#334): каждый каталог
+    /// запрашивается с <c>allUpdates=true</c> (полный список версий, а не только последние
+    /// релизы), результаты дедуплицируются по версии и сортируются по убыванию. Сбой
+    /// одного каталога не роняет общий результат — возвращаются версии полученных каталогов.
+    /// </summary>
+    /// <param name="ct">Токен отмены.</param>
+    /// <returns>Результат со статусом Ok и отсортированным по убыванию списком версий,
+    /// либо ошибкой (если ни один каталог не получен).</returns>
+    Task<PlatformCatalogResult> GetAllAvailableReleasesAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Получает список доступных версий платформы с указанного каталога
     /// <c>releases.1c.ru/project/<nick></c> (например, <c>Platform85</c>, issue #334).
+    /// Каталог запрашивается с <c>allUpdates=true</c> (полный список версий, issue #330).
     /// Поведение идентично <see cref="GetAvailableReleasesAsync"/>, отличается только ник каталога.
     /// </summary>
     /// <param name="nick">Ник каталога платформы (например, <c>Platform83</c>/<c>Platform85</c>).</param>
@@ -38,6 +51,18 @@ public interface IPlatformUpdateService
     /// Лениво подгружает файлы дистрибутива выбранной версии из ответа
     /// <c>version_files?nick=Platform83&ver=…</c> (через
     /// <see cref="OneCPlatformCatalogParser.ParseDistributionFiles"/>). Заполняет
+    /// <see cref="PlatformRelease.Files"/> переданного релиза, приводит
+    /// <see cref="PlatformRelease.VersionFilesUrl"/> к абсолютному адресу и возвращает
+    /// тот же экземпляр в <see cref="PlatformCatalogResult.Release"/>.
+    /// </summary>
+    /// <param name="release">Релиз, для которого подгружаются файлы (мутируется).</param>
+    /// <param name="ct">Токен отмены.</param>
+    /// <returns>Результат с заполненным <see cref="PlatformCatalogResult.Release"/>.</returns>
+    /// <summary>
+    /// Лениво подгружает файлы дистрибутива выбранной версии из ответа
+    /// <c>version_files?nick=<ник релиза>&ver=…</c> (ник берётся из
+    /// <see cref="PlatformRelease.Nick"/>, иначе — <c>Platform83</c>; issue #334:
+    /// версии 8.5 живут в каталоге Platform85). Заполняет
     /// <see cref="PlatformRelease.Files"/> переданного релиза, приводит
     /// <see cref="PlatformRelease.VersionFilesUrl"/> к абсолютному адресу и возвращает
     /// тот же экземпляр в <see cref="PlatformCatalogResult.Release"/>.

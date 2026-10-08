@@ -162,4 +162,55 @@ public sealed class PlatformDistributionPickerTests
         Assert.Equal("PlatformDownload.Type.ThinClient",
             PlatformDistributionPicker.TypeLocalizationKey(PlatformDownloadType.ThinClient));
     }
+
+    // ---------- issue #330/#334: варианты дистрибутива для выбора пользователем ----------
+
+    [Fact]
+    public void BuildOptions_Windows_FullBeforeThin_X64First()
+    {
+        var options = PlatformDistributionPicker.BuildOptions(WindowsFiles(), isWindows: true, is64Bit: true);
+
+        Assert.Equal(3, options.Count);
+        // Порядок: полный клиент x64 (рекомендуемый) → полный x86 → тонкий x64.
+        Assert.Equal("8.3.27.2214_x64.zip", options[0].File.FileName);
+        Assert.True(options[0].IsRecommended);
+        Assert.Equal("8.3.27.2214_x86.zip", options[1].File.FileName);
+        Assert.False(options[1].IsRecommended);
+        Assert.Equal("8.3.27.2214_thin_1c_x64.zip", options[2].File.FileName);
+        Assert.False(options[2].IsRecommended);
+        Assert.Contains("Полный клиент", options[0].DisplayName);
+        Assert.Contains("x64", options[0].DisplayName);
+    }
+
+    [Fact]
+    public void BuildOptions_Linux_DebRpmArchiveOrder()
+    {
+        var options = PlatformDistributionPicker.BuildOptions(LinuxFiles(), isWindows: false, is64Bit: true);
+
+        Assert.Equal(3, options.Count);
+        Assert.Equal("deb64_8.3.27.2214.tar.gz", options[0].File.FileName); // пакет deb
+        Assert.True(options[0].IsRecommended);
+        Assert.Equal("8.3.27.2214_x86_64.rpm", options[1].File.FileName);   // пакет rpm
+        Assert.Equal("8.3.27.2214.tar.gz", options[2].File.FileName);       // архив tar.gz
+    }
+
+    [Fact]
+    public void BuildOptions_EmptyOrForeignFiles_ReturnsEmpty()
+    {
+        Assert.Empty(PlatformDistributionPicker.BuildOptions(
+            new List<PlatformReleaseFile>(), isWindows: true, is64Bit: true));
+        // Только Linux-файлы — для Windows вариантов нет (issue #330: «только АВТО»).
+        Assert.Empty(PlatformDistributionPicker.BuildOptions(
+            LinuxFiles(), isWindows: true, is64Bit: true));
+    }
+
+    [Fact]
+    public void BuildOptions_32Bit_RecommendsX86()
+    {
+        var options = PlatformDistributionPicker.BuildOptions(WindowsFiles(), isWindows: true, is64Bit: false);
+
+        var recommended = options.FirstOrDefault(o => o.IsRecommended);
+        Assert.NotNull(recommended);
+        Assert.Equal("8.3.27.2214_x86.zip", recommended!.File.FileName);
+    }
 }

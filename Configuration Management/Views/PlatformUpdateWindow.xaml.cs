@@ -82,7 +82,9 @@ public partial class PlatformUpdateWindow : Window
                 PlatformInstaller.DeleteVersionDirectoryAsync(version, log, ct),
             // issue #334: обновление списка версий и связанных свойств — в UI-потоке
             // (WPF CollectionView запрещает изменения из фонового потока NotSupportedException).
-            dispatchToUi: action => Dispatcher.InvokeAsync(action));
+            dispatchToUi: action => Dispatcher.InvokeAsync(action),
+            // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
+            chooseDistribution: ShowDistributionPicker);
 
         DataContext = _viewModel;
         RowsGrid.ItemsSource = _viewModel.Rows;
@@ -201,6 +203,30 @@ public partial class PlatformUpdateWindow : Window
     private void OnClose_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    /// <summary>
+    /// Диалог выбора варианта дистрибутива (issue #334): список файлов для текущей ОС
+    /// (x86/x64, полный/тонкий клиент), предвыбран рекомендуемый; null — отмена, остаётся
+    /// рекомендуемый вариант. Может вызываться из фонового потока — показ переводится
+    /// в UI-поток через <see cref="Dispatcher"/>.
+    /// </summary>
+    private PlatformDistributionOption? ShowDistributionPicker(
+        IReadOnlyList<PlatformDistributionOption> options)
+    {
+        PlatformDistributionOption? result = null;
+        void Show()
+        {
+            var picker = new PlatformDistributionPickerWindow(options) { Owner = this };
+            if (picker.ShowDialog() == true)
+                result = picker.Result;
+        }
+
+        if (Dispatcher.CheckAccess())
+            Show();
+        else
+            Dispatcher.Invoke(Show);
+        return result;
     }
 }
 #endif

@@ -103,13 +103,13 @@ public partial class MainViewModel : ViewModelBase
         get => _showTags;
         set
         {
+            // Отбор по тегам живёт независимо от показа тегов в строках (issue #354):
+            // выключение показа НЕ сбрасывает активные фильтры — пользователь может
+            // держать отбор при скрытых чипах. Список пересобирается подписчиками
+            // (как в Avalonia-версии: MainViewModel.Avalonia.Display.ShowTags),
+            // и MatchesFilter продолжает применять _activeTagFilterSet.
             if (SetProperty(ref _showTags, value))
                 ScheduleSaveSettings();
-            // При отключении показа тегов (верхняя кнопка «Показывать теги»)
-            // сбрасываем и активные фильтры по тегам для списка баз,
-            // иначе отбор по тегу продолжает скрывать базы без тегов.
-            if (!value && _activeTagFilters.Count > 0)
-                ClearTagFilters(null);
         }
     }
 

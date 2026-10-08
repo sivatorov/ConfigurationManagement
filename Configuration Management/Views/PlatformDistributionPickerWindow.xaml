@@ -1,0 +1,79 @@
+<Window x:Class="Configuration_Management.PlatformDistributionPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Configuration_Management.Localization"
+        Title="{loc:Loc PlatformUpdate.DistributionPicker.Title}"
+        Icon="{StaticResource AppIcon}"
+        Width="640" Height="420" MinWidth="540" MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        FontFamily="Segoe UI" FontSize="13"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Заголовок + пояснение: выбирается файл дистрибутива для текущей ОС (issue #334). -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock FontSize="14" FontWeight="SemiBold" Text="{loc:Loc PlatformUpdate.DistributionPicker.Title}"/>
+            <TextBlock FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       Text="{loc:Loc PlatformUpdate.DistributionPicker.Description}"/>
+        </StackPanel>
+
+        <!-- Список вариантов -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
+            <ListBox x:Name="OptionsList" BorderThickness="0" Background="Transparent"
+                     SelectionMode="Single" Padding="4"
+                     MouseDoubleClick="OnOptionsList_MouseDoubleClick">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,5"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                            <TextBlock Margin="10,0,0,0" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="#16A34A">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRecommended}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                <Run Text="{loc:Loc PlatformUpdate.DistributionPicker.Recommended}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <!-- Кнопки -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="{loc:Loc Common.Cancel}" Style="{StaticResource ModernButton}"
+                    IsCancel="True" Padding="14,6" Margin="0,0,8,0"/>
+            <Button Content="{loc:Loc PlatformUpdate.DistributionPicker.Choose}" Style="{StaticResource ModernButton}"
+                    Background="#16A34A" Padding="14,6" Click="OnChoose_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

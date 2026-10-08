@@ -64,7 +64,6 @@ public partial class PlatformDownloadWindow : Window
             dispatchToUi: action => Dispatcher.InvokeAsync(action));
 
         DataContext = _viewModel;
-        VersionsGrid.ItemsSource = _viewModel.Releases;
 
         // Сохранение каталога загрузок в настройки при изменении (после выбора папки/скачивания).
         _viewModel.PropertyChanged += OnViewModel_PropertyChanged;
@@ -78,7 +77,7 @@ public partial class PlatformDownloadWindow : Window
     /// <summary>При открытии — первичная проверка каталога версий.</summary>
     private async void OnWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        if (VersionsGrid.Items.Count == 0)
+        if (_viewModel.VersionTree.Count == 0)
             await _viewModel.LoadCatalogAsync();
     }
 
@@ -91,9 +90,10 @@ public partial class PlatformDownloadWindow : Window
         }
     }
 
-    private void OnRowsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>Выбор листа дерева версий передаёт релиз в ViewModel (issue #330).</summary>
+    private void OnVersionsTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        _viewModel.SelectedRelease = VersionsGrid.SelectedItem as PlatformDownloadRowViewModel;
+        _viewModel.SelectedVersionNode = e.NewValue as PlatformCatalogNode;
     }
 
     private void OnViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

@@ -278,12 +278,24 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
 
     // --- InstallFromZipCoreAsync (fake-распаковка и fake-запуск) ---
 
+    /// <summary>Создаёт временный файл с zip-подписью (PK\x03\x04): ранняя проверка
+    /// magic-байтов (issue #334) должна пройти, чтобы тест дошёл до распаковки.</summary>
+    private static string CreateFakeZipFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "cm_test_dist_" + Guid.NewGuid().ToString("N") + ".zip");
+        File.WriteAllBytes(path, new byte[] { 0x50, 0x4B, 0x03, 0x04, 0x00, 0x00 });
+        return path;
+    }
+
     [Fact]
     public async Task InstallFromZipCore_Success_CreatesAndRemovesTempDir()
     {
         const string version = "8.3.27.2214";
         string? createdDir = null;
         var log = new List<string>();
+        var zipPath = CreateFakeZipFile();
+        try
+        {
 
         bool Extract(string zip, string dir)
         {
@@ -293,7 +305,7 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
         }
 
         var result = await PlatformInstaller.InstallFromZipCoreAsync(
-            "dist.zip", version, installDirectory: null,
+            zipPath, version, installDirectory: null,
             new Progress<string>(log.Add), CancellationToken.None,
             Extract,
             (exe, args, timeout, token) =>
@@ -307,13 +319,21 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
         // Временный каталог удалён в finally, несмотря на успех.
         Assert.False(Directory.Exists(createdDir));
         Assert.NotEmpty(log);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
     }
 
     [Fact]
     public async Task InstallFromZipCore_SetupNotFound_ReturnsErrorKey()
     {
+        var zipPath = CreateFakeZipFile();
+        try
+        {
         var result = await PlatformInstaller.InstallFromZipCoreAsync(
-            "dist.zip", "8.3.27.2214", null, null, CancellationToken.None,
+            zipPath, "8.3.27.2214", null, null, CancellationToken.None,
             (zip, dir) => true,
             (exe, args, timeout, token) =>
                 Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: false)),
@@ -321,13 +341,21 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Equal(PlatformInstaller.ErrorSetupNotFound, result.ErrorKey);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
     }
 
     [Fact]
     public async Task InstallFromZipCore_ExtractFailed_ReturnsErrorKey()
     {
+        var zipPath = CreateFakeZipFile();
+        try
+        {
         var result = await PlatformInstaller.InstallFromZipCoreAsync(
-            "dist.zip", "8.3.27.2214", null, null, CancellationToken.None,
+            zipPath, "8.3.27.2214", null, null, CancellationToken.None,
             (zip, dir) => false,
             (exe, args, timeout, token) =>
                 Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: false)),
@@ -335,12 +363,20 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Equal(PlatformInstaller.ErrorExtractFailed, result.ErrorKey);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
     }
 
     [Fact]
     public async Task InstallFromZipCore_TimedOut_ReturnsErrorKey()
     {
         string? createdDir = null;
+        var zipPath = CreateFakeZipFile();
+        try
+        {
         bool Extract(string zip, string dir)
         {
             createdDir = dir;
@@ -349,7 +385,7 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
         }
 
         var result = await PlatformInstaller.InstallFromZipCoreAsync(
-            "dist.zip", "8.3.27.2214", null, null, CancellationToken.None,
+            zipPath, "8.3.27.2214", null, null, CancellationToken.None,
             Extract,
             (exe, args, timeout, token) =>
                 Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: true)),
@@ -358,6 +394,11 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
         Assert.False(result.Success);
         Assert.Equal(PlatformInstaller.ErrorTimedOut, result.ErrorKey);
         Assert.False(Directory.Exists(createdDir));
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
     }
 
     [Fact]

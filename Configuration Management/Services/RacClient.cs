@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,12 +49,29 @@ public sealed class RacClient : IRacClient
     /// Без кэша каждая загрузка данных кластера запускала rac дважды (первая попытка
     /// всегда падала), что заметно удлиняло подключение/автообновление.
     /// Значение — индекс формата: 0 = "--cluster=<uuid>", 1 = "--cluster <uuid>".
+    /// Карта восстанавливается с диска (<see cref="RacJobListFormatStore"/>), чтобы
+    /// после перезапуска приложения не тратить ~1 с на заведомо падающую первую
+    /// попытку («подключение локально занимает почти 5 секунд», issue #324).
     /// </summary>
-    private readonly Dictionary<string, int> _jobListFormats = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _jobListFormats;
+
+    /// <summary>
+    /// Кэш последнего вывода «cluster list» по ключу подключения (issue #324):
+    /// вывод «cluster info --cluster=<uuid>» на новых rac ПОСТРОЧНО совпадает с блоком
+    /// соответствующего кластера в «cluster list» (в логе 8.5.4.1878 — по 1060 символов),
+    /// поэтому info переиспользуется из кэша в течение TTL вместо запуска rac.
+    /// Каждый запуск rac на Windows стоит ~1.1 с (старт процесса + comcntr) — на цикл
+    /// из 8 вызовов экономится один.
+    /// </summary>
+    private readonly Dictionary<string, (string Output, DateTime Timestamp)> _clusterListCache = new();
+
+    /// <summary>Срок годности кэша вывода «cluster list» (issue #324).</summary>
+    internal static readonly TimeSpan ClusterListCacheTtl = TimeSpan.FromSeconds(30);
 
     public RacClient(IAppLogger logger)
     {
         _logger = logger;
+        _jobListFormats = RacJobListFormatStore.Load();
     }
 
     /// <inheritdoc />
@@ -73,19 +91,98 @@ public sealed class RacClient : IRacClient
                 "кластеры не найдены. Проверьте порт: агент ragent (1540) или RAS (1545), " +
                 "а не порт кластера (1541).");
         }
+        else
+        {
+            // Кэшируем вывод для переиспользования в GetClusterInfoAsync (issue #324):
+            // экономит один запуск rac (~1.1 с) на каждый цикл обновления данных.
+            _clusterListCache[ConnectionKey(parameters)] = (output, DateTime.UtcNow);
+        }
 
-        return RacOutputParser.ToClusters(output);
+        var clusters = RacOutputParser.ToClusters(output);
+        // Диагностика «в списке ключ вместо имени» (issue #324): в журнал попадают
+        // распознанные подписи кластеров — сразу видно, что вернул парсер.
+        if (clusters.Count > 0)
+        {
+            _logger.Info("RAC: cluster list — распознано кластеров: " + string.Join("; ",
+                clusters.Select(c =>
+                    $"«{(string.IsNullOrWhiteSpace(c.Name) ? (string.IsNullOrWhiteSpace(c.Host) ? "?" : c.Host) : c.Name)}» (порт {c.Port})")));
+        }
+
+        return clusters;
     }
 
     /// <inheritdoc />
     public async Task<RacClusterInfo?> GetClusterInfoAsync(
         RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
     {
+        // Переиспользование кэша cluster list (issue #324): блок кластера из свежего
+        // «cluster list» идентичен выводу «cluster info» — rac не запускается второй раз.
+        if (_clusterListCache.TryGetValue(ConnectionKey(parameters), out var cached) &&
+            DateTime.UtcNow - cached.Timestamp <= ClusterListCacheTtl)
+        {
+            var block = ExtractClusterBlock(cached.Output, clusterId);
+            if (block is not null)
+            {
+                _logger.Info("RAC: cluster info — переиспользован кэш cluster list (экономия запуска rac, issue #324).");
+                return RacOutputParser.ToClusterInfo(block);
+            }
+        }
+
         var output = await RunAsync(parameters, cancellationToken, "cluster", "info",
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(output) ? null : RacOutputParser.ToClusterInfo(output);
     }
+
+    /// <summary>
+    /// Извлекает из вывода «cluster list» (формат блоков «ключ : значение») текст блока
+    /// кластера с идентификатором <paramref name="clusterId"/> — он построчно совпадает
+    /// с выводом «cluster info --cluster=<uuid>» (issue #324). Возвращает null, если
+    /// вывод не в формате блоков или кластер не найден. Internal — для юнит-тестов.
+    /// </summary>
+    internal static string? ExtractClusterBlock(string? clusterListOutput, Guid clusterId)
+    {
+        if (string.IsNullOrWhiteSpace(clusterListOutput) || clusterId == Guid.Empty)
+            return null;
+
+        var builder = new StringBuilder();
+        var inTargetBlock = false;
+
+        foreach (var rawLine in clusterListOutput.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                // Пустая строка внутри целевого блока сохраняется; после блока — конец.
+                if (inTargetBlock)
+                    builder.AppendLine(line);
+                continue;
+            }
+
+            var colon = line.IndexOf(':');
+            if (colon > 0 &&
+                line.Substring(0, colon).Trim().Equals("cluster", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = line.Substring(colon + 1).Trim();
+                var isTarget = Guid.TryParse(value, out var parsed) && parsed == clusterId;
+                if (inTargetBlock)
+                    break;              // начался следующий кластер — блок завершён
+                if (!isTarget)
+                    continue;           // чужой блок — пропускаем строки до своего
+                inTargetBlock = true;
+            }
+
+            if (inTargetBlock)
+                builder.AppendLine(line);
+        }
+
+        return inTargetBlock && builder.Length > 0 ? builder.ToString() : null;
+    }
+
+    /// <summary>Ключ подключения без кластера: точка подключения и учётная запись
+    /// (без пароля — секреты не попадают в ключи словарей, issue #324).</summary>
+    private static string ConnectionKey(RacConnectionParams parameters)
+        => $"{parameters.Address}:{parameters.Port}|{parameters.User}";
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<RacProcessInfo>> GetProcessesAsync(
@@ -176,9 +273,11 @@ public sealed class RacClient : IRacClient
                 lastError = null;
                 if (index != 0)
                     usedFallback = true;
-                // Запоминаем рабочий формат; при смене версии платформы неудачная попытка
-                // ниже удалит ключ, и на следующем вызове форматы перепробуются заново.
+                // Запоминаем рабочий формат (в памяти и на диске); при смене версии
+                // платформы неудачная попытка ниже удалит ключ, и на следующем вызове
+                // форматы перепробуются заново.
                 _jobListFormats[formatKey] = index;
+                RacJobListFormatStore.Save(_jobListFormats);
             }
             catch (RacClientException ex)
             {
@@ -193,6 +292,10 @@ public sealed class RacClient : IRacClient
             // WARN писался после первой попытки даже при успехе второй и сбивал с толку).
             foreach (var failure in failures)
                 _logger.Warn($"RAC: job list ({failure})");
+            // Запись формата устарела (сменилась версия платформы) — удаляем из кэша,
+            // чтобы на следующем вызове форматы перепробовались заново.
+            _jobListFormats.Remove(formatKey);
+            RacJobListFormatStore.Save(_jobListFormats);
             throw lastError ?? new RacClientException("job list: не удалось получить вывод rac.");
         }
 
@@ -223,7 +326,7 @@ public sealed class RacClient : IRacClient
     /// попадать в строковые ключи словаря и логи). Internal — для юнит-тестов.
     /// </summary>
     internal static string JobListFormatKey(RacConnectionParams parameters, Guid clusterId)
-        => $"{parameters.Address}:{parameters.Port}|{parameters.User}|{clusterId}";
+        => $"{ConnectionKey(parameters)}|{clusterId}";
 
     /// <summary>
     /// Нераспознанный вывод rac (issue #324): rac завершился с кодом 0 и вернул НЕпустой вывод,
@@ -348,7 +451,17 @@ public sealed class RacClient : IRacClient
         // rac-команды видно в журнале — где остаются секунды (старт rac или сервер).
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
+        // Поиск rac может сканировать каталоги установленных платформ и быть заметной
+        // частью общего времени подключения (issue #324: «локально почти 5 секунд») —
+        // выделяем его тайминг в журнал, чтобы знать вклад этого этапа.
+        var locatorStopwatch = System.Diagnostics.Stopwatch.StartNew();
         var rac = OneCPlatformLocator.FindRacExecutable();
+        locatorStopwatch.Stop();
+        if (locatorStopwatch.ElapsedMilliseconds > 200)
+        {
+            _logger.Info($"RAC: поиск rac занял {locatorStopwatch.ElapsedMilliseconds} мс");
+        }
+
         if (rac is null)
         {
             const string message =

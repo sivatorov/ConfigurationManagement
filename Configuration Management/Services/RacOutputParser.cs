@@ -242,8 +242,15 @@ public static class RacOutputParser
                 clusters.Add(new RacCluster
                 {
                     Id = id,
-                    Name = Unquote(Get(block, "name")),
-                    Port = ParseInt(Get(block, "port"))
+                    // Имя кластера — по первому найденному ключу-алиасу: разные версии rac
+                    // называют колонку по-разному (issue #324, «в поле ключ вместо имени»:
+                    // у новых rac 8.5 возможны fullName/displayName вместо name).
+                    Name = Unquote(GetAny(block, "name", "fullName", "displayName", "descr", "description")),
+                    Port = ParseInt(Get(block, "port")),
+                    // Хост кластера — для запасной подписи в списке, когда name пуст
+                    // (issue #324: «ключ вместо имени» — пользователь должен видеть
+                    // хотя бы осмысленный «host (порт)» вместо пустого плейсхолдера).
+                    Host = Unquote(Get(block, "host"))
                 });
             }
         }
@@ -801,8 +808,10 @@ public static class RacOutputParser
         return new RacClusterInfo
         {
             Properties = properties,
-            Name = Get(properties, "name"),
-            HostName = Get(properties, "hostName"),
+            // rac 8.5.4 заключает значения с пробелами в кавычки («name : "Локальный
+            // кластер"», issue #324) — снимаем их, как это делает блок-парсер ToClusters.
+            Name = Unquote(Get(properties, "name")),
+            HostName = Unquote(Get(properties, "hostName")),
             Port = ParseInt(Get(properties, "port")),
             ExpirationTimeout = ParseLong(Get(properties, "expirationTimeout")),
             LifetimeLimit = ParseLong(Get(properties, "lifetimeLimit")),

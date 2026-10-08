@@ -67,6 +67,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private bool _is64Bit;
     private PlatformDownloadType _downloadType;
     private IReadOnlyList<PlatformDownloadType> _availableDownloadTypes = new[] { PlatformDownloadType.Auto };
+    private PlatformCatalogNode? _selectedVersionNode;
+    private PlatformDistributionOption? _selectedDistribution;
+    private IReadOnlyList<PlatformDistributionOption> _distributionOptions = Array.Empty<PlatformDistributionOption>();
     private string _targetDirectory = string.Empty;
     private string _accountName = string.Empty;
     private bool _hasAccount;
@@ -76,6 +79,29 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
 
     /// <summary>Список версий каталога платформы (по убыванию).</summary>
     public ObservableCollection<PlatformDownloadRowViewModel> Releases { get; } = new();
+
+    /// <summary>
+    /// Дерево версий каталога (issue #330): линии «8.3/8.5» → группы сборок «8.3.27»
+    /// → полные версии «8.3.27.2214», сортировка по убыванию. Строится из объединённого
+    /// каталога Platform83 + Platform85.
+    /// </summary>
+    public ObservableCollection<PlatformCatalogNode> VersionTree { get; } = new();
+
+    /// <summary>Выбранный узел дерева версий (лист). При выборе подгружает файлы релиза.</summary>
+    public PlatformCatalogNode? SelectedVersionNode
+    {
+        get => _selectedVersionNode;
+        set
+        {
+            if (!SetProperty(ref _selectedVersionNode, value))
+                return;
+            var release = value?.Release;
+            SelectedRelease = release is null
+                ? null
+                : Releases.FirstOrDefault(r =>
+                    string.Equals(r.Version, release.Version, StringComparison.OrdinalIgnoreCase));
+        }
+    }
 
     /// <summary>Выбранная версия. При выборе лениво подгружаются файлы релиза и
     /// пересчитывается файл дистрибутива под разрядность/тип.</summary>
@@ -90,6 +116,26 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 RefreshCommands();
                 _ = LoadReleaseFilesAsync(value);
             }
+        }
+    }
+
+    /// <summary>Варианты дистрибутива выбранной версии для целевой ОС (issue #330):
+    /// полный/тонкий клиент Windows x64/x86 или пакеты/архив Linux; рекомендуемый помечен.</summary>
+    public IReadOnlyList<PlatformDistributionOption> DistributionOptions
+    {
+        get => _distributionOptions;
+        private set => SetProperty(ref _distributionOptions, value ?? Array.Empty<PlatformDistributionOption>());
+    }
+
+    /// <summary>Выбранный пользователем вариант дистрибутива (определяет
+    /// <see cref="PickedFile"/> и доступность команд «Скачать»/«Запустить установщик»).</summary>
+    public PlatformDistributionOption? SelectedDistribution
+    {
+        get => _selectedDistribution;
+        set
+        {
+            if (SetProperty(ref _selectedDistribution, value))
+                PickedFile = value?.File;
         }
     }
 
@@ -342,7 +388,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         _appLogger?.Info("Скачивание платформы: получение каталога версий с портала 1С");
         try
         {
-            var result = await _service.GetAvailableReleasesAsync().ConfigureAwait(false);
+            // Объединённый каталог всех линий платформы (Platform83 + Platform85)
+            // с allUpdates=true — полный список версий (issue #330).
+            var result = await _service.GetAllAvailableReleasesAsync().ConfigureAwait(false);
             if (result.Status != PortalFetchStatus.Ok)
             {
                 var errorKey = string.IsNullOrWhiteSpace(result.ErrorKey)
@@ -366,6 +414,11 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 Releases.Clear();
                 foreach (var release in result.Releases)
                     Releases.Add(new PlatformDownloadRowViewModel(release));
+
+                // Дерево версий «8.x \ 8.x.yy \ полная версия» (паттерн выбора платформы).
+                VersionTree.Clear();
+                foreach (var node in PlatformVersionTreeBuilder.BuildFromCatalog(result.Releases))
+                    VersionTree.Add(node);
 
                 if (Releases.Count == 0)
                 {
@@ -421,11 +474,16 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Пересчитывает список доступных типов и выбранный файл дистрибутива
-    /// (версия + разрядность + тип → файл).</summary>
+    /// <summary>Пересчитывает варианты дистрибутива и выбранный файл
+    /// (версия + разрядность + тип → файл, issue #330).</summary>
     private void RepickFile()
     {
         var files = SelectedRelease?.Release.Files ?? (IReadOnlyList<PlatformReleaseFile>)Array.Empty<PlatformReleaseFile>();
+
+        // Варианты для целевой ОС: реальный выбор (полный/тонкий клиент, x64/x86, пакеты)
+        // вместо единственного «Авто». Рекомендуемый помечен и предвыбран по умолчанию.
+        var options = PlatformDistributionPicker.BuildOptions(files, _isWindows, Is64Bit);
+        DistributionOptions = options;
 
         var types = PlatformDistributionPicker.AvailableTypes(files, _isWindows);
         AvailableDownloadTypes = types.Count > 0 ? types : new[] { PlatformDownloadType.Auto };
@@ -438,7 +496,26 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 LocalizationManager.T(PlatformDistributionPicker.TypeLocalizationKey(t)), t))
             .ToList();
 
-        PickedFile = PlatformDistributionPicker.PickFile(files, Is64Bit, DownloadType, _isWindows);
+        // Явный тип дистрибутива (не «Авто», issue #330): файл выбирается по типу,
+        // иначе комбинированный выбор типа не влиял на итоговый файл (тест
+        // ThinClientType_PicksThinZip).
+        if (DownloadType != PlatformDownloadType.Auto)
+        {
+            PickedFile = PlatformDistributionPicker.PickFile(files, Is64Bit, DownloadType, _isWindows)
+                ?? PlatformDistributionPicker.PickFile(files, Is64Bit, PlatformDownloadType.Auto, _isWindows);
+            SelectedDistribution = options.FirstOrDefault(o => ReferenceEquals(o.File, PickedFile))
+                ?? SelectedDistribution;
+            return;
+        }
+
+        // Сохраняем выбор пользователя; при смене версии/разрядности выбираем рекомендуемый.
+        if (SelectedDistribution is null || !options.Any(o => ReferenceEquals(o, SelectedDistribution)))
+        {
+            SelectedDistribution = options.FirstOrDefault(o => o.IsRecommended) ?? options.FirstOrDefault();
+        }
+
+        PickedFile = SelectedDistribution?.File
+            ?? PlatformDistributionPicker.PickFile(files, Is64Bit, DownloadType, _isWindows);
     }
 
     /// <summary>Скачивает выбранный дистрибутив в <see cref="TargetDirectory"/> с прогрессом.

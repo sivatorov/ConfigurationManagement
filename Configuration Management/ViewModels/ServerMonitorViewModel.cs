@@ -317,6 +317,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     {
         if (!SetProperty(ref _isAutoRefreshEnabled, enabled))
             return;
+
         if (enabled)
         {
             if (HasConnected && _autoRefreshTimer is null)
@@ -326,13 +327,29 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         {
             StopAutoRefresh();
         }
+        // Статусная строка внизу окна различает «выключено переключателем» и
+        // «остановлено после ошибки» (issue #324): при переключении она обязана
+        // обновиться даже если таймер не стартовал/не останавливался.
+        OnPropertyChanged(nameof(AutoRefreshText));
     }
 
-    /// <summary>Подпись состояния автообновления для подсказки окна (с текущим интервалом).</summary>
-    public string AutoRefreshText => AutoRefreshActive
-        ? string.Format(LocalizationManager.T("ServerMonitor.AutoRefreshOnFormat"), AutoRefreshIntervalSeconds)
-        : LocalizationManager.T("ServerMonitor.AutoRefreshOff");
-
+    /// <summary>
+    /// Подпись состояния автообновления для статусной строки окна (issue #324):
+    /// «вкл (N с)» — таймер реально работает; «выкл» — переключатель снят;
+    /// «остановлено (ошибка)» — переключатель включён, но таймер остановлен из-за
+    /// сбоя загрузки данных (показывает ФАКТИЧЕСКОЕ состояние, а не положение галки).
+    /// </summary>
+    public string AutoRefreshText
+    {
+        get
+        {
+            if (!IsAutoRefreshEnabled)
+                return LocalizationManager.T("ServerMonitor.AutoRefreshOff");
+            return AutoRefreshActive
+                ? string.Format(LocalizationManager.T("ServerMonitor.AutoRefreshOnFormat"), AutoRefreshIntervalSeconds)
+                : LocalizationManager.T("ServerMonitor.AutoRefreshStopped");
+        }
+    }
     // ===================== Статус =====================
 
     /// <summary>Строка состояния («Подключение…», «Кластеров: N», ошибки).</summary>
@@ -371,6 +388,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         if (!TryEnterBusy())
             return;
 
+        Guid? initialClusterId = null;
         try
         {
             ErrorMessage = string.Empty;
@@ -384,12 +402,19 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
                 ? LocalizationManager.T("ServerMonitor.Status.NoClusters")
                 : string.Format(LocalizationManager.T("ServerMonitor.Status.ConnectedFormat"), clusters.Count);
 
-            // Автообновление запускается только после успешного подключения.
-            StartAutoRefresh();
+            // Автообновление запускается только после успешного подключения И при
+            // включённом переключателе: галку могли снять ДО подключения — таймер
+            // в этом случае не должен стартовать (issue #324, комментарий 7OH).
+            if (IsAutoRefreshEnabled)
+                StartAutoRefresh();
 
-            // Первый кластер выбираем автоматически — он же запускает загрузку данных.
+            // Первый кластер выбираем автоматически. Сам выбор (и запускаемая им
+            // загрузка данных) делаем ПОСЛЕ выхода из busy: назначение внутри
+            // ConnectAsync молча пропускало LoadClusterDataAsync через TryEnterBusy,
+            // и данные приходили только через таймер ~5 с спустя (issue #324:
+            // «подключение локально занимает почти 5 секунд»).
             if (SelectedClusterId is null && ClusterRows.Count > 0)
-                SelectedClusterId = ClusterRows[0].Id;
+                initialClusterId = ClusterRows[0].Id;
         }
         catch (Exception ex)
         {
@@ -410,6 +435,15 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         {
             ExitBusy();
         }
+
+        // busy освобождён — запускам первичную загрузку данных выбранного кластера.
+        // Важно: ApplyClusters при единственном кластере выбирает его ДО HasConnected=true,
+        // и сеттер тогда не запускает загрузку; без этого блока данные приходили бы
+        // только от таймера ~5 с спустя (issue #324).
+        if (SelectedClusterId is { } clusterId && HasConnected && _busy == 0)
+            _ = LoadClusterDataAsync(clusterId);
+        else if (initialClusterId is { } initialId)
+            SelectedClusterId = initialId;
     }
 
     /// <summary>
@@ -477,8 +511,14 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
+            // issue #324: любая ошибка загрузки останавливает таймер автообновления
+            // (бесконечный ретрай каждые 5 с после разрыва соединения не нужен —
+            // «после ошибки продолжает пытаться получить данные»). Ручное «Обновить»
+            // остаётся доступным; после успешной загрузки таймер возобновляется,
+            // если переключатель включён (см. выше, строка 461).
             ErrorMessage = BuildErrorMessage(ex);
             StatusText = LocalizationManager.T("ServerMonitor.Status.LoadFailed");
+            StopAutoRefresh();
         }
         finally
         {
@@ -677,11 +717,15 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     /// <summary>
     /// Запускает таймер автообновления данных выбранного кластера (5 с). Создаётся при
-    /// успешном подключении; повторный запуск — no-op. Тик идёт через <see cref="Refresh"/>
-    /// с тем же флагом занятости, что и ручное «Обновить» (наложение исключено).
+    /// успешном подключении, если переключатель автообновления включён; повторный запуск —
+    /// no-op. Тик идёт через <see cref="Refresh"/> с тем же флагом занятости, что и ручное
+    /// «Обновить» (наложение исключено). При выключенном переключателе — no-op: единая
+    /// защита всех точек запуска (issue #324, «галка снята, а таймер работает»).
     /// </summary>
     private void StartAutoRefresh()
     {
+        if (!IsAutoRefreshEnabled)
+            return;
         var intervalMs = AutoRefreshIntervalSeconds * 1000;
         _autoRefreshTimer ??= new Timer(_ => Refresh(), null, intervalMs, intervalMs);
         OnPropertyChanged(nameof(AutoRefreshActive));

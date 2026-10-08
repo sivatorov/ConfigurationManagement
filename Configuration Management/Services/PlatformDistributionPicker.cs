@@ -29,6 +29,77 @@ public enum PlatformDownloadType
 }
 
 /// <summary>
+/// Вариант дистрибутива для выбора пользователем (issues #330/#334): конкретный файл
+/// с человекочитаемым представлением (тип, разрядность, размер). Используется окном
+/// «Скачивание версии платформы 1С» и диалогом выбора варианта в окне обновления.
+/// </summary>
+public sealed class PlatformDistributionOption
+{
+    /// <param name="file">Файл дистрибутива релиза.</param>
+    /// <param name="isRecommended">True — рекомендуемый вариант для текущей ОС.</param>
+    public PlatformDistributionOption(PlatformReleaseFile file, bool isRecommended = false)
+    {
+        File = file ?? throw new ArgumentNullException(nameof(file));
+        IsRecommended = isRecommended;
+    }
+
+    /// <summary>Файл дистрибутива.</summary>
+    public PlatformReleaseFile File { get; }
+
+    /// <summary>True — рекомендуемый вариант для текущей ОС/разрядности.</summary>
+    public bool IsRecommended { get; }
+
+    /// <summary>Тип дистрибутива по расширению.</summary>
+    public PlatformDistributionKind Kind => File.Kind;
+
+    /// <summary>Разрядность («x64»/«x86») или пустая строка.</summary>
+    public string Architecture => File.Architecture ?? string.Empty;
+
+    /// <summary>Размер файла, байт (0 — неизвестен).</summary>
+    public long SizeBytes => File.SizeBytes;
+
+    /// <summary>
+    /// Человекочитаемое представление варианта: «Полный клиент (zip) · x64 · 1,2 ГБ»
+    /// (Windows) или «Пакет deb · amd64 · …» (Linux).
+    /// </summary>
+    public string DisplayName
+    {
+        get
+        {
+            var type = File.Kind == PlatformDistributionKind.WindowsSetupZip
+                ? (PlatformDistributionPicker.IsThinClient(File) ? "Тонкий клиент (zip)" : "Полный клиент (zip)")
+                : File.Kind switch
+                {
+                    PlatformDistributionKind.LinuxDeb => "Пакет deb",
+                    PlatformDistributionKind.LinuxRpm => "Пакет rpm",
+                    PlatformDistributionKind.LinuxTarGz => "Архив tar.gz",
+                    _ => File.FileName,
+                };
+            var arch = string.IsNullOrWhiteSpace(Architecture) ? string.Empty : " · " + Architecture;
+            var size = SizeBytes > 0 ? " · " + FormatSize(SizeBytes) : string.Empty;
+            return type + arch + size;
+        }
+    }
+
+    /// <inheritdoc />
+    public override string ToString() => DisplayName;
+
+    private static string FormatSize(long bytes)
+    {
+        const long kb = 1024;
+        const long mb = kb * 1024;
+        const long gb = mb * 1024;
+        if (bytes >= gb)
+            return $"{bytes / (double)gb:0.#} ГБ";
+        if (bytes >= mb)
+            return $"{bytes / (double)mb:0.#} МБ";
+        if (bytes >= kb)
+            return $"{bytes / (double)kb:0.#} КБ";
+        return bytes.ToString();
+    }
+}
+
+/// <summary>
 /// Чистый выбор файла дистрибутива версии платформы 1С под ОС, разрядность и тип
 /// (issue #330): фильтрация файлов релиза каталога <c>releases.1c.ru</c> по типу
 /// дистрибутива и приоритет подходящей разрядности. Не выполняет сетевых запросов
@@ -113,6 +184,69 @@ public static class PlatformDistributionPicker
         PlatformDownloadType.Archive => "PlatformDownload.Type.Archive",
         _ => "PlatformDownload.Type.Auto",
     };
+
+    /// <summary>
+    /// Строит список вариантов дистрибутива, отфильтрованный по целевой ОС (issue #330/#334):
+    /// Windows — zip-клиенты (полный и тонкий), Linux — пакеты deb/rpm/tar.gz. Сортировка:
+    /// полный клиент → тонкий клиент → пакеты → архив; внутри — x64 перед x86; рекомендуемый
+    /// вариант помечается и ставится первым. Пустой список файлов — пустой результат.
+    /// </summary>
+    /// <param name="files">Файлы дистрибутива релиза.</param>
+    /// <param name="isWindows">True — целевая ОС Windows, false — Linux.</param>
+    /// <param name="is64Bit">Разрядность ОС для пометки рекомендуемого варианта.</param>
+    public static IReadOnlyList<PlatformDistributionOption> BuildOptions(
+        IReadOnlyList<PlatformReleaseFile> files, bool isWindows, bool is64Bit)
+    {
+        var options = new List<PlatformDistributionOption>();
+        if (files is null || files.Count == 0)
+            return options;
+
+        var relevant = (isWindows
+                ? files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip)
+                : files.Where(f => f.Kind is PlatformDistributionKind.LinuxDeb or PlatformDistributionKind.LinuxRpm
+                    or PlatformDistributionKind.LinuxTarGz))
+            .ToList();
+        if (relevant.Count == 0)
+            return options;
+
+        relevant.Sort((a, b) =>
+        {
+            var typeRank = TypeRank(a, isWindows).CompareTo(TypeRank(b, isWindows));
+            if (typeRank != 0)
+                return typeRank;
+
+            var aX64 = string.Equals(a.Architecture, Arch64, StringComparison.OrdinalIgnoreCase);
+            var bX64 = string.Equals(b.Architecture, Arch64, StringComparison.OrdinalIgnoreCase);
+            if (aX64 != bX64)
+                return aX64 ? -1 : 1;
+
+            return string.Compare(a.FileName, b.FileName, StringComparison.OrdinalIgnoreCase);
+        });
+
+        var recommended = PickFile(files, is64Bit, PlatformDownloadType.Auto, isWindows);
+        var recommendedUrl = recommended?.Url ?? string.Empty;
+        foreach (var file in relevant)
+        {
+            var isRec = !string.IsNullOrWhiteSpace(recommendedUrl) &&
+                        string.Equals(file.Url, recommendedUrl, StringComparison.OrdinalIgnoreCase);
+            options.Add(new PlatformDistributionOption(file, isRec));
+        }
+
+        return options;
+    }
+
+    /// <summary>Приоритет типа при сортировке вариантов (меньше — выше).</summary>
+    private static int TypeRank(PlatformReleaseFile file, bool isWindows)
+    {
+        if (isWindows)
+            return IsThinClient(file) ? 1 : 0;
+        return file.Kind switch
+        {
+            PlatformDistributionKind.LinuxDeb => 0,
+            PlatformDistributionKind.LinuxRpm => 1,
+            _ => 2,
+        };
+    }
 
     /// <summary>Фильтр файлов по типу дистрибутива (для Auto — по целевой ОС).</summary>
     private static List<PlatformReleaseFile> FilterByType(
