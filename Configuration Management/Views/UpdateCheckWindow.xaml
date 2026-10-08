@@ -5,7 +5,7 @@
         xmlns:loc="clr-namespace:Configuration_Management.Localization"
         Title="{loc:Loc Updates.CheckTitle}"
         Icon="{StaticResource AppIcon}"
-        Width="760" Height="580"
+        Width="760" Height="660"
         MinHeight="500" MinWidth="680"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"

@@ -116,10 +116,19 @@
         <!-- Выбор кластера -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="{loc:Loc ServerMonitor.Cluster}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <!-- issue #324: явный ItemTemplate вместо DisplayMemberPath — с шаблоном
+                 ModernComboBox закрытый ComboBox в ряде случаев показывал ToString()
+                 выбранного элемента («Configuration_Management…» вместо имени кластера). -->
             <ComboBox x:Name="ClusterCombo" Width="360" Style="{StaticResource ModernComboBox}"
-                      ItemsSource="{Binding ClusterRows}" DisplayMemberPath="DisplayText"
+                      ItemsSource="{Binding ClusterRows}"
                       SelectedValuePath="Id" SelectedValue="{Binding SelectedClusterId}"
-                      VerticalContentAlignment="Center" Padding="6,2"/>
+                      VerticalContentAlignment="Center" Padding="6,2">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <TextBlock x:Name="StatusSummary" VerticalAlignment="Center" Margin="14,0,0,0"
                        FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                        Text="{Binding StatusText}"/>
@@ -357,10 +366,18 @@
                     <!-- Панель фильтра по базе и действий (подтверждение — в VM). -->
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="{loc:Loc ServerMonitor.Columns.Job.Infobase}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <!-- issue #324: явный ItemTemplate вместо DisplayMemberPath
+                             (см. комментарий к ClusterCombo выше). -->
                         <ComboBox x:Name="JobFilterCombo" Width="240" Style="{StaticResource ModernComboBox}"
-                                  ItemsSource="{Binding JobInfobaseFilterRows}" DisplayMemberPath="DisplayText"
+                                  ItemsSource="{Binding JobInfobaseFilterRows}"
                                   SelectedValuePath="Id" SelectedValue="{Binding SelectedJobInfobaseId}"
-                                  VerticalContentAlignment="Center" Padding="6,2"/>
+                                  VerticalContentAlignment="Center" Padding="6,2">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                         <Button x:Name="PauseJobButton" Style="{StaticResource ModernButton}"
                                 Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
                                 Margin="12,0,8,0" IsEnabled="{Binding CanPauseSelectedJob}"

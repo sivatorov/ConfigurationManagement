@@ -303,11 +303,37 @@ public sealed class RacClientTests
     [Fact]
     public void JobListArgs_Format1_UsesTwoTokens()
     {
-        // rac 8.5.4.1878 отклоняет формат 0 (код -1, «Ошибка разбора параметра») и
-        // принимает два токена «--cluster <uuid>» — рабочий формат (issue #324).
+        // rac 8.5.4.1878 отклоняет формат 0 (код -1, «Ошибка разбора параметра»);
+        // формат 1 — два токена «--cluster <uuid>» (issue #324).
         var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
 
         Assert.Equal(new[] { "job", "list", "--cluster", clusterId.ToString() }, RacClient.JobListArgs(1, clusterId));
+    }
+
+    [Fact]
+    public void JobListArgs_Format2_UsesPositionalUuid()
+    {
+        // По логам 2026-10-07/08 rac 8.5.4.1878 отклоняет ОБА варианта «--cluster»
+        // («Ошибка разбора параметра: --cluster») — добавлен формат 2: позиционный
+        // uuid без имени параметра (issue #324, 0.3.9.330).
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(new[] { "job", "list", clusterId.ToString() }, RacClient.JobListArgs(2, clusterId));
+    }
+
+    [Fact]
+    public void JobListFormatCount_CoversAllFormats()
+    {
+        Assert.Equal(3, RacClient.JobListFormatCount);
+        // Имена форматов — для журнала; должны отличаться между собой.
+        Assert.Equal(
+            new[] { "--cluster=<uuid>", "--cluster <uuid>", "<uuid>" },
+            new[]
+            {
+                RacClient.JobListFormatName(0),
+                RacClient.JobListFormatName(1),
+                RacClient.JobListFormatName(2)
+            });
     }
 
     [Fact]

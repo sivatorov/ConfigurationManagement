@@ -601,6 +601,11 @@ public class OneCUpdatesService : IOneCUpdatesService
         return latest > current;
     }
 
+    /// <summary>Максимальное число переходов по промежуточным страницам при разрешении
+    /// конечного адреса дистрибутива (issue #352): каталог релизов → страница файлов
+    /// релиза (version_files) → страница скачивания файла → сам файл. Защита от зацикливания.</summary>
+    private const int MaxDistributionResolutionDepth = 5;
+
     /// <inheritdoc />
     public async Task<string?> DownloadUpdateAsync(
         string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default)
@@ -614,66 +619,105 @@ public class OneCUpdatesService : IOneCUpdatesService
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            // Если URL указывает на страницу version_files — он возвращает JSON со списком файлов
-            // релиза, а не сам архив. Получаем список, выбираем дистрибутив (setup*.zip → *.zip →
-            // 1cv8.cf) и скачиваем уже прямую ссылку. Если URL — прямая ссылка на файл — качаем как есть.
-            var isVersionFiles = url.Contains("version_files", StringComparison.OrdinalIgnoreCase);
-            if (isVersionFiles)
+            // issue #352: адрес из окна проверки обновлений — это цепочка страниц, а не сам
+            // дистрибутив: каталог релизов (project/<nick>) → страница файлов релиза
+            // (version_files) → страница скачивания конкретного файла (её URL тоже может
+            // заканчиваться на «.zip»). Каждый HTML-ответ анализируем и переходим по найденной
+            // ссылке, пока не получим бинарный контент дистрибутива; сохраняем только его.
+            var currentUrl = url;
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (var depth = 0; depth < MaxDistributionResolutionDepth; depth++)
             {
-                var listing = await GetTextAsync(url, ct).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(listing))
+                if (!visited.Add(currentUrl.TrimEnd('/')))
                 {
-                    _logger.Warn($"[Updates] Не удалось получить список файлов релиза: {url}");
+                    _logger.Warn($"[Updates] Циклические переходы при поиске дистрибутива: {currentUrl}");
                     return null;
                 }
 
-                var direct = SelectDistributionUrl(listing);
-                if (string.IsNullOrWhiteSpace(direct))
+                using var request = new HttpRequestMessage(HttpMethod.Get, currentUrl);
+                using var response = await SendWithAuthAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                    .ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
                 {
-                    _logger.Warn($"[Updates] В списке файлов релиза не найден дистрибутив: {url}");
+                    _logger.Warn($"[Updates] HTTP {(int)response.StatusCode} при загрузке обновления: {currentUrl}");
                     return null;
                 }
 
-                url = ResolveUrl(url, direct);
-            }
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+                var isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+                             || contentType.Contains("application/xhtml", StringComparison.OrdinalIgnoreCase);
+                var isVersionFiles = currentUrl.Contains("version_files", StringComparison.OrdinalIgnoreCase);
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            using var response = await SendWithAuthAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
-                .ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-                return null;
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-
-            await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write,
-                             FileShare.None, 81920, useAsync: true))
-            {
-                var buffer = new byte[81920];
-                long readTotal = 0;
-                int read;
-                while ((read = await contentStream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                if (!isHtml && !isVersionFiles)
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                    readTotal += read;
-                    if (totalBytes > 0 && progress is not null)
-                        progress.Report(Math.Min(1.0, (double)readTotal / totalBytes));
+                    // Бинарный контент — это дистрибутив. Расширение итогового файла приводим
+                    // к расширению конечного адреса: диалог сохранения предлагает «.zip», а
+                    // дистрибутив может оказаться «.rar»/«.exe» и т.п.
+                    var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? currentUrl;
+                    targetPath = AdjustTargetExtension(targetPath, finalUrl);
+                    return await SaveResponseToFileAsync(response, targetPath, progress, ct).ConfigureAwait(false);
                 }
+
+                // HTML-страница (или JSON-список файлов релиза): находим следующую ссылку
+                // на пути к дистрибутиву и повторяем запрос.
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                if (LooksLikeLoginForm(body))
+                {
+                    _logger.Warn($"[Updates] Получена страница входа portal.1c.ru вместо дистрибутива: {currentUrl}");
+                    return null;
+                }
+
+                var next = SelectNextDistributionUrl(body, currentUrl, visited);
+                if (string.IsNullOrWhiteSpace(next))
+                {
+                    _logger.Warn($"[Updates] В ответе не найдена ссылка на дистрибутив: {currentUrl}");
+                    return null;
+                }
+
+                currentUrl = ResolveUrl(currentUrl, next);
             }
 
-            return File.Exists(targetPath) ? targetPath : null;
+            _logger.Warn($"[Updates] Превышен предел переходов ({MaxDistributionResolutionDepth}) при поиске дистрибутива: {url}");
+            return null;
         }
         catch (OperationCanceledException)
         {
             TryDelete(targetPath);
             return null;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.Warn($"[Updates] Ошибка загрузки обновления: {ex.GetType().Name}: {ex.Message}");
             TryDelete(targetPath);
             return null;
         }
+    }
+
+    /// <summary>Сохраняет уже полученный (бинарный) ответ в файл с индикацией прогресса.</summary>
+    private static async Task<string?> SaveResponseToFileAsync(
+        HttpResponseMessage response, string targetPath, IProgress<double>? progress, CancellationToken ct)
+    {
+        var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+
+        await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+        await using (var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write,
+                         FileShare.None, 81920, useAsync: true))
+        {
+            var buffer = new byte[81920];
+            long readTotal = 0;
+            int read;
+            while ((read = await contentStream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                readTotal += read;
+                if (totalBytes > 0 && progress is not null)
+                    progress.Report(Math.Min(1.0, (double)readTotal / totalBytes));
+            }
+        }
+
+        return File.Exists(targetPath) ? targetPath : null;
     }
 
     /// <inheritdoc />
@@ -889,24 +933,41 @@ public class OneCUpdatesService : IOneCUpdatesService
     }
 
     /// <summary>Регулярное выражение для поиска прямых ссылок на дистрибутивы
-    /// (<c>*.zip</c>, <c>*.cf</c>) в ответе списка файлов релиза.</summary>
+    /// (<c>*.zip</c>, <c>*.rar</c>, <c>*.7z</c>, <c>*.exe</c>, <c>*.arj</c>, <c>*.cf</c>,
+    /// <c>*.cfu</c>) в ответе списка файлов релиза (issue #352).</summary>
     private static readonly Regex DistributionUrlRegex = new(
-        @"(?<url>(?:https?://|/)[^""'\s<>]*?\.(?:zip|cf)(?:[?#][^""'\s<>]*)?)",
+        @"(?<url>(?:https?://|/)[^""'\s<>]*?\.(?:zip|rar|7z|exe|arj|cf|cfu)(?:[?#][^""'\s<>]*)?)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение для поиска ссылок на страницу файлов релиза
+    /// (<c>version_files?nick=…&ver=…</c>) в HTML-ответе каталога релизов (issue #352).</summary>
+    private static readonly Regex VersionFilesHrefRegex = new(
+        @"href\s*=\s*[""'](?<url>[^""']*version_files[^""']*)[""']",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение для поиска ссылок на передачу файла дистрибутива
+    /// (<c>transfer_file?…</c>) в HTML-ответе страницы скачивания файла (issue #352).</summary>
+    private static readonly Regex TransferFileHrefRegex = new(
+        @"href\s*=\s*[""'](?<url>[^""']*transfer_file[^""']*)[""']",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
-    /// Выбирает прямую ссылку на дистрибутив из ответа (JSON/HTML) списка файлов релиза
-    /// <c>version_files</c>. Приоритет: <c>setup*.zip</c> → полный <c>*.zip</c> → <c>1cv8.cf</c>.
-    /// Поиск ведётся регулярными выражениями, устойчивыми к неизвестной структуре ответа.
-    /// При отсутствии подходящих ссылок возвращает null.
+    /// Собирает упорядоченный список кандидатов на следующую ссылку на пути к дистрибутиву
+    /// из ответа (JSON/HTML) (issue #352). Приоритет: <c>setup*.zip</c> → полный <c>*.zip</c> →
+    /// <c>setup*.exe</c>/<c>*.rar</c>/<c>*.7z</c> → <c>1cv8.cf</c> → ссылки на передачу файла
+    /// (<c>transfer_file</c>) → ссылки на страницы файлов релиза (<c>version_files</c>) —
+    /// для страниц каталога релизов. Поиск ведётся регулярными выражениями, устойчивыми
+    /// к неизвестной структуре ответа. Internal — для юнит-тестов.
     /// </summary>
-    private static string? SelectDistributionUrl(string body)
+    internal static List<string> SelectDistributionCandidates(string body)
     {
+        var result = new List<string>();
         if (string.IsNullOrWhiteSpace(body))
-            return null;
+            return result;
 
         string? setupZip = null;
         string? fullZip = null;
+        string? setupExecutable = null;
         string? cf = null;
 
         foreach (Match m in DistributionUrlRegex.Matches(body))
@@ -917,16 +978,100 @@ public class OneCUpdatesService : IOneCUpdatesService
 
             var lower = raw.ToLowerInvariant();
             var isZip = lower.EndsWith(".zip") || lower.Contains(".zip?") || lower.Contains(".zip#");
-            var isCf = lower.EndsWith(".cf") || lower.Contains(".cf?");
+            var isCf = lower.EndsWith(".cf") || lower.Contains(".cf?") || lower.Contains(".cf#");
             if (isZip && lower.Contains("setup"))
                 setupZip ??= raw;
             else if (isZip)
                 fullZip ??= raw;
             else if (isCf)
                 cf ??= raw;
+            else if (lower.Contains("setup") &&
+                     (lower.EndsWith(".exe") || lower.EndsWith(".rar") ||
+                      lower.EndsWith(".7z") || lower.EndsWith(".arj")))
+                setupExecutable ??= raw;
         }
 
-        return setupZip ?? fullZip ?? cf;
+        if (setupZip is not null)
+            result.Add(setupZip);
+        if (fullZip is not null)
+            result.Add(fullZip);
+        if (setupExecutable is not null)
+            result.Add(setupExecutable);
+        if (cf is not null)
+            result.Add(cf);
+
+        // Страница скачивания конкретного файла: ссылка на передачу самого файла
+        // (issue #352: адрес промежуточной страницы может совпадать с именем файла).
+        foreach (Match m in TransferFileHrefRegex.Matches(body))
+        {
+            var raw = m.Groups["url"].Value.Trim().Trim('"', '\'');
+            if (!string.IsNullOrWhiteSpace(raw) && !result.Contains(raw))
+                result.Add(raw);
+        }
+
+        // Страница каталога релизов: ссылка на файлы последней (самой новой) версии —
+        // первая ссылка version_files в таблице (список отсортирован от новых к старым).
+        foreach (Match m in VersionFilesHrefRegex.Matches(body))
+        {
+            var raw = m.Groups["url"].Value.Trim().Trim('"', '\'');
+            if (!string.IsNullOrWhiteSpace(raw) && !result.Contains(raw))
+                result.Add(raw);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Выбирает следующую ссылку на пути к дистрибутиву: первый кандидат, чей абсолютный
+    /// адрес ещё не посещён (защита от зацикливания на странице, ссылающейся на саму себя,
+    /// issue #352). При отсутствии подходящих кандидатов возвращает null.
+    /// </summary>
+    private static string? SelectNextDistributionUrl(string body, string baseUrl, HashSet<string> visited)
+    {
+        foreach (var candidate in SelectDistributionCandidates(body))
+        {
+            var absolute = ResolveUrl(baseUrl, candidate).TrimEnd('/');
+            if (!visited.Contains(absolute))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Приводит расширение имени сохраняемого файла к расширению конечного адреса
+    /// дистрибутива (issue #352): диалог сохранения предлагает «.zip», а реальный
+    /// дистрибутив может оказаться «.rar»/«.exe»/«.7z» и т.п. Изменение выполняется
+    /// только если у адреса есть распознанное расширение дистрибутива и оно отличается
+    /// от текущего. Internal — для юнит-тестов.
+    /// </summary>
+    internal static string AdjustTargetExtension(string targetPath, string? finalUrl)
+    {
+        var ext = GetDistributionExtension(finalUrl);
+        if (string.IsNullOrEmpty(ext))
+            return targetPath;
+
+        var current = Path.GetExtension(targetPath);
+        return string.Equals(current, ext, StringComparison.OrdinalIgnoreCase)
+            ? targetPath
+            : Path.ChangeExtension(targetPath, ext);
+    }
+
+    /// <summary>Расширение дистрибутива в адресе файла (нижний регистр, с точкой) —
+    /// если адрес оканчивается на распознанное расширение дистрибутива; иначе пустая
+    /// строка. Query/фрагмент адреса игнорируются. Internal — для юнит-тестов.</summary>
+    internal static string GetDistributionExtension(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+
+        var clean = url.Split('?', '#')[0];
+        var ext = Path.GetExtension(clean);
+        return ext.ToLowerInvariant() switch
+        {
+            ".zip" or ".rar" or ".7z" or ".exe" or ".arj" or ".cf" or ".cfu" => ext.ToLowerInvariant(),
+            _ => string.Empty,
+        };
     }
 
     /// <summary>Сравнивает два URI без учёта регистра (для распознавания циклических
@@ -1080,14 +1225,6 @@ public class OneCUpdatesService : IOneCUpdatesService
         {
             return Page(PortalFetchStatus.NetworkError);
         }
-    }
-
-    /// <summary>Выполняет GET и возвращает тело ответа как строку; при сетевой ошибке или
-    /// не-успешном статусе возвращает пустую строку.</summary>
-    private async Task<string> GetTextAsync(string url, CancellationToken ct)
-    {
-        var page = await FetchPageCoreAsync(url, ct).ConfigureAwait(false);
-        return page.Status == PortalFetchStatus.Ok ? page.Text ?? string.Empty : string.Empty;
     }
 
     private static PortalPageResult Page(PortalFetchStatus status, string? text = null)

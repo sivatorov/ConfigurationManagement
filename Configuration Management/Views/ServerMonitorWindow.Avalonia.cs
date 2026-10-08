@@ -640,6 +640,15 @@ namespace Configuration_Management
                 return;
             }
 
+            // issue #324 (0.3.9.330): ItemsSource комбо кластеров задаётся в конструкторе,
+            // когда ClusterRows ещё пуст, — после подключения список надо обновить,
+            // иначе в выпадающем списке нечего выбирать.
+            if (e.PropertyName == nameof(ServerMonitorViewModel.ClusterRows))
+            {
+                _clusterCombo.ItemsSource = _vm.ClusterRows;
+                return;
+            }
+
             if (e.PropertyName != nameof(ServerMonitorViewModel.SelectedClusterId))
                 return;
             if (_vm.SelectedClusterId is Guid id)

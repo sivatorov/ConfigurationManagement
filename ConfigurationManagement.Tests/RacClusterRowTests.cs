@@ -110,4 +110,53 @@ public sealed class RacClusterRowTests
 
         Assert.Equal("(1541)", row.DisplayText);
     }
+
+    [Fact]
+    public void ToString_EqualsDisplayText()
+    {
+        // issue #324 (0.3.9.330): WPF-ComboBox с шаблоном ModernComboBox в некоторых
+        // случаях показывает выбранный элемент через ToString — там должно быть
+        // читаемое имя кластера, а не «Configuration_Management.ViewModels.RacClusterRow».
+        var row = new RacClusterRow(new RacCluster
+        {
+            Id = Guid.NewGuid(),
+            Name = "Локальный кластер",
+            Port = 27541,
+        });
+
+        Assert.Equal(row.DisplayText, row.ToString());
+        Assert.Equal("Локальный кластер (27541)", row.ToString());
+    }
+
+    [Fact]
+    public void RacClusterToString_NameAndPort_FormatsNameWithPort()
+    {
+        var cluster = new RacCluster { Id = Guid.NewGuid(), Name = "Кластер 1", Port = 1541 };
+        Assert.Equal("Кластер 1 (1541)", cluster.ToString());
+    }
+
+    [Fact]
+    public void RacClusterToString_EmptyName_ShowsHostThenPlaceholder()
+    {
+        // Без имени, но с хостом — показываем хост; без обоих — плейсхолдер с портом.
+        var withHost = new RacCluster { Id = Guid.NewGuid(), Name = "  ", Host = "ALF", Port = 27541 };
+        var withoutHost = new RacCluster { Id = Guid.NewGuid(), Name = string.Empty, Port = 27541 };
+        var withoutAnything = new RacCluster { Id = Guid.NewGuid(), Name = string.Empty, Port = 0 };
+
+        Assert.Equal("ALF (27541)", withHost.ToString());
+        Assert.Equal("(27541)", withoutHost.ToString());
+        Assert.Equal("—", withoutAnything.ToString());
+    }
+
+    [Fact]
+    public void RacClusterToString_GuidLikeAndKeyName_TreatedAsPlaceholder()
+    {
+        // Модель может отображаться без шаблона (ComboBox → ToString): GUID-первичный
+        // ключ и текст ключа «name» не должны попасть в подпись (issue #324).
+        var guidLike = new RacCluster { Id = Guid.NewGuid(), Name = Guid.NewGuid().ToString(), Port = 1541 };
+        var keyLike = new RacCluster { Id = Guid.NewGuid(), Name = "NAME", Host = "srv", Port = 1541 };
+
+        Assert.Equal("(1541)", guidLike.ToString());
+        Assert.Equal("srv (1541)", keyLike.ToString());
+    }
 }

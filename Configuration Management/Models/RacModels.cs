@@ -22,6 +22,38 @@ public sealed class RacCluster
     /// <summary>Имя компьютера кластера (ключ «host» в блоке key-value; issue #324:
     /// используется как запасной подпись в списке кластеров, когда rac не отдал name).</summary>
     public string Host { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Человекочитаемая подпись кластера: «Имя (порт)»; при пустом или служебном
+    /// имени (текст ключа «name», GUID-первичный ключ) — хост; при пустом хосте —
+    /// нейтральный плейсхолдер с портом (issue #324: «в списке ключ вместо имени»).
+    /// Реализована как <c>ToString()</c>: везде, где модель отображается без явного
+    /// шаблона/DisplayMemberPath (WPF ComboBox показывает ToString выбранного элемента),
+    /// пользователь видит значение, а не имя типа или служебный ключ.
+    /// </summary>
+    public override string ToString()
+    {
+        var name = MeaningfulLabel(Name);
+        var host = MeaningfulLabel(Host);
+        var label = name.Length > 0 ? name : host;
+        if (label.Length == 0)
+            return Port > 0 ? $"({Port})" : "—";
+        return Port > 0 ? $"{label} ({Port})" : label;
+    }
+
+    /// <summary>True-подпись только для осмысленных значений: не пустая, не текст
+    /// ключа «name» и не GUID (issue #324: парсер мог отдать служебные данные).</summary>
+    private static string MeaningfulLabel(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+        var v = value.Trim();
+        if (Guid.TryParse(v, out _))
+            return string.Empty;
+        if (string.Equals(v, "name", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+        return v;
+    }
 }
 
 /// <summary>

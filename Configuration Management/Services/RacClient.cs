@@ -45,13 +45,15 @@ public sealed class RacClient : IRacClient
     /// <summary>
     /// Запомненный рабочий формат команды «job list» по ключу подключения
     /// (адрес:порт|user|clusterId, issue #324): rac 8.5.4.1878 отклоняет
-    /// <c>--cluster=<uuid></c> (код -1) и принимает только <c>--cluster <uuid></c>.
-    /// Без кэша каждая загрузка данных кластера запускала rac дважды (первая попытка
-    /// всегда падала), что заметно удлиняло подключение/автообновление.
-    /// Значение — индекс формата: 0 = "--cluster=<uuid>", 1 = "--cluster <uuid>".
+    /// <c>--cluster=<uuid></c> (код -1) и, по логам 2026-10-07/08, также
+    /// <c>--cluster <uuid></c> двумя токенами — добавлен формат 2 (позиционный
+    /// <c><uuid></c>). Без кэша каждая загрузка данных кластера запускала rac
+    /// дважды (первая попытка всегда падала), что заметно удлиняло
+    /// подключение/автообновление. Значение — индекс формата: 0 = "--cluster=<uuid>",
+    /// 1 = "--cluster <uuid>", 2 = "<uuid>" (см. <see cref="JobListArgs"/>).
     /// Карта восстанавливается с диска (<see cref="RacJobListFormatStore"/>), чтобы
-    /// после перезапуска приложения не тратить ~1 с на заведомо падающую первую
-    /// попытку («подключение локально занимает почти 5 секунд», issue #324).
+    /// после перезапуска приложения не тратить время на заведомо падающие попытки
+    /// («подключение локально занимает почти 5 секунд», issue #324).
     /// </summary>
     private readonly Dictionary<string, int> _jobListFormats;
 
@@ -249,30 +251,30 @@ public sealed class RacClient : IRacClient
         RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
     {
         // issue #324: rac 8.5.4.1878 отклоняет «job list --cluster=<uuid>» (код -1,
-        // «Ошибка разбора параметра: --cluster=…»), хотя остальные list-команды с тем же
-        // параметром работают. Форматы: прежний --cluster=<uuid> (0) и --cluster <uuid> (1).
-        // После первого успеха формат запоминается по ключу подключения — повторные
-        // загрузки запускают rac один раз (раньше каждая загрузка тратила ~1 с на
-        // заведомо падающую первую попытку).
+        // «Ошибка разбора параметра: --cluster=…») и «--cluster <uuid>» двумя токенами:
+        // в логах от 2026-10-07/08 ОБЕ попытки падают (успех в логе — параллельный
+        // «process list», а не job list). Перебираем форматы: 0 — --cluster=<uuid>,
+        // 1 — --cluster <uuid>, 2 — позиционный <uuid> без имени параметра. После
+        // первого успеха формат запоминается по ключу подключения — повторные
+        // загрузки запускают rac один раз.
         var formatKey = JobListFormatKey(parameters, clusterId);
         var startIndex = _jobListFormats.TryGetValue(formatKey, out var known) ? known : 0;
 
         string? output = null;
-        RacClientException? lastError = null;
         var failures = new List<string>();
         var usedFallback = false;
+        var successFormat = -1;
 
-        // До двух попыток: сначала известный/первый формат, при неуспехе — второй.
-        for (var attempt = 0; attempt < 2 && output is null; attempt++)
+        // До трёх попыток: сначала известный/первый формат, при неуспехе — остальные.
+        for (var attempt = 0; attempt < JobListFormatCount && output is null; attempt++)
         {
-            var index = (startIndex + attempt) % 2;
+            var index = (startIndex + attempt) % JobListFormatCount;
             try
             {
                 output = await RunAsync(parameters, cancellationToken, JobListArgs(index, clusterId))
                     .ConfigureAwait(false);
-                lastError = null;
-                if (index != 0)
-                    usedFallback = true;
+                usedFallback = attempt > 0;
+                successFormat = index;
                 // Запоминаем рабочий формат (в памяти и на диске); при смене версии
                 // платформы неудачная попытка ниже удалит ключ, и на следующем вызове
                 // форматы перепробуются заново.
@@ -281,29 +283,30 @@ public sealed class RacClient : IRacClient
             }
             catch (RacClientException ex)
             {
-                lastError = ex;
-                failures.Add($"формат '{(index == 0 ? "--cluster=<uuid>" : "--cluster <uuid>")}': {ex.Message}");
+                failures.Add($"формат '{JobListFormatName(index)}': {ex.Message}");
             }
         }
 
         if (output is null)
         {
-            // Все форматы неуспешны — только тогда [WARN] в журнал (issue #324: раньше
-            // WARN писался после первой попытки даже при успехе второй и сбивал с толку).
-            foreach (var failure in failures)
-                _logger.Warn($"RAC: job list ({failure})");
+            // Все форматы неуспешны — один сводный [WARN] в журнал (issue #324: раньше
+            // WARN писался и при успехе одной из попыток, сбивая с толку).
+            _logger.Warn("RAC: job list — все форматы отклонены rac: " + string.Join("; ", failures));
             // Запись формата устарела (сменилась версия платформы) — удаляем из кэша,
             // чтобы на следующем вызове форматы перепробовались заново.
             _jobListFormats.Remove(formatKey);
             RacJobListFormatStore.Save(_jobListFormats);
-            throw lastError ?? new RacClientException("job list: не удалось получить вывод rac.");
+            throw new RacClientException(
+                "job list: rac отклонил все известные форматы команды (" +
+                string.Join("; ", failures) +
+                "). Пришлите, пожалуйста, вывод «rac <адрес:порт> job list --help» вашей платформы.");
         }
 
         if (usedFallback)
         {
             _logger.Info(
-                "RAC: job list — первый формат '--cluster=<uuid>' не поддержан rac, " +
-                "применён формат '--cluster <uuid>' (успешно).");
+                "RAC: job list — стандартный формат '--cluster=<uuid>' не поддержан rac, " +
+                $"применён формат '{JobListFormatName(successFormat)}' (успешно).");
         }
 
         var jobs = RacOutputParser.ToJobs(output);
@@ -311,14 +314,29 @@ public sealed class RacClient : IRacClient
         return jobs;
     }
 
+    /// <summary>Число известных форматов команды «job list» (issue #324).</summary>
+    internal const int JobListFormatCount = 3;
+
     /// <summary>
     /// Аргументы команды «job list» по индексу формата (issue #324): 0 —
-    /// <c>--cluster=<uuid></c> (отклоняется rac 8.5.4), 1 — <c>--cluster <uuid></c>
-    /// двумя токенами (работает). Internal — для юнит-тестов без запуска rac.
+    /// <c>--cluster=<uuid></c> (стандарт), 1 — <c>--cluster <uuid></c> двумя токенами,
+    /// 2 — позиционный <c><uuid></c> (без имени параметра). Internal — для юнит-тестов
+    /// без запуска rac.
     /// </summary>
-    internal static string[] JobListArgs(int formatIndex, Guid clusterId) => formatIndex == 0
-        ? new[] { "job", "list", $"--cluster={clusterId}" }
-        : new[] { "job", "list", "--cluster", clusterId.ToString() };
+    internal static string[] JobListArgs(int formatIndex, Guid clusterId) => formatIndex switch
+    {
+        1 => new[] { "job", "list", "--cluster", clusterId.ToString() },
+        2 => new[] { "job", "list", clusterId.ToString() },
+        _ => new[] { "job", "list", $"--cluster={clusterId}" }
+    };
+
+    /// <summary>Человекочитаемое имя формата «job list» для журнала (issue #324).</summary>
+    internal static string JobListFormatName(int formatIndex) => formatIndex switch
+    {
+        1 => "--cluster <uuid>",
+        2 => "<uuid>",
+        _ => "--cluster=<uuid>"
+    };
 
     /// <summary>
     /// Ключ запомненного формата «job list» (issue #324): точка подключения, учётная

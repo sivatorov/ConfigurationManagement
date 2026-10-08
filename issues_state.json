@@ -1,50 +1,42 @@
-[
+﻿[
     {
-        "Number":  347,
-        "Title":  "Сказ о trace.json",
+        "Number":  351,
+        "Title":  "Пропали папки. 0.3.9.323",
+        "Comments":  2,
+        "LastCommentAuthor":  "sivatorov",
+        "LastCommentDate":  "2026-10-07T16:06:58Z",
+        "LastCommentPreview":  "Исправлено в версии **0.3.9.327** (Windows/WPF и Linux/Avalonia; issue #351). **Что было** После обновления пропали все папки (группы) в списке баз; синхронизация (read-only) папки не возвращает; в штатном стартере 1С па..."
+    },
+    {
+        "Number":  350,
+        "Title":  "Мультивыделение и нажатие на клавиатуру",
         "Comments":  1,
         "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-06T07:45:06Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.315** (Windows/WPF и Linux/Avalonia; issue #347 «Сказ о trace.json» — механизм отладочных флагов).  **Что было.**  `trace.json` рядом с настройками был JSONL-журналом событ..."
-    },
-    {
-        "Number":  346,
-        "Title":  "База не связана",
-        "Comments":  4,
-        "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-06T03:07:15Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.312** (Windows/WPF и Linux/Avalonia). **Что сделано по вашему предложению.** Привязка базы к типовой конфигурации теперь видна и управляется прямо в свойствах базы. На вкладке «Платформа», под..."
-    },
-    {
-        "Number":  340,
-        "Title":  "Снятие выделения после контекстного меню ",
-        "Comments":  24,
-        "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-06T07:45:05Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.314** (Windows/WPF и Linux/Avalonia; девятая итерация по issue #340).  **Что было.**  По вашему второму `trace.json` (0.3.9.311, комментарий от 2026-10-05) стало видно недо..."
+        "LastCommentDate":  "2026-10-07T16:06:52Z",
+        "LastCommentPreview":  "Исправлено в версии **0.3.9.324** (Windows/WPF и Linux/Avalonia; issue #350). **Что было** После выделения нескольких строк мышкой (Ctrl или Shift) и нажатия клавиатурных ↑/↓ пометки «для выделенных» оставались на прежни..."
     },
     {
         "Number":  334,
         "Title":  "Автообновление платформы",
-        "Comments":  17,
+        "Comments":  19,
         "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-05T11:30:14Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.307** (Windows/WPF и Linux/Avalonia; пятая итерация программного входа). **Что было.** В последнем логе (2026-10-05, ~09:06–09:08 МСК) для окна «Обновление платформы 1С» (Ctrl+F9, каталог `rel..."
+        "LastCommentDate":  "2026-10-07T16:06:53Z",
+        "LastCommentPreview":  "Исправлено в версии **0.3.9.325** (Windows/WPF и Linux/Avalonia; issues #334 и #330 — общий корень, одна версия). **Что было** По вашему логу на 0.3.9.321+: ``` [INFO] Обновление платформы: получение каталога версий с по..."
     },
     {
         "Number":  330,
         "Title":  "Скачивание и установка нужной версии платформы 1С из стартера",
-        "Comments":  18,
+        "Comments":  20,
         "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-05T11:30:12Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.307** (Windows/WPF и Linux/Avalonia; пятая итерация программного входа). **Что было.** В последнем логе (2026-10-05, ~09:06–09:08 МСК) для окна «Скачивание версии платформы 1С» (Утилиты, катал..."
+        "LastCommentDate":  "2026-10-07T16:06:55Z",
+        "LastCommentPreview":  "Исправлено в версии **0.3.9.325** (Windows/WPF и Linux/Avalonia; issues #330 и #334 — общий корень, одна версия). **Что было** Окно «Скачивание версии платформы 1С» после успешной авторизации на портале падало с NotSuppo..."
     },
     {
-        "Number":  323,
-        "Title":  "Окно Проверка обновлений",
-        "Comments":  24,
+        "Number":  324,
+        "Title":  "Серверы 1С",
+        "Comments":  23,
         "LastCommentAuthor":  "sivatorov",
-        "LastCommentDate":  "2026-10-06T07:45:03Z",
-        "LastCommentPreview":  "Исправлено в версии **0.3.9.313** (Windows/WPF и Linux/Avalonia; седьмая итерация программного входа).  **Что было.**  В вашем логе на 0.3.9.310 (комментарий от 2026-10-05) после отправки формы входа ..."
+        "LastCommentDate":  "2026-10-07T16:06:56Z",
+        "LastCommentPreview":  "Исправлено в версии **0.3.9.326** (Windows/WPF и Linux/Avalonia; issue #324). **Что было** По вашим замечаниям: подключение к серверам 1С стало заметно дольше (после 0.3.9.321+); в списке кластеров вместо имени показывал..."
     }
 ]

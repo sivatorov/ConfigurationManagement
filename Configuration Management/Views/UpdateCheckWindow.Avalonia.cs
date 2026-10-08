@@ -78,7 +78,7 @@ namespace Configuration_Management
 
             Title = LocalizationManager.T("Updates.CheckTitle");
             Width = 720;
-            Height = 580;
+            Height = 660;
             MinWidth = 640;
             MinHeight = 500;
             FontSize = 13;
@@ -545,11 +545,39 @@ namespace Configuration_Management
                     return;
                 }
 
+                // issue #352: при появлении таблицы вариантов окно поднимается так, чтобы
+                // 2–3 строки таблицы были видны без прокрутки.
+                EnsureWindowHeightForChain();
+
                 _chainStatusValue.Text = _row.ChainStatusText;
                 // issue #352: красное предупреждение под текущей версией.
                 _currentVersionMissingText.IsVisible = _row.CurrentVersionMissing;
                 RebuildChainRows();
             });
+        }
+
+        /// <summary>Поднимает высоту окна при появлении таблицы вариантов цепочки (issue #352):
+        /// 2–3 строки таблицы должны быть видны без прокрутки. Ограничение — рабочая область
+        /// экрана (окно не должно становиться выше неё).</summary>
+        private void EnsureWindowHeightForChain()
+        {
+            try
+            {
+                var target = 760d;
+                var screen = Screens.Primary;
+                if (screen is not null && screen.Scaling > 0)
+                {
+                    var workHeight = screen.WorkingArea.Height / screen.Scaling;
+                    target = Math.Min(target, Math.Max(workHeight - 40d, MinHeight));
+                }
+
+                if (Height < target)
+                    Height = target;
+            }
+            catch
+            {
+                // Определение экрана не должно мешать показу таблицы цепочки.
+            }
         }
 
         /// <summary>Перестраивает строки таблицы вариантов цепочки («№» и «Список версий»).</summary>

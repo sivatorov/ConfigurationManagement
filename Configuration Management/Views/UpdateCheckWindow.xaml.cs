@@ -444,6 +444,23 @@ public partial class UpdateCheckWindow : Window
         CurrentVersionMissingText.Visibility = _row.CurrentVersionMissing
             ? Visibility.Visible
             : Visibility.Collapsed;
+
+        // issue #352: при появлении таблицы вариантов окно поднимается так, чтобы
+        // 2–3 строки таблицы были видны без прокрутки.
+        if (hasChain)
+            EnsureWindowHeightForChain();
+    }
+
+    /// <summary>Поднимает высоту окна при появлении таблицы вариантов цепочки (issue #352):
+    /// 2–3 строки таблицы должны быть видны без прокрутки. Ограничение — рабочая область
+    /// экрана (окно не должно становиться выше неё).</summary>
+    private void EnsureWindowHeightForChain()
+    {
+        var target = Math.Min(
+            760d,
+            Math.Max(SystemParameters.WorkArea.Height - 40d, MinHeight));
+        if (Height < target)
+            Height = target;
     }
 
     /// <summary>Кнопка «Скачать цепочку» (issue #352).</summary>

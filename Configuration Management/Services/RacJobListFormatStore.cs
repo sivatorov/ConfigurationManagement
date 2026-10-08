@@ -21,7 +21,8 @@ public static class RacJobListFormatStore
 
     /// <summary>
     /// Загружает карту «ключ подключения → индекс формата» (0 = "--cluster=<uuid>",
-    /// 1 = "--cluster <uuid>"). Битый/отсутствующий файл возвращает пустую карту.
+    /// 1 = "--cluster <uuid>", 2 = позиционный "<uuid>", issue #324).
+    /// Битый/отсутствующий файл возвращает пустую карту.
     /// </summary>
     public static Dictionary<string, int> Load()
     {
