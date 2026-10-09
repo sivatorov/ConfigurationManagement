@@ -83,12 +83,59 @@ HEAD: `4e0efa687a6a32ba05aa39137564a43c8e8dbcc6` — «0.3.9.329: сброс о�
   машине не установлен; в 0.3.9.331 AppImage также не собирался. AppImage не критичен:
   exe и linux single-file собраны, .deb собран.
 - **Smoke-запуск Linux-бинарника**: пропущен по той же причине (нет Linux-рантайма/подсистемы).
-- **GitHub release, git push, коммит**: НЕ выполнялись — по условию это отдельная задача.
+- **GitHub release, git push, коммит**: НЕ выполнялись при сборке — по условию это отдельная задача
+  (выполнены после, см. раздел «Публикация»).
+
+## Публикация
+
+Дата публикации: 2026-10-09 (UTC+3, Europe/Moscow).
+
+- **Коммит**: `94f0aab5d1f4c269f639c02cd6828cb8e80cf68c` — «0.3.9.332: проверка обновлений —
+  скачивание доходит до дистрибутива (якоря по подписи, transfer_file вне href, расширение из
+  query) (#352); окно обновления платформы — раскладка, updsetup-архивы, панель прогресса,
+  диалог „Удалить старые версии…» (#334); декодирование HTML-сущностей в каталоге платформ,
+  поиск по дереву версий (#330); двойной клик по колонкам — свойства базы на вкладке
+  «Платформа» (#355)». 48 файлов, +2611/−472. В коммит включены: код, тесты, локализация
+  (ru/en), CHANGELOG.md, README.md, csproj (0.3.9.332), новые файлы
+  [`InfobasePropertiesTabs.cs`](Configuration%20Management/Models/InfobasePropertiesTabs.cs),
+  [`PlatformOldVersionsWindow.*`](Configuration%20Management/Views/PlatformOldVersionsWindow.xaml.cs),
+  [`InfobasePropertiesTabsTests.cs`](ConfigurationManagement.Tests/InfobasePropertiesTabsTests.cs),
+  а также publish-документация цикла (`build_deb_win_0.3.9.332.py`, `check_deb_win_0.3.9.332.py`,
+  `build_result_0.3.9.332.md`, `release_body_0.3.9.332.md`, `comment-*-0.3.9.332.md` — по образцу
+  прошлых итераций). Временные/служебные файлы (issues_*.json, issue_comments_*.json, планы)
+  НЕ коммитились.
+- **Push**: `origin/main` — `4e0efa6..94f0aab` (ветка `main`).
+  Примечание: первый `git push` упал из-за невалидного `GH_TOKEN` в окружении git credential
+  helper («Invalid username or token»); push выполнен после снятия `GH_TOKEN` (`set GH_TOKEN=&`).
+- **Релиз**: https://github.com/sivatorov/ConfigurationManagement/releases/tag/v0.3.9.332
+  (title «0.3.9.332», notes из `publish/release_body_0.3.9.332.md`, latest, не draft/prerelease;
+  создан `gh release create v0.3.9.332 --latest` — тег v0.3.9.332 создан на GitHub, схема тегов
+  как в прошлых итерациях `v0.3.9.NNN`).
+- **Ассеты (5)**:
+
+  | Ассет | Размер (байт) | SHA-256 совпадает |
+  |---|---|---|
+  | `ConfigurationManagement.exe` | 84 108 298 | да (по `SHA256SUMS.txt`) |
+  | `ConfigurationManagement-linux-x64` | 52 587 509 | да — подтверждено контрольной загрузкой |
+  | `configuration-management_0.3.9.332_amd64.deb` | 45 361 296 | да (по `SHA256SUMS-linux-0.3.9.332.txt`) |
+  | `SHA256SUMS.txt` (Windows) | 94 | — |
+  | `SHA256SUMS-linux-0.3.9.332.txt` (Linux) | 201 | — |
+
+  Имена ассетов — по образцу 0.3.9.331: Linux-бинарь переименован в
+  `ConfigurationManagement-linux-x64`, linux-суммы — `SHA256SUMS-linux-0.3.9.332.txt`.
+- **Инцидент при загрузке**: первая загрузка `ConfigurationManagement-linux-x64` пришла
+  повреждённой (52 585 711 байт вместо 52 587 509, SHA-256 не совпал — вероятно, чтение файла
+  во время синхронизации Яндекс.Диска). Ассет удалён и перезагружен (`gh release delete-asset`
+  + `gh release upload --clobber`); контрольная загрузка ассета с GitHub подтвердила размер
+  52 587 509 и SHA-256 `86c66ae440f58edc97991621b6d36042c5f20e0535ee17941f59c8d13317c2b5`.
+  Размеры exe и .deb при первой загрузке совпали точно.
+- **Issues** #352, #334, #330, #355 — остаются открытыми (комментарии опубликованы ранее, в
+  предыдущей задаче; закрытие — после подтверждения репортеров).
 
 ## Примечания
 
-- Релиз НЕ создавался, git push НЕ выполнялся, артефакты/скрипты НЕ коммитились —
-  это сборка цикла 0.3.9.332; публикация будет следующей задачей.
+- На момент сборки (см. выше) релиз/push/коммит НЕ выполнялись; публикация выполнена
+  2026-10-09 отдельной задачей — см. раздел «Публикация».
 - Новые файлы цикла 0.3.9.332 в publish: `publish/build_deb_win_0.3.9.332.py`,
   `publish/check_deb_win_0.3.9.332.py`, `publish/build_result_0.3.9.332.md`;
   артефакты (`dist/*`, `package/linux/deb/out/*`, `publish/out-0.3.9.332-*`) в git НЕ добавляются
