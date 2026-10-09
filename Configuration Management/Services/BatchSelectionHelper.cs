@@ -608,6 +608,34 @@ public static class BatchSelectionHelper
         => !containerRealized && !userReselected && elapsedMs >= 0 && elapsedMs < maxChaseMs;
 
     /// <summary>
+    /// Нужно ли восстановить ТЕКУЩУЮ строку после закрытия меню дерева/закладок кликом
+    /// по ПУНКТУ меню (issue #356). Меню закладок открывается хоткеем и закрывается
+    /// выбором пункта (запуск/переход/снятие закладки) — в этот момент над деревом
+    /// строки может не быть вовсе, а ни один путь issue #340 не запускается: предикаты
+    /// восстановления по строке ПОД КУРСОРОМ исключают overMenuItem, а снимок клика
+    /// по строке не пишется (клик был по пункту, не по дереву). Переработка
+    /// контейнеров виртуализацией (Recycling) после закрытия попапа сбрасывает
+    /// подсветку IsSelected «текущей» строки — её нужно вернуть. Выбор НЕ переносится:
+    /// стабилизация идёт по ТЕКУЩЕЙ выбранной базе модели (идемпотентно,
+    /// <c>EnsureSelectionStable</c>), мультивыделение не трогается. Исключения:
+    /// нет текущего выбора в модели, окно потеряло клавиатурный фокус (пользователь
+    /// ушёл в другое окно), открыто модальное окно.
+    /// </summary>
+    /// <param name="isTreeLikeMenuClosed">Закрылось ли меню дерева/закладок (<see cref="IsTreeLikeMenu"/>).</param>
+    /// <param name="overMenuItem">Меню закрыто выбором пункта (указатель над пунктом меню).</param>
+    /// <param name="focusStillWithinWindow">Остался ли клавиатурный фокус в пределах окна.</param>
+    /// <param name="modalDialogOpen">Открыто ли модальное диалоговое окно (выбор не трогаем).</param>
+    /// <param name="hasCurrentSelection">Есть ли текущий выбор в модели (SelectedInfobase).</param>
+    public static bool ShouldRestoreCurrentSelectionAfterMenuItemClick(
+        bool isTreeLikeMenuClosed,
+        bool overMenuItem,
+        bool focusStillWithinWindow,
+        bool modalDialogOpen,
+        bool hasCurrentSelection)
+        => isTreeLikeMenuClosed && overMenuItem && focusStillWithinWindow
+           && !modalDialogOpen && hasCurrentSelection;
+
+    /// <summary>
     /// Нужно ли продолжить восстановление выбора цели стабилизации (issue #340, 0.3.9.322).
     /// По трассе 0.3.9.319 самый частый сценарий пользователя — клик по строке дерева при
     /// ОТКРЫТОМ контекстном меню (reason "clickBeforeMenuClose"): попап «проглатывает»

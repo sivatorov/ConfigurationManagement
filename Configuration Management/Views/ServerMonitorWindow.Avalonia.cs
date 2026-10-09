@@ -354,17 +354,75 @@ namespace Configuration_Management
             return button;
         }
 
+        /// <summary>
+        /// Вкладка «Информация о кластере» (issue #324, C3): свойства «свойство — значение»,
+        /// правится безопасный набор параметров (TextBox у <see cref="RacClusterPropertyRow.IsEditable"/>),
+        /// сверху кнопка «Сохранить изменения» (rac «cluster update»).
+        /// </summary>
         private Control BuildInfoPane()
         {
-            var text = new TextBlock
+            var saveButton = BuildActionButton(
+                LocalizationManager.T("ServerMonitor.Cluster.Save"), "💾",
+                () => _vm.SaveClusterPropertiesCommand.Execute(null));
+
+            var list = new ItemsControl
             {
-                FontFamily = new FontFamily("Consolas, monospace"),
-                FontSize = 12,
-                Margin = new Thickness(10),
-                TextWrapping = TextWrapping.Wrap
+                ItemTemplate = new FuncDataTemplate<RacClusterPropertyRow>((row, _) =>
+                {
+                    var name = new TextBlock
+                    {
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 12, 0),
+                        Width = 340,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        [!TextBlock.TextProperty] = new Binding("DisplayName"),
+                        [!ToolTip.TipProperty] = new Binding("RawKey")
+                    };
+
+                    // Правка — только для безопасного набора параметров; остальные
+                    // свойства показываются текстом «как есть».
+                    var editBox = new TextBox
+                    {
+                        Width = 340,
+                        Padding = new Thickness(4, 2),
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        [!TextBox.TextProperty] = new Binding("EditValue", BindingMode.TwoWay),
+                        [!Control.IsVisibleProperty] = new Binding("IsEditable")
+                    };
+                    var readOnly = new TextBlock
+                    {
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(4, 0),
+                        Width = 340,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        [!TextBlock.TextProperty] = new Binding("OriginalValue"),
+                        [!Control.IsVisibleProperty] = new Binding("!IsEditable")
+                    };
+
+                    var grid = new Grid { ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition() } };
+                    Grid.SetColumn(name, 0);
+                    Grid.SetColumn(editBox, 1);
+                    Grid.SetColumn(readOnly, 1);
+                    grid.Children.Add(name);
+                    grid.Children.Add(editBox);
+                    grid.Children.Add(readOnly);
+                    return grid;
+                })
             };
-            text.Bind(TextBlock.TextProperty, new Binding("ClusterInfoText"));
-            return new ScrollViewer { Content = text, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            list.Bind(ItemsControl.ItemsSourceProperty, new Binding("ClusterProperties"));
+
+            var dock = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(saveButton, Dock.Top);
+            saveButton.HorizontalAlignment = HorizontalAlignment.Left;
+            saveButton.Margin = new Thickness(0, 0, 0, 8);
+            dock.Children.Add(saveButton);
+            dock.Children.Add(new ScrollViewer
+            {
+                Content = list,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Margin = new Thickness(10)
+            });
+            return dock;
         }
 
         // ===================== Строки вкладок =====================
@@ -513,6 +571,9 @@ namespace Configuration_Management
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)),
+                    // issue #324, C2: колонка «Информационная база» (имя из
+                    // «infobase summary list» по infobase-id сеанса).
+                    new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
                     new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
                     new ColumnDefinition(new GridLength(90)),
                     new ColumnDefinition(new GridLength(130)),
@@ -526,16 +587,17 @@ namespace Configuration_Management
                 }
             };
             AddCell(grid, CellText("User", bold: true), 0);
-            AddCell(grid, CellText("Host"), 1);
-            AddCell(grid, CellText("AppId"), 2);
-            AddCell(grid, CellText("StartedAtText"), 3);
-            AddCell(grid, CellText("LastActiveAtText"), 4);
-            AddCell(grid, CellText("StateText", colorHex: row.StateColorHex), 5);
-            AddCell(grid, blockedDot, 6);
-            AddCell(grid, CellText("MemoryText"), 7);
-            AddCell(grid, CellText("DurationAllText"), 8);
-            AddCell(grid, CellText("DurationCurrentText"), 9);
-            AddCell(grid, CellText("HibernateText"), 10);
+            AddCell(grid, CellText("InfobaseName"), 1);
+            AddCell(grid, CellText("Host"), 2);
+            AddCell(grid, CellText("AppId"), 3);
+            AddCell(grid, CellText("StartedAtText"), 4);
+            AddCell(grid, CellText("LastActiveAtText"), 5);
+            AddCell(grid, CellText("StateText", colorHex: row.StateColorHex), 6);
+            AddCell(grid, blockedDot, 7);
+            AddCell(grid, CellText("MemoryText"), 8);
+            AddCell(grid, CellText("DurationAllText"), 9);
+            AddCell(grid, CellText("DurationCurrentText"), 10);
+            AddCell(grid, CellText("HibernateText"), 11);
             return grid;
         }
 

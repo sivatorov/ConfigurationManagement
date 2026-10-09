@@ -479,4 +479,130 @@ public sealed class RacClientTests
         Assert.Equal("Локальный кластер", info.Name);
         Assert.Equal(27541, info.Port);
     }
+
+    // ---------- LooksLikeUsageHelp (issue #324, 0.3.10.3: справка вместо списка заданий) ----------
+
+    [Fact]
+    public void LooksLikeUsageHelp_RussianHelp_IsDetected()
+    {
+        // Фактический случай 8.5.4.1878: «job list <uuid>» завершается с кодом 0,
+        // но rac вернул справку об использовании (stdout=1833 симв.) — 0 записей.
+        const string output =
+            "Использование: rac [режим] [команда] [параметры]\n" +
+            "Команды: cluster, infobase, session, connection, process, lock, job\n" +
+            "Пример: rac localhost:1540 cluster list";
+        Assert.True(RacClient.LooksLikeUsageHelp(output));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_EnglishHelp_IsDetected()
+    {
+        Assert.True(RacClient.LooksLikeUsageHelp("Usage: rac [mode] [command] [options]\n"));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_LeadingBlankLine_StillDetected()
+    {
+        Assert.True(RacClient.LooksLikeUsageHelp("\r\n\r\nИспользование: rac [режим] [команда]\n"));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_DataOutput_IsNotHelp()
+    {
+        // Табличный и key-value вывод данных справкой не считаются.
+        Assert.False(RacClient.LooksLikeUsageHelp("cluster\tjob\tinfobase\tname\n"));
+        Assert.False(RacClient.LooksLikeUsageHelp(
+            "job                                 : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "name                                : \"Обновление информационной базы\"\n"));
+        Assert.False(RacClient.LooksLikeUsageHelp(null));
+        Assert.False(RacClient.LooksLikeUsageHelp(string.Empty));
+        Assert.False(RacClient.LooksLikeUsageHelp("   \n  "));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_HelpMentionedInsideData_IsNotHelp()
+    {
+        // Справка распознаётся только по ПЕРВОЙ непустой строке: упоминание слова
+        // «Использование» в данных (например, в имени задания) не сигнализирует.
+        Assert.False(RacClient.LooksLikeUsageHelp(
+            "job\tinfobase\tname\n" +
+            "guid\tguid\tИспользование: rac — так называется задание\n"));
+    }
+
+    // ---------- ClusterUpdateArgs (issue #324, C3: rac «cluster update») ----------
+
+    [Fact]
+    public void ClusterUpdateArgs_EmptyChanges_Throws()
+    {
+        Assert.Throws<ArgumentException>(
+            () => RacClient.ClusterUpdateArgs(Guid.NewGuid(), new RacClusterUpdate()));
+        Assert.Throws<ArgumentException>(() => RacClient.ClusterUpdateArgs(Guid.NewGuid(), null));
+    }
+
+    [Fact]
+    public void ClusterUpdateArgs_OnlyChangedFields_AreIncluded()
+    {
+        // В командную строку попадают ТОЛЬКО изменённые свойства (null — не трогаем),
+        // числа — в инвариантной записи.
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+        var args = RacClient.ClusterUpdateArgs(clusterId, new RacClusterUpdate
+        {
+            Name = "Локальный кластер",
+            ExpirationTimeout = 120,
+            SecurityLevel = 1
+        });
+
+        Assert.Equal(new[]
+        {
+            "cluster", "update", $"--cluster={clusterId}",
+            "--name=Локальный кластер",
+            "--expiration-timeout=120",
+            "--security-level=1"
+        }, args);
+    }
+
+    [Fact]
+    public void ClusterUpdateArgs_AllKnownFields_AreSupported()
+    {
+        var clusterId = Guid.NewGuid();
+        var args = RacClient.ClusterUpdateArgs(clusterId, new RacClusterUpdate
+        {
+            Name = "кл",
+            ExpirationTimeout = 60,
+            LifetimeLimit = 0,
+            MaxMemorySize = 900000,
+            MaxMemoryTimeLimit = 120,
+            SecurityLevel = 0,
+            PingPeriod = 1000,
+            PingTimeout = 5000,
+            MaxAuthAttempts = 10,
+            AuthLockDuration = 900
+        });
+
+        Assert.Equal(new[]
+        {
+            "cluster", "update", $"--cluster={clusterId}",
+            "--name=кл",
+            "--expiration-timeout=60",
+            "--lifetime-limit=0",
+            "--max-memory-size=900000",
+            "--max-memory-time-limit=120",
+            "--security-level=0",
+            "--ping-period=1000",
+            "--ping-timeout=5000",
+            "--max-auth-attempts=10",
+            "--auth-lock-duration=900"
+        }, args);
+    }
+
+    [Fact]
+    public void ClusterUpdateArgs_NameWithSpaces_IsSingleToken()
+    {
+        // Значение с пробелами остаётся одним токеном (аргументы передаются через
+        // ArgumentList без shell — как у остальной сборки аргументов rac).
+        var args = RacClient.ClusterUpdateArgs(
+            Guid.NewGuid(), new RacClusterUpdate { Name = "Имя с пробелами" });
+
+        Assert.Contains("--name=Имя с пробелами", args);
+    }
 }

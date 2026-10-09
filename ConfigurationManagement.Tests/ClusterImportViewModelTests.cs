@@ -357,6 +357,12 @@ public sealed class ClusterImportViewModelTests
         /// <summary>Текст последней ошибки действия (как в реальном клиенте).</summary>
         public string LastActionError { get; } = string.Empty;
 
+        /// <summary>«cluster update» (issue #324, C3) тестами окна импорта не используется.</summary>
+        public Task<bool> UpdateClusterAsync(
+            RacConnectionParams parameters, Guid clusterId, RacClusterUpdate changes,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
         /// <summary>Сколько раз запрошен список кластеров.</summary>
         public int ClustersCalls { get; private set; }
 

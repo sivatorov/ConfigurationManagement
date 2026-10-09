@@ -973,6 +973,28 @@ namespace Configuration_Management
                             System.Windows.Threading.DispatcherPriority.Input,
                             new Action(() => ApplyRowUnderCursorRestore(restoreTarget, restorePinned, evidenceTick)));
                     }
+                    // issue #356: меню закрыто ВЫБОРОМ ПУНКТА (меню закладок открывается
+                    // хоткеем и закрывается пунктом — клика по дереву нет вовсе, все пути
+                    // «строка под курсором» отсечены overMenuItem). Переработка контейнеров
+                    // (Recycling) после закрытия попапа сбрасывает подсветку текущей строки —
+                    // возвращаем выбор по ТЕКУЩЕЙ базе модели (идемпотентно, без переноса
+                    // выбора и без вмешательства в мультивыделение).
+                    else if (_viewModel?.SelectedInfobase is { } currentSelected &&
+                             BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+                                 isTreeLikeMenuClosed: true,
+                                 overMenuItem: overMenuItem,
+                                 focusStillWithinWindow: IsKeyboardFocusWithin,
+                                 modalDialogOpen: HasOpenModalDialog(),
+                                 hasCurrentSelection: true))
+                    {
+                        restoreScheduled = true;
+                        restoreReason = "menuItem";
+                        var stableTarget = currentSelected;
+                        var stablePinned = currentSelected.IsPinned;
+                        Dispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Input,
+                            new Action(() => EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem")));
+                    }
 
                     // Возврат клавиатурного фокуса дереву после закрытия меню (issue #340,
                     // 11-я итерация, комментарий 7OH 28/28): после пропажи выделения дерево

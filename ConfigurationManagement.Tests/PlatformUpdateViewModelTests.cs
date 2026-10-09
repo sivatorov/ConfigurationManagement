@@ -798,6 +798,109 @@ public sealed class PlatformUpdateViewModelTests
     }
 
     [Fact]
+    public async Task RemoveOldVersions_DeleteContinuesOnBackgroundThread_RowsRebuiltViaDispatcher()
+    {
+        // issue #334 (регресс CollectionView): удаление каталога завершается на фоновом
+        // потоке (ConfigureAwait(false)), после чего RefreshInstalledAsync мутирует
+        // ObservableCollection Rows. С маршаллером перестройка обязана пройти через
+        // UI-поток (диспетчер), иначе WPF DataGrid бросает NotSupportedException.
+        var file = DistroFile(MiB);
+        var service = OkService(Release("8.3.27.2214", file), Release("8.3.27.1688"));
+        service.PickedFile = file;
+
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214", Path = @"C:\Program Files\1cv8\8.3.27.2214" },
+            new() { Display = "8.3.27.1688", Path = @"C:\Program Files\1cv8\8.3.27.1688" },
+        };
+        var dispatchCalls = 0;
+        Action<Action> dispatch = action =>
+        {
+            Interlocked.Increment(ref dispatchCalls);
+            action();
+        };
+
+        var vm = CreateVm(
+            service,
+            installed: () => installedInfos.Select(v => OldVersionCleaner.CleanVersion(v.Display)).ToList(),
+            installedInfos: () => installedInfos.ToList(),
+            deleteVersion: (version, log, ct) =>
+            {
+                installedInfos.RemoveAll(v => v.Display == version.Display);
+                // Имитация реального удаления: продолжение — в фоновом потоке.
+                return Task.Run(async () =>
+                {
+                    await Task.Delay(1).ConfigureAwait(false);
+                    return (Success: true, ErrorKey: (string?)null);
+                });
+            },
+            dispatchToUi: dispatch);
+
+        await vm.CheckUpdatesAsync();
+        Assert.Equal(2, vm.Rows.Count(r => r.IsInstalled));
+        var dispatchedAfterCheck = Interlocked.CompareExchange(ref dispatchCalls, 0, 0);
+
+        await vm.RemoveOldVersionsAsync();
+
+        // Перестройка списка после удаления прошла через маршаллер (UI-поток),
+        // и состав строк актуален: удалённая версия больше не «установлена».
+        Assert.True(Interlocked.CompareExchange(ref dispatchCalls, 0, 0) > dispatchedAfterCheck,
+            "RefreshInstalledAsync после удаления должен маршаллить перестройку Rows в UI-поток");
+        Assert.False(vm.Rows.Single(r => r.Version == "8.3.27.1688").IsInstalled);
+        Assert.True(vm.Rows.Single(r => r.Version == "8.3.27.2214").IsInstalled);
+    }
+
+    [Fact]
+    public void AppendLog_WithDispatcher_MarshalsNotificationIntoUiThread()
+    {
+        // issue #334: журнал (PropertyChanged LogText) из фоновых продолжений не должен
+        // обновлять UI-состояние напрямую — с маршаллером тело AppendLog уходит в
+        // UI-поток (Dispatcher), как и перестройка Rows.
+        var dispatchCalls = 0;
+        var vm = CreateVm(dispatchToUi: action =>
+        {
+            Interlocked.Increment(ref dispatchCalls);
+            action();
+        });
+
+        vm.AppendLog("строка журнала");
+
+        Assert.Equal(1, dispatchCalls);
+        Assert.Contains("строка журнала", vm.LogText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RefreshInstalledAsync_FromBackgroundThread_RowsRebuiltViaDispatcher()
+    {
+        // RefreshInstalledAsync публичный и вызывается в том числе из фоновых
+        // продолжений — перестройка Rows обязана идти через маршаллер (issue #334).
+        var file = DistroFile(MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        service.PickedFile = file;
+        var installed = new List<string> { "8.3.27.2214" };
+        var dispatchCalls = 0;
+
+        var vm = CreateVm(
+            service,
+            installed: () => installed.ToList(),
+            dispatchToUi: action =>
+            {
+                Interlocked.Increment(ref dispatchCalls);
+                action();
+            });
+
+        await vm.CheckUpdatesAsync();
+        Assert.NotEmpty(vm.Rows);
+        var dispatchedAfterCheck = Interlocked.CompareExchange(ref dispatchCalls, 0, 0);
+
+        // Вызов из фонового потока (как продолжение ConfigureAwait(false)).
+        await Task.Run(() => vm.RefreshInstalledAsync());
+
+        Assert.True(Interlocked.CompareExchange(ref dispatchCalls, 0, 0) > dispatchedAfterCheck);
+        Assert.Single(vm.Rows);
+    }
+
+    [Fact]
     public async Task RemoveOldVersions_AllVersionsRisky_FallbackSelectsNothing()
     {
         // issue #334: без диалога выбора (окружение без UI) по умолчанию предлагаются
@@ -1424,7 +1527,9 @@ public sealed class PlatformUpdateViewModelTests
         // issue #334: успешный каталог заполняет ObservableCollection Rows строго через
         // маршаллер UI-потока (WPF CollectionView бросает NotSupportedException при
         // изменении SourceCollection из фонового потока). В тесте маршаллер — синхронный
-        // накопитель: действие должно быть передано ему и выполнено.
+        // накопитель: действие должно быть передано ему и выполнено. Журнал (AppendLog,
+        // issue #334 0.3.10.3) тоже уходит через маршаллер — итоговый минимум: блок
+        // перестройки Rows («Готово») плюс записи журнала.
         var service = OkService(Release("8.3.27.2214"));
         var dispatched = new List<Action>();
         Action<Action> dispatcher = action =>
@@ -1436,15 +1541,19 @@ public sealed class PlatformUpdateViewModelTests
 
         await vm.CheckUpdatesAsync();
 
-        Assert.Single(dispatched);        // ровно один маршалинг (успешный путь)
+        // Перестройка Rows и журнал — всё через маршаллер (не менее 2 вызовов:
+        // AppendLog «Проверка…» до запроса и блок «Готово» с RebuildRows после).
+        Assert.True(dispatched.Count >= 2, $"Ожидался маршалинг Rows и журнала, получено {dispatched.Count}");
         Assert.Single(vm.Rows);           // действие реально выполнилось (Rows заполнены)
         Assert.False(vm.IsBusy);
     }
 
     [Fact]
-    public async Task CheckUpdatesAsync_ErrorDoesNotDispatch()
+    public async Task CheckUpdatesAsync_ErrorDoesNotTouchRows()
     {
-        // Ошибка каталога (AuthRequired) не трогает коллекцию и не вызывает маршалинг.
+        // Ошибка каталога (AuthRequired): коллекция Rows НЕ меняется; маршалинг
+        // используется только журналом (AppendLog, issue #334 0.3.10.3) — блок
+        // перестройки Rows не вызывается, поэтому строк в списке нет.
         var service = new FakePlatformUpdateService
         {
             AvailableResult = new PlatformCatalogResult { Status = PortalFetchStatus.AuthRequired },
@@ -1459,7 +1568,9 @@ public sealed class PlatformUpdateViewModelTests
 
         await vm.CheckUpdatesAsync();
 
-        Assert.Empty(dispatched);
+        // Журнал маршаллится (AppendLog «Проверка…» и сообщение об ошибке), но
+        // перестройки Rows нет — список пуст.
+        Assert.NotEmpty(dispatched);
         Assert.Empty(vm.Rows);
     }
 

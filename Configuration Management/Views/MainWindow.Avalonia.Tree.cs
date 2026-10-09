@@ -1850,9 +1850,28 @@ namespace Configuration_Management
             killProcessesItem.Icon = MenuIcon("IconClose", "#F59E0B");
             killProcessesItem.Click += (_, _) => _vm.KillOneCProcesses();
             operationsMenu.Items.Add(killProcessesItem);
+            operationsMenu.Items.Add(MenuSeparator());
+            // Массовая замена строк подключения (0.3.9.191, функция 6; issue #357):
+            // пункты перенесены из «Утилит» верхнего уровня в подменю «Операции»,
+            // отдельной группой с разделителями после «Завершить процессы 1С».
+            // «Отменить последнюю замену» активна, пока есть запись о последней
+            // операции (одноуровневая история).
+            var replaceConnectionsItem = new MenuItem { Header = LocalizationManager.T("Main.UtilitiesConnectionReplace") };
+            replaceConnectionsItem.Styled(Themes.ControlThemes.ModernMenuItem);
+            replaceConnectionsItem.Icon = MenuIcon("IconFindReplace", "#F59E0B");
+            replaceConnectionsItem.Click += (_, _) => OnUtilitiesConnectionReplaceClick();
+            operationsMenu.Items.Add(replaceConnectionsItem);
+
+            _undoConnectionReplaceItem = new MenuItem { Header = LocalizationManager.T("Main.UtilitiesUndoConnectionReplace") };
+            _undoConnectionReplaceItem.Styled(Themes.ControlThemes.ModernMenuItem);
+            _undoConnectionReplaceItem.Icon = MenuIcon("IconUndo", "#F59E0B");
+            _undoConnectionReplaceItem.IsEnabled = _vm.CanUndoConnectionReplace;
+            _undoConnectionReplaceItem.Click += (_, _) => OnUtilitiesUndoConnectionReplaceClick();
+            operationsMenu.Items.Add(_undoConnectionReplaceItem);
             // Блокировка сеансов информационной базы (функция №20, Ctrl+Alt+L): установка
             // периода блокировки сеансов ИБ. Пункт существовал в «Утилитах» Avalonia с
             // исходного состава меню (в WPF он только в контекстном меню строки).
+            operationsMenu.Items.Add(MenuSeparator());
             operationsMenu.Items.Add(MenuAction("SessionLock.Title", _vm.ShowSessionLockCommand, _vm.HotkeySessionLock, "IconRights", "#EF4444"));
             operationsMenu.Items.Add(MenuSeparator());
             // Удаление отсутствующих файловых баз (issue #279): очистка списка от баз,
@@ -1863,24 +1882,6 @@ namespace Configuration_Management
             removeMissingItem.Click += (_, _) => _vm.RemoveMissingFileBases();
             operationsMenu.Items.Add(removeMissingItem);
             menu.Items.Add(operationsMenu);
-
-            // Массовая замена строк подключения (0.3.9.191, функция 6): отдельный раздел
-            // «Утилит» верхнего уровня — операция общая (в окне область можно сменить
-            // на «Выделенные»/«Текущую группу»); «Отменить последнюю замену» активна,
-            // пока есть запись о последней операции (одноуровневая история).
-            menu.Items.Add(MenuSeparator());
-            var replaceConnectionsItem = new MenuItem { Header = LocalizationManager.T("Main.UtilitiesConnectionReplace") };
-            replaceConnectionsItem.Styled(Themes.ControlThemes.ModernMenuItem);
-            replaceConnectionsItem.Icon = MenuIcon("IconFindReplace", "#F59E0B");
-            replaceConnectionsItem.Click += (_, _) => OnUtilitiesConnectionReplaceClick();
-            menu.Items.Add(replaceConnectionsItem);
-
-            _undoConnectionReplaceItem = new MenuItem { Header = LocalizationManager.T("Main.UtilitiesUndoConnectionReplace") };
-            _undoConnectionReplaceItem.Styled(Themes.ControlThemes.ModernMenuItem);
-            _undoConnectionReplaceItem.Icon = MenuIcon("IconUndo", "#F59E0B");
-            _undoConnectionReplaceItem.IsEnabled = _vm.CanUndoConnectionReplace;
-            _undoConnectionReplaceItem.Click += (_, _) => OnUtilitiesUndoConnectionReplaceClick();
-            menu.Items.Add(_undoConnectionReplaceItem);
 
             menu.Items.Add(MenuSeparator());
 

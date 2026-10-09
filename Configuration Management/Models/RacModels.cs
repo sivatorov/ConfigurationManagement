@@ -305,6 +305,60 @@ public sealed class RacClusterInfo
 }
 
 /// <summary>
+/// Изменяемые параметры кластера для команды rac «cluster update» (issue #324, C3:
+/// «Информация о кластере» — правка безопасного набора свойств). null — свойство
+/// НЕ меняется и в командную строку не попадает; порт кластера rac не меняет
+/// (это свойство точки размещения, см. пояснения в issue #324), поэтому он не
+/// входит в набор правки. Порядок и имена параметров — по документации rac:
+/// <c>cluster update --cluster=<uuid> --name=... --expiration-timeout=...</c>.
+/// </summary>
+public sealed class RacClusterUpdate
+{
+    /// <summary>Имя кластера (параметр «--name»). null — не меняется.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>Таймаут снятия блокировок, с (параметр «--expiration-timeout»). null — не меняется.</summary>
+    public long? ExpirationTimeout { get; set; }
+
+    /// <summary>Лимит времени жизни сеансов, с (параметр «--lifetime-limit»). null — не меняется.</summary>
+    public long? LifetimeLimit { get; set; }
+
+    /// <summary>Максимальный объём памяти рабочего процесса, байт (параметр «--max-memory-size»). null — не меняется.</summary>
+    public long? MaxMemorySize { get; set; }
+
+    /// <summary>Интервал контроля превышения памяти, с (параметр «--max-memory-time-limit»). null — не меняется.</summary>
+    public long? MaxMemoryTimeLimit { get; set; }
+
+    /// <summary>Уровень безопасности кластера 0/1/2 (параметр «--security-level»). null — не меняется.</summary>
+    public int? SecurityLevel { get; set; }
+
+    /// <summary>Период пинга, мс (параметр «--ping-period»). null — не меняется.</summary>
+    public long? PingPeriod { get; set; }
+
+    /// <summary>Таймаут пинга, мс (параметр «--ping-timeout»). null — не меняется.</summary>
+    public long? PingTimeout { get; set; }
+
+    /// <summary>Максимальное число попыток аутентификации (параметр «--max-auth-attempts»). null — не меняется.</summary>
+    public int? MaxAuthAttempts { get; set; }
+
+    /// <summary>Длительность блокировки аутентификации, с (параметр «--auth-lock-duration»). null — не меняется.</summary>
+    public long? AuthLockDuration { get; set; }
+
+    /// <summary>Есть ли хоть одно изменение (иначе «cluster update» запускать не о чем).</summary>
+    public bool IsEmpty =>
+        Name is null &&
+        ExpirationTimeout is null &&
+        LifetimeLimit is null &&
+        MaxMemorySize is null &&
+        MaxMemoryTimeLimit is null &&
+        SecurityLevel is null &&
+        PingPeriod is null &&
+        PingTimeout is null &&
+        MaxAuthAttempts is null &&
+        AuthLockDuration is null;
+}
+
+/// <summary>
 /// Информационная база кластера серверов 1С:Предприятие — строка вывода команды rac
 /// «infobase summary list». Поля соответствуют колонкам вывода (формат документирован на ИТС):
 /// <c>infobase</c>, <c>name</c>, <c>descr</c>, <c>dbms</c>, <c>db-server</c>, <c>db-name</c>,

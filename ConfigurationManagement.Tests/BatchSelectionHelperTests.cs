@@ -1268,4 +1268,59 @@ public sealed class BatchSelectionHelperTests
         Assert.Contains("overMenuItem=false", line, StringComparison.Ordinal);
         Assert.Contains("focusRestore=true", line, StringComparison.Ordinal);
     }
+
+    // ======================= Issue #356: восстановление строки после пункта меню =======================
+
+    [Fact]
+    public void ShouldRestoreCurrentSelectionAfterMenuItemClick_MenuItemCloseWithSelection_ReturnsTrue()
+    {
+        // Сценарий #356: меню закладок (открыто хоткеем) закрыто выбором пункта —
+        // подсветка текущей строки сброшена переработкой контейнеров; текущий выбор
+        // в модели есть, фокус в окне, модальных окон нет — восстановление нужно.
+        Assert.True(BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+            isTreeLikeMenuClosed: true,
+            overMenuItem: true,
+            focusStillWithinWindow: true,
+            modalDialogOpen: false,
+            hasCurrentSelection: true));
+    }
+
+    [Fact]
+    public void ShouldRestoreCurrentSelectionAfterMenuItemClick_NotTreeLikeMenu_ReturnsFalse()
+    {
+        // Обычное меню (не дерево/не закладки) — механизм стабилизации не запускается.
+        Assert.False(BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+            isTreeLikeMenuClosed: false,
+            overMenuItem: true,
+            focusStillWithinWindow: true,
+            modalDialogOpen: false,
+            hasCurrentSelection: true));
+    }
+
+    [Theory]
+    [InlineData(false, true, false, true)]   // нет текущего выбора
+    [InlineData(true, true, false, true)]    // окно потеряло фокус
+    [InlineData(true, true, true, true)]     // открыто модальное окно
+    [InlineData(true, false, true, false)]   // закрыто НЕ выбором пункта (клик/ESC — другие пути)
+    public void ShouldRestoreCurrentSelectionAfterMenuItemClick_Exceptions_ReturnsFalse(
+        bool hasCurrentSelection, bool overMenuItem, bool focusStillWithinWindow, bool modalDialogOpen)
+    {
+        Assert.False(BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+            isTreeLikeMenuClosed: true,
+            overMenuItem: overMenuItem,
+            focusStillWithinWindow: focusStillWithinWindow,
+            modalDialogOpen: modalDialogOpen,
+            hasCurrentSelection: hasCurrentSelection));
+    }
+
+    [Fact]
+    public void IsTreeLikeMenu_BookmarksMenuTag_IsTreeLike()
+    {
+        // Меню закладок (Tag = BookmarksMenuTag) считается «меню дерева» и для WPF,
+        // и для Avalonia — участвует в механизме стабилизации выделения (issue #356).
+        Assert.True(BatchSelectionHelper.IsTreeLikeMenu(false, BatchSelectionHelper.BookmarksMenuTag));
+        Assert.True(BatchSelectionHelper.IsTreeLikeMenu(true, null));
+        Assert.False(BatchSelectionHelper.IsTreeLikeMenu(false, "OtherMenu"));
+        Assert.False(BatchSelectionHelper.IsTreeLikeMenu(false, null));
+    }
 }

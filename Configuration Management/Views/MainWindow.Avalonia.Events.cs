@@ -409,6 +409,27 @@ namespace Configuration_Management
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                         ApplyRowUnderCursorRestore(restoreTarget, restorePinned, evidenceTick));
                 }
+                // issue #356: меню закрыто ВЫБОРОМ ПУНКТА (меню закладок открывается
+                // хоткеем и закрывается пунктом — клика по дереву нет вовсе, все пути
+                // «строка под указателем» отсечены overMenuItem). Переработка контейнеров
+                // (Recycling) после закрытия попапа сбрасывает подсветку текущей строки —
+                // возвращаем выбор по ТЕКУЩЕЙ базе модели (идемпотентно, без переноса
+                // выбора и без вмешательства в мультивыделение).
+                else if (_vm?.SelectedInfobase is { } currentSelected &&
+                         BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+                             isTreeLikeMenuClosed: true,
+                             overMenuItem: overMenuItemApprox,
+                             focusStillWithinWindow: IsKeyboardFocusWithin,
+                             modalDialogOpen: HasOpenModalDialog(),
+                             hasCurrentSelection: true))
+                {
+                    restoreScheduled = true;
+                    restoreReason = "menuItem";
+                    var stableTarget = currentSelected;
+                    var stablePinned = currentSelected.IsPinned;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem"));
+                }
 
                 // Возврат клавиатурного фокуса дереву после закрытия меню (issue #340,
                 // 11-я итерация, комментарий 7OH 28/28): после пропажи выделения дерево

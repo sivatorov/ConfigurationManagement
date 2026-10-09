@@ -9,6 +9,33 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.10.3] — 2026-10-09
+
+### Исправлено
+
+- **Файлы платформы: неполное распознавание дистрибутивов (issues #330, #334)**:
+  - **расширения дистрибутивов** — [`OneCPlatformCatalogParser`](Configuration%20Management/Services/OneCPlatformCatalogParser.cs) распознаёт дистрибутивы платформы в форматах `.rar`/`.7z`/`.arj`/`.exe` наравне с `.zip`;
+  - **фактическое расширение в подписи** — [`PlatformDistributionPicker`](Configuration%20Management/Services/PlatformDistributionPicker.cs) в `DisplayName` показывает фактическое расширение файла дистрибутива, а не предположительное `.zip`;
+  - **диагностика пустого списка** — [`PlatformUpdateService`](Configuration%20Management/Services/PlatformUpdateService.cs) при нуле распознанных файлов сохраняет HTML-ответ страницы для разбора (диагностический файл рядом с журналом).
+- **Обновление платформы 1С: потокобезопасность (issue #334)** — [`PlatformUpdateViewModel`](Configuration%20Management/ViewModels/PlatformUpdateViewModel.cs): `AppendLog` и перестройка строк таблицы (`Rows`) маршалируются в UI-поток — фоновые сообщения журнала и обновления таблицы больше не обращаются к коллекциям из другого потока.
+- **Монитор серверов 1С (issue #324, комментарий 7OH от 2026-10-09)**:
+  - **детектор справки `job list`** — [`RacClient`](Configuration%20Management/Services/RacClient.cs) отличает вывод справки (`usage help`) от данных при `job list`; при неуспехе формата синтаксис повторяется альтернативными вариантами (`--cluster=<uuid>`, `--cluster <uuid>`, позиционный `<uuid>`), рабочий формат запоминается ([`RacJobListFormatStore`](Configuration%20Management/Services/RacJobListFormatStore.cs));
+  - **колонка «Информационная база» на вкладке «Сеансы»** — новая колонка в списке сеансов ([`RacSessionRow`](Configuration%20Management/ViewModels/RacSessionRow.cs), [`ServerMonitorViewModel`](Configuration%20Management/ViewModels/ServerMonitorViewModel.cs), [`ServerMonitorWindow.xaml`](Configuration%20Management/Views/ServerMonitorWindow.xaml) / [`.Avalonia.cs`](Configuration%20Management/Views/ServerMonitorWindow.Avalonia.cs));
+  - **редактируемая «Информация о кластере»** — изменение параметров кластера с подтверждением: модель [`RacClusterUpdate`](Configuration%20Management/Models/RacModels.cs), [`RacClient.UpdateClusterAsync`](Configuration%20Management/Services/RacClient.cs) / [`IRacClient`](Configuration%20Management/Services/IRacClient.cs), редактор [`RacClusterPropertyRow`](Configuration%20Management/ViewModels/RacClusterPropertyRow.cs).
+- **Меню закладок: восстановление текущей строки (issue #356)** — после закрытия меню закладок выбором пункта восстанавливается выделение текущей строки дерева: [`BatchSelectionHelper`](Configuration%20Management/Services/BatchSelectionHelper.cs), [`MainWindow.Hotkeys.cs`](Configuration%20Management/Views/MainWindow.Hotkeys.cs), [`MainWindow.Avalonia.Events.cs`](Configuration%20Management/Views/MainWindow.Avalonia.Events.cs).
+- **Локализация и меню замены строк подключения (issue #357)**:
+  - **fallback на встроенные словари** — [`LocalizationManager`](Configuration%20Management/Services/LocalizationManager.cs) при устаревшем внешнем файле языка (не содержащем требуемых ключей) автоматически переходит на встроенные словари локализации вместо пустых надписей;
+  - **пункты замены строк подключения** — перенесены из дерева в «Утилиты → Операции» ([`MainWindow.xaml`](Configuration%20Management/Views/MainWindow.xaml), [`MainWindow.Avalonia.Tree.cs`](Configuration%20Management/Views/MainWindow.Avalonia.Tree.cs));
+  - **компоновка окна «Замена строк подключения»** — поля в [`ConnectionReplaceWindow`](Configuration%20Management/Views/ConnectionReplaceWindow.xaml) разложены в 2 строки, окно компактнее.
+
+### Перенесено
+
+- **Функции C4/C5 из issue #324** — справочник серверов 1С и управление инфобазами кластера переносятся на следующую версию.
+
+### Тесты
+
+Полный набор `dotnet test` зелёный (**2140**); кросс-сборка Linux (`dotnet build -p:BuildLinux=true`) без ошибок.
+
 ## [0.3.10.2] — 2026-10-09
 
 ### Исправлено

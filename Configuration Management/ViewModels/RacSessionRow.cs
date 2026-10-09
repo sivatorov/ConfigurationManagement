@@ -14,13 +14,21 @@ public sealed class RacSessionRow
 {
     private readonly RacSessionInfo _info;
 
-    public RacSessionRow(RacSessionInfo info)
+    public RacSessionRow(RacSessionInfo info, string infobaseName = "")
     {
         _info = info ?? throw new System.ArgumentNullException(nameof(info));
+        InfobaseName = infobaseName;
     }
 
     /// <summary>Идентификатор сеанса.</summary>
     public System.Guid Id => _info.Id;
+
+    /// <summary>
+    /// Имя информационной базы сеанса (из маппинга VM по «infobase summary list»,
+    /// issue #324 C2: колонка «Информационная база» на вкладке «Сеансы»);
+    /// «—» для сеансов без базы / неизвестных идентификаторов.
+    /// </summary>
+    public string InfobaseName { get; }
 
     /// <summary>Идентификатор информационной базы сеанса (пусто — не указана).</summary>
     public string InfobaseIdText => _info.InfobaseId?.ToString() ?? string.Empty;

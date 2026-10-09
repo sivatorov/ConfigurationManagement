@@ -433,4 +433,91 @@ public sealed class OneCPlatformCatalogParserTests
 
         Assert.All(releases, r => Assert.Empty(r.Sources));
     }
+
+    /// <summary>Фрагмент страницы version_files Platform85 (issue #330, 8.5.1.1522):
+    /// дистрибутивы платформы отдаются архивами .rar/.7z — прежний парсер (только
+    /// .zip/.deb/.rpm/.tar.gz) распознавал 0 файлов при валидном HTML.</summary>
+    private const string Platform85RarMarkup = """
+        <html><body>
+        <h1>Файлы версии 8.5.1.1522</h1>
+        <table>
+          <tr><td>Технологическая платформа 8.5 для Windows</td>
+              <td><a href="/total/8_5_1_1522/setup_8_5_1_1522.rar">Скачать</a></td></tr>
+          <tr><td>Технологическая платформа 8.5, тонкий клиент для Windows</td>
+              <td><a href="https://releases.1c.ru/total/8_5_1_1522/setup_8_5_1_1522_thin_64.7z">Скачать</a></td></tr>
+          <tr><td>Технологическая платформа 8.5 для Linux</td>
+              <td><a href="/total/8_5_1_1522/8_5_1_1522_amd64.deb">Скачать</a></td></tr>
+        </table>
+        </body></html>
+        """;
+
+    [Fact]
+    public void ParseDistributionFiles_Platform85RarAnd7zDistributions_AreRecognized()
+    {
+        // issue #330: страница version_files?nick=Platform85&ver=8.5.1.1522 (69 КБ)
+        // распознавалась как пустая — .rar/.7z не входили в набор расширений парсера.
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(Platform85RarMarkup);
+
+        Assert.Equal(3, files.Count);
+
+        var rar = files.Single(f => f.FileName == "setup_8_5_1_1522.rar");
+        Assert.Equal(PlatformDistributionKind.WindowsSetupZip, rar.Kind);
+        Assert.Equal("/total/8_5_1_1522/setup_8_5_1_1522.rar", rar.Url);
+
+        var sevenZip = files.Single(f => f.FileName == "setup_8_5_1_1522_thin_64.7z");
+        Assert.Equal(PlatformDistributionKind.WindowsSetupZip, sevenZip.Kind);
+        Assert.Equal("x64", sevenZip.Architecture);
+
+        var deb = files.Single(f => f.FileName == "8_5_1_1522_amd64.deb");
+        Assert.Equal(PlatformDistributionKind.LinuxDeb, deb.Kind);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_TransferFileRarPaths_AreRecognized()
+    {
+        // issue #334 (8.3.27.2325): дистрибутивы передаются эндпоинтом transfer_file,
+        // а имя файла (.rar) — в query-параметре path; ранее такие файлы отбрасывались.
+        var html = """
+            <a href="transfer_file?nick=Platform83&ver=8.3.27.2325&path=Distr%2Fsetup_8_3_27_2325_full_64.rar">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        var rar = Assert.Single(files);
+        Assert.Equal("setup_8_3_27_2325_full_64.rar", rar.FileName);
+        Assert.Equal(PlatformDistributionKind.WindowsSetupZip, rar.Kind);
+        Assert.Equal("x64", rar.Architecture);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_VersionFileSingularEndpoint_ParsesFile()
+    {
+        // Эндпоинт в единственном числе (version_file?…) тоже распознаётся; страница
+        // version_files?… (во множественном) файлом не считается.
+        var html = """
+            <a href="/version_file?nick=Platform85&ver=8.5.1.1522&path=Distr%2Fsetup_8_5_1_1522.rar">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        var rar = Assert.Single(files);
+        Assert.Equal("setup_8_5_1_1522.rar", rar.FileName);
+        // Адрес относительный (без хоста) — сервис делает его абсолютным
+        // относительно адреса страницы version_files (MakeAbsoluteUrl).
+        Assert.StartsWith("version_file?nick=Platform85", rar.Url);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_PluralVersionFilesPageUrl_IsNotMistakenForFile()
+    {
+        // Ссылка на саму страницу version_files (множественное число) не попадает
+        // в список файлов дистрибутивов.
+        var html = """
+            <a href="/version_files?nick=Platform85&ver=8.5.1.1522">8.5.1.1522</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Empty(files);
+    }
 }

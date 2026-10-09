@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Windows.Input;
@@ -50,6 +51,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private ICommand? _pauseJobCommand;
     private ICommand? _resumeJobCommand;
     private ICommand? _toggleAutoRefreshCommand;
+    private ICommand? _saveClusterPropertiesCommand;
 
     /// <summary>Переключатель автообновления (issue #324): включено по умолчанию.</summary>
     private bool _isAutoRefreshEnabled = true;
@@ -202,6 +204,17 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     /// <summary>Регламентные задания с учётом фильтра по базе (таблица биндится сюда).</summary>
     public ObservableCollection<RacJobRow> FilteredJobs { get; } = new();
+
+    /// <summary>
+    /// Свойства кластера «свойство — значение» на вкладке «Информация о кластере»
+    /// (issue #324, C3): ограниченный набор параметров доступен для правки
+    /// (см. <see cref="RacClusterPropertyRow.IsEditable"/>), остальные — только чтение.
+    /// </summary>
+    public ObservableCollection<RacClusterPropertyRow> ClusterProperties { get; } = new();
+
+    /// <summary>«Сохранить изменения» на вкладке «Информация о кластере» (rac «cluster update»).</summary>
+    public ICommand SaveClusterPropertiesCommand =>
+        _saveClusterPropertiesCommand ??= new RelayCommand(async () => await SaveClusterPropertiesAsync());
 
     /// <summary>Есть ли хотя бы одно задание (для индикатора пустого списка).</summary>
     public bool HasJobs => Jobs.Count > 0;
@@ -888,13 +901,16 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             }
 
             ReplaceRows(Processes, processes.Select(p => new RacProcessRow(p)));
-            ReplaceRows(Sessions, sessions.Select(s => new RacSessionRow(s)));
+            // issue #324, C2: в строку сеанса передаётся имя информационной базы
+            // (сопоставление infobase-id из «session list» со «infobase summary list»).
+            ReplaceRows(Sessions, sessions.Select(s => new RacSessionRow(s, SessionInfobaseName(s))));
             ReplaceRows(Connections, connections.Select(c => new RacConnectionRow(c)));
             ReplaceRows(Locks, locks.Select(l => new RacLockRow(l)));
             ReplaceRows(Jobs, jobs.Select(j => new RacJobRow(j, InfobaseName(j))));
             OnPropertyChanged(nameof(HasJobs));
             ClusterInfo = info;
             ClusterInfoText = FormatClusterInfo(info);
+            ReplaceRows(ClusterProperties, BuildClusterPropertyRows(info));
 
             JobInfobaseFilterRows = BuildJobFilterRows(infobases);
             OnPropertyChanged(nameof(JobInfobaseFilterRows));
@@ -925,6 +941,15 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             ? name
             : LocalizationManager.T("ServerMonitor.Job.UnknownBase");
 
+    /// <summary>
+    /// Имя информационной базы сеанса из кэша (issue #324, C2: колонка «Информационная
+    /// база» на вкладке «Сеансы»); «—» для сеансов без базы/неизвестных GUID.
+    /// </summary>
+    private string SessionInfobaseName(RacSessionInfo session) =>
+        session.InfobaseId is Guid id && _infobaseNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : LocalizationManager.T("ServerMonitor.Session.UnknownBase");
+
     /// <summary>Строки фильтра «по базе»: «Все базы» + имена баз кластера (по алфавиту).</summary>
     private static IReadOnlyList<RacJobFilterRow> BuildJobFilterRows(
         IReadOnlyList<RacInfobaseSummary> infobases)
@@ -953,6 +978,206 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         foreach (var row in rows)
             target.Add(row);
     }
+
+    /// <summary>
+    /// Строки «свойство — значение» для вкладки «Информация о кластере» (issue #324, C3):
+    /// редактируется безопасный набор параметров (имя, таймауты/лимиты, уровень
+    /// безопасности, пинг, аутентификация); остальные свойства — только чтение.
+    /// Ключи rac сопоставляются регистронезависимо с нормализацией дефисов
+    /// («expiration-timeout» ≡ «expirationTimeout»).
+    /// </summary>
+    private static IReadOnlyList<RacClusterPropertyRow> BuildClusterPropertyRows(RacClusterInfo? info)
+    {
+        var rows = new List<RacClusterPropertyRow>();
+        if (info is null)
+            return rows;
+
+        foreach (var pair in info.Properties)
+            rows.Add(new RacClusterPropertyRow(pair.Key, pair.Value, IsEditableClusterProperty(pair.Key)));
+
+        // Резерв: словарь пуст (не распознан) — типизированные поля как только-читаемые.
+        if (rows.Count == 0 && info.Name.Length > 0)
+        {
+            rows.Add(new RacClusterPropertyRow("name", info.Name, editable: true));
+            rows.Add(new RacClusterPropertyRow("hostName", info.HostName, editable: false));
+        }
+
+        return rows;
+    }
+
+    /// <summary>Ключ свойства rac (регистронезависимо, дефисы нормализуются) в канонической форме.</summary>
+    internal static string NormalizeClusterPropertyKey(string rawKey) =>
+        rawKey?.Replace("-", string.Empty).Replace("_", string.Empty).Trim().ToLowerInvariant() ?? string.Empty;
+
+    /// <summary>Входит ли свойство кластера в безопасный набор правки (rac «cluster update»).</summary>
+    internal static bool IsEditableClusterProperty(string rawKey) =>
+        NormalizeClusterPropertyKey(rawKey) switch
+        {
+            "name" or "expirationtimeout" or "lifetimelimit" or "maxmemorysize" or
+            "maxmemorytimelimit" or "securitylevel" or "pingperiod" or "pingtimeout" or
+            "maxauthattempts" or "authlockduration" => true,
+            _ => false
+        };
+
+    /// <summary>
+    /// Собирает изменения параметров кластера из правленых строк вкладки
+    /// «Информация о кластере» (issue #324, C3). Числовые значения разбираются
+    /// инвариантно; при ошибке разбора возвращает null и показывает предупреждение.
+    /// </summary>
+    private RacClusterUpdate? BuildClusterUpdateFromEdits()
+    {
+        var update = new RacClusterUpdate();
+        foreach (var row in ClusterProperties)
+        {
+            if (!row.IsChanged)
+                continue;
+
+            var value = row.EditValue?.Trim() ?? string.Empty;
+            switch (NormalizeClusterPropertyKey(row.RawKey))
+            {
+                case "name":
+                    update.Name = value;
+                    break;
+                case "expirationtimeout":
+                case "lifetimelimit":
+                case "maxmemorysize":
+                case "maxmemorytimelimit":
+                case "pingperiod":
+                case "pingtimeout":
+                case "authlockduration":
+                    if (!TryParseLong(row, value, out var longValue))
+                        return null;
+                    AssignLong(row.RawKey, longValue);
+                    break;
+                case "securitylevel":
+                case "maxauthattempts":
+                    if (!TryParseInt(row, value, out var intValue))
+                        return null;
+                    AssignInt(row.RawKey, intValue);
+                    break;
+            }
+        }
+
+        return update;
+
+        void AssignLong(string rawKey, long value)
+        {
+            switch (NormalizeClusterPropertyKey(rawKey))
+            {
+                case "expirationtimeout": update.ExpirationTimeout = value; break;
+                case "lifetimelimit": update.LifetimeLimit = value; break;
+                case "maxmemorysize": update.MaxMemorySize = value; break;
+                case "maxmemorytimelimit": update.MaxMemoryTimeLimit = value; break;
+                case "pingperiod": update.PingPeriod = value; break;
+                case "pingtimeout": update.PingTimeout = value; break;
+                case "authlockduration": update.AuthLockDuration = value; break;
+            }
+        }
+
+        void AssignInt(string rawKey, int value)
+        {
+            switch (NormalizeClusterPropertyKey(rawKey))
+            {
+                case "securitylevel": update.SecurityLevel = value; break;
+                case "maxauthattempts": update.MaxAuthAttempts = value; break;
+            }
+        }
+    }
+
+    /// <summary>Разбор числового значения поля правки (инвариантно) с понятной ошибкой.</summary>
+    private bool TryParseLong(RacClusterPropertyRow row, string value, out long result)
+    {
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result))
+            return true;
+
+        var message = string.Format(
+            LocalizationManager.T("ServerMonitor.Cluster.InvalidNumberFormat"),
+            row.DisplayName, value);
+        _dialogs.ShowWarning(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+        return false;
+    }
+
+    /// <summary>Разбор целочисленного значения поля правки (инвариантно) с понятной ошибкой.</summary>
+    private bool TryParseInt(RacClusterPropertyRow row, string value, out int result)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result))
+            return true;
+
+        var message = string.Format(
+            LocalizationManager.T("ServerMonitor.Cluster.InvalidNumberFormat"),
+            row.DisplayName, value);
+        _dialogs.ShowWarning(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+        return false;
+    }
+
+    /// <summary>
+    /// «Сохранить изменения» на вкладке «Информация о кластере» (issue #324, C3):
+    /// подтверждение → rac «cluster update» с ТОЛЬКО изменёнными параметрами →
+    /// перечитывание данных кластера. Ошибки не роняют окно.
+    /// </summary>
+    public async Task SaveClusterPropertiesAsync()
+    {
+        if (!HasConnected || SelectedClusterId is not Guid clusterId)
+            return;
+
+        var update = BuildClusterUpdateFromEdits();
+        if (update is null)
+            return; // предупреждение о неверном числе уже показано
+        if (update.IsEmpty)
+        {
+            StatusText = LocalizationManager.T("ServerMonitor.Cluster.NothingToSave");
+            return;
+        }
+
+        if (!_dialogs.Confirm(
+                string.Format(
+                    LocalizationManager.T("ServerMonitor.Cluster.ConfirmFormat"),
+                    CountChanges(update)),
+                LocalizationManager.T("ServerMonitor.Cluster.SaveTitle")))
+            return;
+
+        try
+        {
+            var ok = await _rac.UpdateClusterAsync(BuildParams(), clusterId, update).ConfigureAwait(false);
+            if (!ok)
+            {
+                var detail = BuildActionError(_rac.LastActionError);
+                _dialogs.ShowWarning(
+                    LocalizationManager.T("ServerMonitor.Cluster.SaveFailedFormat") + "\n" + detail,
+                    LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+                StatusText = detail;
+                return;
+            }
+
+            StatusText = LocalizationManager.T("ServerMonitor.Cluster.SavedFormat");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ShowWarning(
+                LocalizationManager.T("ServerMonitor.Cluster.SaveFailedFormat") + "\n" + BuildErrorMessage(ex),
+                LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+            StatusText = BuildErrorMessage(ex);
+        }
+        finally
+        {
+            // После обновления параметры кластера перечитываются (и строки правки
+            // пересобираются из фактического вывода rac).
+            Refresh();
+        }
+    }
+
+    /// <summary>Число изменённых параметров для текста подтверждения.</summary>
+    private static int CountChanges(RacClusterUpdate update) =>
+        (update.Name is null ? 0 : 1) +
+        (update.ExpirationTimeout is null ? 0 : 1) +
+        (update.LifetimeLimit is null ? 0 : 1) +
+        (update.MaxMemorySize is null ? 0 : 1) +
+        (update.MaxMemoryTimeLimit is null ? 0 : 1) +
+        (update.SecurityLevel is null ? 0 : 1) +
+        (update.PingPeriod is null ? 0 : 1) +
+        (update.PingTimeout is null ? 0 : 1) +
+        (update.MaxAuthAttempts is null ? 0 : 1) +
+        (update.AuthLockDuration is null ? 0 : 1);
 
     private static string FormatClusterInfo(RacClusterInfo? info)
     {

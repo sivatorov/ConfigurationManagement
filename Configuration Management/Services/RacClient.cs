@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -275,8 +276,23 @@ public sealed class RacClient : IRacClient
             var index = (startIndex + attempt) % JobListFormatCount;
             try
             {
-                output = await RunAsync(parameters, cancellationToken, JobListArgs(index, clusterId))
+                var attemptOutput = await RunAsync(parameters, cancellationToken, JobListArgs(index, clusterId))
                     .ConfigureAwait(false);
+
+                // issue #324 (комментарий 7OH от 2026-10-09): rac 8.5.4.1878 может завершить
+                // «job list <uuid>» с кодом 0, но вернуть СПРАВКУ об использовании
+                // («Использование: rac [режим] [команда] …», stdout=1833 симв.) — данных нет.
+                // Такой вывод считается НЕуспехом формата: формат не кэшируется,
+                // запрос повторяется с альтернативным синтаксисом.
+                if (LooksLikeUsageHelp(attemptOutput))
+                {
+                    failures.Add(
+                        $"формат '{JobListFormatName(index)}': rac вернул справку об использовании " +
+                        $"({attemptOutput.Length} симв.) вместо списка заданий");
+                    continue;
+                }
+
+                output = attemptOutput;
                 usedFallback = attempt > 0;
                 successFormat = index;
                 // Запоминаем рабочий формат (в памяти и на диске); при смене версии
@@ -316,6 +332,32 @@ public sealed class RacClient : IRacClient
         var jobs = RacOutputParser.ToJobs(output);
         EnsureParsedOrThrow(output, jobs.Count, "job list", _logger);
         return jobs;
+    }
+
+    /// <summary>
+    /// Признак того, что rac вместо данных вернул СПРАВКУ об использовании команды
+    /// (issue #324, комментарий 7OH от 2026-10-09: «job list <uuid>» на 8.5.4.1878
+    /// завершается с кодом 0, но stdout — текст «Использование: rac [режим] [команда] …»,
+    /// 0 записей). Проверяется ПЕРВАЯ непустая строка вывода: у справки rac она всегда
+    /// начинается с «Использование:» (русская локаль) или «Usage:» (английская).
+    /// Data-вывод (таблица/блоки «ключ : значение») такими префиксами не начинается.
+    /// Internal — для юнит-тестов без запуска процесса rac.
+    /// </summary>
+    internal static bool LooksLikeUsageHelp(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return false;
+
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r').Trim();
+            if (line.Length == 0)
+                continue;
+            return line.StartsWith("Использование:", StringComparison.OrdinalIgnoreCase) ||
+                   line.StartsWith("Usage:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     /// <summary>Число известных форматов команды «job list» (issue #324).</summary>
@@ -396,6 +438,49 @@ public sealed class RacClient : IRacClient
         CancellationToken cancellationToken = default) =>
         RunActionAsync(parameters, cancellationToken, "job", JobActionCommand(action),
             $"--cluster={clusterId}", $"--job={jobId}");
+
+    /// <inheritdoc />
+    public Task<bool> UpdateClusterAsync(
+        RacConnectionParams parameters, Guid clusterId, RacClusterUpdate changes,
+        CancellationToken cancellationToken = default) =>
+        RunActionAsync(parameters, cancellationToken, ClusterUpdateArgs(clusterId, changes));
+
+    /// <summary>
+    /// Аргументы команды «cluster update» (issue #324, C3): <c>cluster update
+    /// --cluster=<uuid></c> + параметры ТОЛЬКО изменённых свойств. Значение с
+    /// пробелами (имя кластера) остаётся одним токеном — аргументы передаются через
+    /// ArgumentList без shell; пароль в аргументах маскируется при журналировании
+    /// (<see cref="SensitiveDataMasker.MaskRacPassword"/>). Internal — для юнит-тестов
+    /// сборки аргументов без запуска rac.
+    /// </summary>
+    internal static string[] ClusterUpdateArgs(Guid clusterId, RacClusterUpdate? changes)
+    {
+        if (changes is null || changes.IsEmpty)
+            throw new ArgumentException("Нет изменений параметров кластера для сохранения.", nameof(changes));
+
+        var args = new List<string>(12) { "cluster", "update", $"--cluster={clusterId}" };
+        if (changes.Name is not null)
+            args.Add($"--name={changes.Name}");
+        if (changes.ExpirationTimeout is { } expirationTimeout)
+            args.Add($"--expiration-timeout={expirationTimeout.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.LifetimeLimit is { } lifetimeLimit)
+            args.Add($"--lifetime-limit={lifetimeLimit.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.MaxMemorySize is { } maxMemorySize)
+            args.Add($"--max-memory-size={maxMemorySize.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.MaxMemoryTimeLimit is { } maxMemoryTimeLimit)
+            args.Add($"--max-memory-time-limit={maxMemoryTimeLimit.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.SecurityLevel is { } securityLevel)
+            args.Add($"--security-level={securityLevel.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.PingPeriod is { } pingPeriod)
+            args.Add($"--ping-period={pingPeriod.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.PingTimeout is { } pingTimeout)
+            args.Add($"--ping-timeout={pingTimeout.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.MaxAuthAttempts is { } maxAuthAttempts)
+            args.Add($"--max-auth-attempts={maxAuthAttempts.ToString(CultureInfo.InvariantCulture)}");
+        if (changes.AuthLockDuration is { } authLockDuration)
+            args.Add($"--auth-lock-duration={authLockDuration.ToString(CultureInfo.InvariantCulture)}");
+        return args.ToArray();
+    }
 
     /// <inheritdoc />
     public Task<bool> TerminateSessionAsync(

@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>0.3.10.2</Version>
-    <AssemblyVersion>0.3.10.2</AssemblyVersion>
-    <FileVersion>0.3.10.2</FileVersion>
-    <InformationalVersion>0.3.10.2</InformationalVersion>
+    <Version>0.3.10.3</Version>
+    <AssemblyVersion>0.3.10.3</AssemblyVersion>
+    <FileVersion>0.3.10.3</FileVersion>
+    <InformationalVersion>0.3.10.3</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -455,6 +455,10 @@
     <Compile Include="ViewModels\RacSessionRow.cs" />
     <Compile Include="ViewModels\RacConnectionRow.cs" />
     <Compile Include="ViewModels\RacLockRow.cs" />
+    <!-- Строка вкладки «Информация о кластере» в виде «свойство — значение» (issue #324,
+         C3): чистая ViewModel с правкой безопасного набора параметров; подключается
+         явно (имя не совпадает с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\RacClusterPropertyRow.cs" />
     <!-- Строка вкладки «Регламентные задания» и фильтр по базе (0.3.9.177, цикл
          0.3.9.176–179): чистый .NET без WPF-зависимостей, используются обеими
          платформами — на Linux подключаются явно (имена не совпадают с глобом

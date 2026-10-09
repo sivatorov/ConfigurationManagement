@@ -191,6 +191,17 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
         // HTML, число распознанных файлов — в журнал приложения и в результат (окно
         // показывает её пользователю, если файлов не распознано).
         _logger.Info($"[PlatformUpdate] version_files: {url}; длина ответа {text!.Length}; распознано файлов {files.Count}");
+
+        if (files.Count == 0)
+        {
+            // Разметка страницы не распознана (issue #330/#334: Platform85 8.5.1.1522,
+            // 8.3.27.2325): сохраняем тело ответа в файл диагностики рядом с журналом —
+            // образец фактической разметки для будущих регрессий парсера.
+            var savedPath = SaveDiagnosticsBody(url, release, text!);
+            if (!string.IsNullOrWhiteSpace(savedPath))
+                _logger.Warn($"[PlatformUpdate] version_files: тело ответа сохранено для диагностики: {savedPath}");
+        }
+
         return new PlatformCatalogResult
         {
             Status = PortalFetchStatus.Ok,
@@ -224,6 +235,51 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
                 ? $"https://releases.1c.ru{url}"
                 : url;
         }
+    }
+
+    /// <summary>
+    /// Сохраняет тело ответа <c>version_files</c> при нуле распознанных файлов
+    /// (issue #330): файл <c>version_files_debug_<ник>_<версия>_<метка времени>.html</c>
+    /// в каталоге логов (<see cref="PlatformPaths.LogDirectory"/>) — образец фактической
+    /// разметки для разбора регрессий парсера. Никогда не бросает исключений;
+    /// при неудаче возвращает null.
+    /// </summary>
+    /// <summary>Переопределение каталога логов для юнит-тестов (по умолчанию —
+    /// <see cref="PlatformPaths.LogDirectory"/>). Намеренно internal.</summary>
+    internal static Func<string>? LogDirectoryResolver { get; set; }
+
+    private static string? SaveDiagnosticsBody(string url, PlatformRelease release, string body)
+    {
+        try
+        {
+            var directory = LogDirectoryResolver?.Invoke() ?? PlatformPaths.LogDirectory;
+            System.IO.Directory.CreateDirectory(directory);
+
+            var nick = SanitizeFileName(string.IsNullOrWhiteSpace(release.Nick)
+                ? OneCPlatformCatalogParser.Platform83Nick
+                : release.Nick);
+            var version = SanitizeFileName(release.Version ?? "unknown");
+            var fileName = $"version_files_debug_{nick}_{version}_{DateTimeOffset.Now:yyyyMMdd_HHmmss}.html";
+            var path = System.IO.Path.Combine(directory, fileName);
+            System.IO.File.WriteAllText(path, $"<!-- {url} -->\n{body}");
+            return path;
+        }
+        catch
+        {
+            // Диагностика не должна мешать основному сценарию (нет прав, диск и т.п.).
+            return null;
+        }
+    }
+
+    /// <summary>Убирает из имени файла символы, недопустимые в файловой системе.</summary>
+    private static string SanitizeFileName(string raw)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var sb = new System.Text.StringBuilder(raw.Length);
+        foreach (var c in raw)
+            sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+        var text = sb.ToString().Trim();
+        return string.IsNullOrWhiteSpace(text) ? "unknown" : text;
     }
 
     /// <inheritdoc />

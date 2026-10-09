@@ -173,22 +173,37 @@ public sealed class LocalizationManager
 
     /// <summary>
     /// Возвращает перевод ключа для текущего языка.
-    /// Откат: текущий язык → английский → русский → сам ключ.
+    /// Откат: текущий язык → встроенный английский → встроенный русский → сам ключ.
+    /// Фолбэк идёт по ВСТРОЕННЫМ словарям (issue #357): внешний файл языка (Languages/
+    /// рядом с exe или в каталоге данных) с кодом «ru»/«en» ПОЛНОСТЬЮ переопределяет
+    /// встроенный словарь — в устаревшем внешнем файле нет ключей новых окон, и без
+    /// встроенного фолбэка интерфейс показывал ключи локализации вместо текстов.
     /// </summary>
     public string Translate(string key)
+        => TranslateFromDictionaries(_current, _builtInEnglishStrings, _builtInRussianStrings, key);
+
+    /// <summary>
+    /// Чистое ядро перевода (для юнит-тестов, issue #357): текущий словарь →
+    /// встроенный английский → встроенный русский → сам ключ.
+    /// </summary>
+    internal static string TranslateFromDictionaries(
+        IReadOnlyDictionary<string, string>? current,
+        IReadOnlyDictionary<string, string>? builtInEnglish,
+        IReadOnlyDictionary<string, string>? builtInRussian,
+        string key)
     {
         if (string.IsNullOrEmpty(key))
             return key;
 
-        if (_current.TryGetValue(key, out var value))
+        if (current is not null && current.TryGetValue(key, out var value))
             return value;
 
-        if (_languages.TryGetValue(BuiltInEnglish, out var en) &&
-            en.Strings.TryGetValue(key, out var enValue))
+        if (builtInEnglish is not null &&
+            builtInEnglish.TryGetValue(key, out var enValue))
             return enValue;
 
-        if (_languages.TryGetValue(BuiltInRussian, out var ru) &&
-            ru.Strings.TryGetValue(key, out var ruValue))
+        if (builtInRussian is not null &&
+            builtInRussian.TryGetValue(key, out var ruValue))
             return ruValue;
 
         return key;
@@ -205,6 +220,15 @@ public sealed class LocalizationManager
     //  Загрузка
     // ------------------------------------------------------------------
 
+    /// Встроенные словари для фолбэка перевода (issue #357): внешние файлы языков с
+    /// тем же кодом переопределяют текущий словарь целиком — без отдельной ссылки на
+    /// встроенные ru/en ключи новых версий в устаревшем внешнем файле показывались бы
+    /// «как есть». Заполняется в <see cref="LoadBuiltInLanguages"/>; null — встроенный
+    /// язык не найден в ресурсах сборки.
+    /// </summary>
+    private IReadOnlyDictionary<string, string>? _builtInEnglishStrings;
+    private IReadOnlyDictionary<string, string>? _builtInRussianStrings;
+
     private void LoadBuiltInLanguages()
     {
         var assembly = Assembly.GetExecutingAssembly();
@@ -218,6 +242,10 @@ public sealed class LocalizationManager
                 continue;
 
             TryAddFromStream(stream, name);
+            if (_languages.TryGetValue(BuiltInEnglish, out var en))
+                _builtInEnglishStrings = en.Strings;
+            if (_languages.TryGetValue(BuiltInRussian, out var ru))
+                _builtInRussianStrings = ru.Strings;
         }
     }
 

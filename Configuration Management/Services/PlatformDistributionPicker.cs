@@ -60,14 +60,17 @@ public sealed class PlatformDistributionOption
 
     /// <summary>
     /// Человекочитаемое представление варианта: «Полный клиент (zip) · x64 · 1,2 ГБ»
-    /// (Windows) или «Пакет deb · amd64 · …» (Linux).
+    /// (Windows) или «Пакет deb · amd64 · …» (Linux). Расширение в скобках — фактическое
+    /// расширение файла (issue #330: дистрибутивы платформы отдаются и архивами
+    /// <c>.rar</c>/<c>.7z</c> — вводить пользователя в заблуждение подписью «(zip)» нельзя).
     /// </summary>
     public string DisplayName
     {
         get
         {
             var type = File.Kind == PlatformDistributionKind.WindowsSetupZip
-                ? (PlatformDistributionPicker.IsThinClient(File) ? "Тонкий клиент (zip)" : "Полный клиент (zip)")
+                ? (PlatformDistributionPicker.IsThinClient(File) ? "Тонкий клиент (" : "Полный клиент (")
+                  + GetDistributionExtension(File) + ")"
                 : File.Kind switch
                 {
                     PlatformDistributionKind.LinuxDeb => "Пакет deb",
@@ -83,6 +86,19 @@ public sealed class PlatformDistributionOption
 
     /// <inheritdoc />
     public override string ToString() => DisplayName;
+
+    /// <summary>Фактическое расширение дистрибутива (без точки, нижний регистр):
+    /// «zip»/«rar»/«7z»/«exe»/«arj»; при отсутствии — «zip» (привычное значение).</summary>
+    private static string GetDistributionExtension(PlatformReleaseFile file)
+    {
+        var name = file?.FileName ?? string.Empty;
+        var dot = name.LastIndexOf('.');
+        if (dot < 0 || dot == name.Length - 1)
+            return "zip";
+        var ext = name[(dot + 1)..].ToLowerInvariant();
+        // «tar.gz» — расширение из двух частей; здесь это не Windows-расширение.
+        return ext is "gz" or "gzip" ? "zip" : ext;
+    }
 
     private static string FormatSize(long bytes)
     {

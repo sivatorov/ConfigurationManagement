@@ -1281,4 +1281,45 @@ public sealed class RacOutputParserTests
         Assert.Equal("Обновление информационной базы", job.Name);
         Assert.Equal("scheduled", job.State);
     }
+
+    [Fact]
+    public void ToJobs_UsageHelpOutput_ReturnsEmpty()
+    {
+        // issue #324 (0.3.10.3): rac 8.5.4.1878 на «job list <uuid>» может вернуть
+        // справку об использовании («Использование: rac …» вместо данных). Парсер
+        // не должен извлечь из неё ни одной строки заданий — сигналом смены формата
+        // занимается RacClient.LooksLikeUsageHelp (повтор с альтернативным синтаксисом).
+        const string help =
+            "Использование: rac [режим] [команда] [параметры]\n" +
+            "Команды: cluster, infobase, session, connection, process, lock, job\n" +
+            "Пример: rac localhost:1540 job list --cluster=<uuid>\n";
+
+        Assert.Empty(RacOutputParser.ToJobs(help));
+    }
+
+    [Fact]
+    public void ToJobs_Rac85KeyValueSchema_InfobaseNameAndMethodAreRead()
+    {
+        // «Новый формат job list 8.5»: блоки «ключ : значение» со схемой 8.5
+        // (name/method-name в кавычках, пустой infobase) ложатся в модель.
+        const string output =
+            "job        : 1a2b3c4d-0000-0000-0000-000000000002\n" +
+            "infobase   : \n" +
+            "name       : \"Полный индексно-пересчетный расчет\"\n" +
+            "method-name: \"Common.ИндексацияСсылок\"\n" +
+            "predefined : 1\n" +
+            "schedule   : \"* * * * *\"\n" +
+            "state      : scheduled\n" +
+            "next-start : 2026-10-09T21:00:00\n";
+
+        var job = Assert.Single(RacOutputParser.ToJobs(output));
+
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-000000000002"), job.Id);
+        Assert.Null(job.InfobaseId);
+        Assert.Equal("Полный индексно-пересчетный расчет", job.Name);
+        Assert.Equal("Common.ИндексацияСсылок", job.MethodName);
+        Assert.True(job.Predefined);
+        Assert.Equal("scheduled", job.State);
+        Assert.Equal(new DateTime(2026, 10, 9, 21, 0, 0), job.NextStart);
+    }
 }

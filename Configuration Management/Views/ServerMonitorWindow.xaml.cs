@@ -77,6 +77,13 @@ namespace Configuration_Management
             new JobDetailsWindow(row.DetailsText) { Owner = this }.ShowDialog();
         }
 
+        /// <summary>
+        /// «Сохранить изменения» на вкладке «Информация о кластере» (issue #324, C3):
+        /// rac «cluster update» по изменённым параметрам, перечитывание данных.
+        /// </summary>
+        private void OnSaveClusterInfo_Click(object sender, RoutedEventArgs e) =>
+            _vm.SaveClusterPropertiesCommand.Execute(null);
+
         private void OnClose_Click(object sender, RoutedEventArgs e) => Close();
 
         /// <summary>

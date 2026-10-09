@@ -47,50 +47,56 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Панель параметров: Найти / Заменить на / Поле / Область / Режим / регистр + «Найти». -->
-        <WrapPanel Grid.Row="0" Margin="0,0,0,8">
-            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                <TextBlock Text="{loc:Loc ConnectionReplace.FindLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <TextBox Width="170" Style="{StaticResource ModernTextBox}" Padding="6,3"
-                         Text="{Binding FindText, UpdateSourceTrigger=PropertyChanged}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                <TextBlock Text="{loc:Loc ConnectionReplace.ReplaceLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <TextBox Width="170" Style="{StaticResource ModernTextBox}" Padding="6,3"
-                         Text="{Binding ReplaceText, UpdateSourceTrigger=PropertyChanged}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                <TextBlock Text="{loc:Loc ConnectionReplace.FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <ComboBox Width="190" Style="{StaticResource ModernComboBox}"
-                          ItemsSource="{Binding Fields}" SelectedValuePath="Value"
-                          SelectedValue="{Binding SelectedField}" DisplayMemberPath="DisplayText"
-                          VerticalContentAlignment="Center" Padding="6,2"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                <TextBlock Text="{loc:Loc ConnectionReplace.ScopeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <ComboBox Width="160" Style="{StaticResource ModernComboBox}"
-                          ItemsSource="{Binding Scopes}" SelectedValuePath="Value"
-                          SelectedValue="{Binding SelectedScope}" DisplayMemberPath="DisplayText"
-                          VerticalContentAlignment="Center" Padding="6,2"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                <TextBlock Text="{loc:Loc ConnectionReplace.ModeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <ComboBox Width="180" Style="{StaticResource ModernComboBox}"
-                          ItemsSource="{Binding Modes}" SelectedValuePath="Value"
-                          SelectedValue="{Binding SelectedMatchMode}" DisplayMemberPath="DisplayText"
-                          VerticalContentAlignment="Center" Padding="6,2"/>
-            </StackPanel>
-            <CheckBox Content="{loc:Loc ConnectionReplace.IgnoreCase}" VerticalAlignment="Center"
-                      IsChecked="{Binding IgnoreCase}" Margin="0,0,14,4"/>
-            <Button x:Name="FindButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="14,5"
-                    Command="{Binding RefreshPreviewCommand}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🔍" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ConnectionReplace.FindButton}" VerticalAlignment="Center"/>
+        <!-- Панель параметров, ДВЕ СТРОКИ (issue #357): на первой — только «Найти» и
+             «Заменить на» (в неширокое окно все поля в одну строку не помещаются),
+             на второй — Поле / Область / Режим / регистр + кнопка «Найти». -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                    <TextBlock Text="{loc:Loc ConnectionReplace.FindLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox Width="170" Style="{StaticResource ModernTextBox}" Padding="6,3"
+                             Text="{Binding FindText, UpdateSourceTrigger=PropertyChanged}"/>
                 </StackPanel>
-            </Button>
-        </WrapPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{loc:Loc ConnectionReplace.ReplaceLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox Width="170" Style="{StaticResource ModernTextBox}" Padding="6,3"
+                             Text="{Binding ReplaceText, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                    <TextBlock Text="{loc:Loc ConnectionReplace.FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="190" Style="{StaticResource ModernComboBox}"
+                              ItemsSource="{Binding Fields}" SelectedValuePath="Value"
+                              SelectedValue="{Binding SelectedField}" DisplayMemberPath="DisplayText"
+                              VerticalContentAlignment="Center" Padding="6,2"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                    <TextBlock Text="{loc:Loc ConnectionReplace.ScopeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="160" Style="{StaticResource ModernComboBox}"
+                              ItemsSource="{Binding Scopes}" SelectedValuePath="Value"
+                              SelectedValue="{Binding SelectedScope}" DisplayMemberPath="DisplayText"
+                              VerticalContentAlignment="Center" Padding="6,2"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                    <TextBlock Text="{loc:Loc ConnectionReplace.ModeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Width="180" Style="{StaticResource ModernComboBox}"
+                              ItemsSource="{Binding Modes}" SelectedValuePath="Value"
+                              SelectedValue="{Binding SelectedMatchMode}" DisplayMemberPath="DisplayText"
+                              VerticalContentAlignment="Center" Padding="6,2"/>
+                </StackPanel>
+                <CheckBox Content="{loc:Loc ConnectionReplace.IgnoreCase}" VerticalAlignment="Center"
+                          IsChecked="{Binding IgnoreCase}" Margin="0,0,14,0"/>
+                <Button x:Name="FindButton" Style="{StaticResource ModernButton}"
+                        Background="{DynamicResource ItemHoverBrush}" Padding="14,5"
+                        Command="{Binding RefreshPreviewCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🔍" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc ConnectionReplace.FindButton}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </StackPanel>
 
         <!-- Предпросмотр «База | Поле | Было | Станет»; «Станет» подсвечивается зелёным при Changed. -->
         <DataGrid x:Name="PreviewGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"

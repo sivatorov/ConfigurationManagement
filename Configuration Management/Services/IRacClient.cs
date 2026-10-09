@@ -96,6 +96,16 @@ public interface IRacClient
         RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Изменение параметров кластера (команда «cluster update --cluster=...», issue #324,
+    /// C3: редактируемая «Информация о кластере»). Передаются ТОЛЬКО изменённые свойства
+    /// (см. <see cref="RacClusterUpdate.IsEmpty"/>). Возвращает true при ExitCode 0;
+    /// при неудаче — false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.
+    /// </summary>
+    Task<bool> UpdateClusterAsync(
+        RacConnectionParams parameters, Guid clusterId, RacClusterUpdate changes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Изменение состояния регламентного задания (команды «job pause/resume/disable/enable
     /// --cluster=... --job=...»). Возвращает true при ExitCode 0; при неудаче — false
     /// и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.

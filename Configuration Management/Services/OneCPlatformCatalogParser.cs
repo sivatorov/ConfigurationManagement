@@ -53,21 +53,27 @@ public static class OneCPlatformCatalogParser
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     /// <summary>Регулярное выражение для поиска прямых ссылок на файлы дистрибутивов платформы
-    /// (<c>.zip</c>/<c>.deb</c>/<c>.rpm</c>/<c>.tar.gz</c>) в ответе <c>version_files</c>
-    /// (JSON или HTML), устойчиво к неизвестной структуре. Query-часть ссылки учитывается.</summary>
+    /// (<c>.zip</c>/<c>.rar</c>/<c>.7z</c>/<c>.exe</c>/<c>.arj</c>/<c>.deb</c>/<c>.rpm</c>/
+    /// <c>.tar.gz</c>) в ответе <c>version_files</c> (JSON или HTML), устойчиво к неизвестной
+    /// структуре. Query-часть ссылки учитывается. Список расширений синхронизирован с
+    /// <c>OneCUpdatesService.DistributionFileRegex</c> (issue #352): дистрибутивы платформы
+    /// 8.3/8.5 отдаются в том числе архивами <c>.rar</c>/<c>.7z</c> (issue #330 — страница
+    /// Platform85 8.5.1.1522 при прежнем наборе расширений давала «распознано файлов 0»).</summary>
     private static readonly Regex DistributionFileLinkRegex = new(
-        @"(?<url>(?:https?://|/)[^""'\s<>]*?\.(?:zip|deb|rpm|tar\.gz)(?:[?#][^""'\s<>]*)?)",
+        @"(?<url>(?:https?://|/)[^""'\s<>]*?\.(?:zip|rar|7z|exe|arj|deb|rpm|tar\.gz)(?:[?#][^""'\s<>]*)?)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Регулярное выражение для ссылок на передачу файла дистрибутива
-    /// (<c>transfer_file?…</c>/<c>additional_file?…</c>, issue #330): альтернативная
-    /// разметка страницы <c>version_files</c>, где дистрибутив отдаётся эндпоинтом
-    /// передачи файла, а имя/расширение файла находятся в query-параметрах
+    /// (<c>transfer_file?…</c>/<c>additional_file?…</c>/<c>version_file?…</c>, issue #330):
+    /// альтернативная разметка страницы <c>version_files</c>, где дистрибутив отдаётся
+    /// эндпоинтом передачи файла, а имя/расширение файла находятся в query-параметрах
     /// <c>path</c>/<c>file</c>/<c>filename</c>. Паттерн повторяет
     /// <c>OneCUpdatesService.FileEndpointUrlRegex</c> (issue #352): поиск ведётся
-    /// в любом месте ответа, включая JS-редиректы и встроенный JSON.</summary>
+    /// в любом месте ответа, включая JS-редиректы и встроенный JSON. Эндпоинт в
+    /// единственном числе (<c>version_file</c>) не путается со страницей
+    /// <c>version_files?…</c> (во множественном — после «files» идёт «s», а не «?»).</summary>
     private static readonly Regex FileEndpointUrlRegex = new(
-        @"(?<url>(?:https?://[^\s""'<>]*)?(?:transfer_file|additional_file)\?[^\s""'<>]+)",
+        @"(?<url>(?:https?://[^\s""'<>]*)?(?:transfer_file|additional_file|version_file)\?[^\s""'<>]+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Регулярное выражение для извлечения размера файла из JSON-полей
@@ -219,10 +225,13 @@ public static class OneCPlatformCatalogParser
 
     /// <summary>
     /// Возвращает файлы дистрибутива релиза из ответа <c>version_files?nick=…&ver=…</c>
-    /// (JSON или HTML): ищет ссылки на <c>.zip</c>/<c>.deb</c>/<c>.rpm</c>/<c>.tar.gz</c>,
-    /// классифицирует тип по расширению, разрядность — по токенам имени файла, размер —
-    /// из JSON-полей <c>size</c>/<c>filesize</c> (иначе 0). Ссылки с query-частью учитываются.
-    /// Неизвестные расширения пропускаются; битый ответ возвращает пустой список.
+    /// (JSON или HTML): ищет ссылки на <c>.zip</c>/<c>.rar</c>/<c>.7z</c>/<c>.exe</c>/
+    /// <c>.arj</c>/<c>.deb</c>/<c>.rpm</c>/<c>.tar.gz</c> (набор синхронизирован с
+    /// <c>OneCUpdatesService</c>, issue #330 — дистрибутивы платформы 8.3/8.5 отдаются
+    /// в том числе архивами <c>.rar</c>/<c>.7z</c>), классифицирует тип по расширению,
+    /// разрядность — по токенам имени файла, размер — из JSON-полей <c>size</c>/
+    /// <c>filesize</c> (иначе 0). Ссылки с query-частью учитываются. Неизвестные
+    /// расширения пропускаются; битый ответ возвращает пустой список.
     /// </summary>
     public static IReadOnlyList<PlatformReleaseFile> ParseDistributionFiles(string body)
     {
@@ -433,11 +442,16 @@ public static class OneCPlatformCatalogParser
         return WebUtility.HtmlDecode(name);
     }
 
-    /// <summary>Тип дистрибутива по расширению имени файла.</summary>
+    /// <summary>Тип дистрибутива по расширению имени файла. Windows-архивы
+    /// (<c>.zip</c>/<c>.rar</c>/<c>.7z</c>/<c>.arj</c>) и одиночные <c>.exe</c> считаются
+    /// установочными дистрибутивами Windows (issue #330: платформа 8.3/8.5 отдаётся
+    /// в том числе архивами <c>.rar</c>/<c>.7z</c>, ранее они отбрасывались и страница
+    /// files выглядела «пустой»).</summary>
     private static PlatformDistributionKind ClassifyKind(string fileName)
     {
         var lower = fileName.ToLowerInvariant();
-        if (lower.EndsWith(".zip"))
+        if (lower.EndsWith(".zip") || lower.EndsWith(".rar") ||
+            lower.EndsWith(".7z") || lower.EndsWith(".arj") || lower.EndsWith(".exe"))
             return PlatformDistributionKind.WindowsSetupZip;
         if (lower.EndsWith(".deb"))
             return PlatformDistributionKind.LinuxDeb;

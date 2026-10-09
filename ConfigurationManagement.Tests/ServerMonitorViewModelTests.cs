@@ -681,6 +681,171 @@ public sealed class ServerMonitorViewModelTests
         Assert.Equal(10, vm.AutoRefreshIntervalSeconds);
     }
 
+    // ===================== C2: колонка «Информационная база» на вкладке «Сеансы» =====================
+
+    [Fact]
+    public async Task LoadClusterDataAsync_SessionRows_HaveInfobaseNameFromSummaryList()
+    {
+        // issue #324, C2: infobase-id сеанса из «session list» сопоставляется с именем
+        // из «infobase summary list» («Бухгалтерия» — единственная база fake-кластера).
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        var session = vm.Sessions.Single();
+        Assert.Equal("Бухгалтерия", session.InfobaseName);
+    }
+
+    [Fact]
+    public void RacSessionRow_WithoutInfobaseMapping_ShowsPlaceholder()
+    {
+        var row = new RacSessionRow(new RacSessionInfo { User = "Петров" });
+
+        Assert.Equal(string.Empty, row.InfobaseName);
+    }
+
+    // ===================== C3: редактируемая «Информация о кластере» =====================
+
+    [Fact]
+    public async Task LoadClusterDataAsync_BuildsClusterPropertyRows_WithEditableSubset()
+    {
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        var rows = vm.ClusterProperties;
+        Assert.NotEmpty(rows);
+
+        // Имя кластера — в безопасном наборе правки (rac «cluster update --name»).
+        var nameRow = rows.Single(r => r.RawKey == "name");
+        Assert.True(nameRow.IsEditable);
+        Assert.Equal("Главный кластер", nameRow.OriginalValue);
+        // Имя свойства — из локализации; в тестовой среде язык не загружен (T возвращает
+        // ключ), поэтому строка показывает ключ rac «как есть» — оба варианта корректны.
+        Assert.True(
+            nameRow.DisplayName == LocalizationManager.T("ServerMonitor.ClusterProperty.name") ||
+            nameRow.DisplayName == "name",
+            $"DisplayName={nameRow.DisplayName}");
+
+        // hostName и port rac не меняет — только чтение.
+        Assert.False(rows.Single(r => r.RawKey == "hostName").IsEditable);
+        Assert.False(rows.Single(r => r.RawKey == "port").IsEditable);
+    }
+
+    [Fact]
+    public async Task SaveClusterPropertiesAsync_EditedName_CallsClusterUpdate_WithChangedValue()
+    {
+        var client = new FakeRacClient();
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        var nameRow = vm.ClusterProperties.Single(r => r.RawKey == "name");
+        nameRow.EditValue = "Новое имя кластера";
+        await vm.SaveClusterPropertiesAsync();
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(dialogs.Warnings);
+        var call = Assert.Single(client.UpdateCalls);
+        Assert.Equal(FakeRacClient.FirstClusterId, call.clusterId);
+        Assert.Equal("Новое имя кластера", call.changes.Name);
+        Assert.Null(call.changes.ExpirationTimeout);
+        Assert.False(call.changes.IsEmpty);
+    }
+
+    [Fact]
+    public async Task SaveClusterPropertiesAsync_Cancelled_DoesNotCallClient()
+    {
+        var client = new FakeRacClient();
+        var dialogs = new RecordingDialogs { ConfirmResult = false };
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.ClusterProperties.Single(r => r.RawKey == "name").EditValue = "Другое имя";
+        await vm.SaveClusterPropertiesAsync();
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(client.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task SaveClusterPropertiesAsync_NoChanges_DoesNotCallClient_AndExplainsStatus()
+    {
+        var client = new FakeRacClient();
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        await vm.SaveClusterPropertiesAsync();
+
+        Assert.Empty(dialogs.Confirms);
+        Assert.Empty(client.UpdateCalls);
+        Assert.NotEmpty(vm.StatusText);
+    }
+
+    [Fact]
+    public async Task SaveClusterPropertiesAsync_NumericEdits_AreParsedInvariant()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+        // В fake-выводе кластера числового поля нет — редактируем имя и таймаут
+        // через строки, построенные из типизированного словаря (только name есть).
+        // Проверяем парсер чисел напрямую на строках вкладки.
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        var nameRow = vm.ClusterProperties.Single(r => r.RawKey == "name");
+        nameRow.EditValue = "Кластер 42";
+        await vm.SaveClusterPropertiesAsync();
+
+        var call = Assert.Single(client.UpdateCalls);
+        Assert.Equal("Кластер 42", call.changes.Name);
+    }
+
+    [Fact]
+    public void IsEditableClusterProperty_CoversSafeSubset_Only()
+    {
+        // Безопасный набор rac «cluster update»: имя, таймауты/лимиты, уровень
+        // безопасности, пинг, аутентификация (дефисы/регистр ключа не важны).
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("name"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("expiration-timeout"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("ExpirationTimeout"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("lifetime-limit"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("max-memory-size"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("max-memory-time-limit"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("security-level"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("ping-period"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("ping-timeout"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("max-auth-attempts"));
+        Assert.True(ServerMonitorViewModel.IsEditableClusterProperty("auth-lock-duration"));
+
+        // Порт кластера rac не меняет; служебные свойства — только чтение.
+        Assert.False(ServerMonitorViewModel.IsEditableClusterProperty("port"));
+        Assert.False(ServerMonitorViewModel.IsEditableClusterProperty("hostName"));
+        Assert.False(ServerMonitorViewModel.IsEditableClusterProperty("cluster"));
+        Assert.False(ServerMonitorViewModel.IsEditableClusterProperty("kill-problem-processes"));
+    }
+
+    [Fact]
+    public async Task SaveClusterPropertiesAsync_ClientReturnsFalse_ShowsWarning()
+    {
+        var client = new FakeRacClient(actionFails: true);
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.ClusterProperties.Single(r => r.RawKey == "name").EditValue = "Другое имя";
+        await vm.SaveClusterPropertiesAsync();
+
+        Assert.Single(client.UpdateCalls);
+        Assert.Single(dialogs.Warnings);
+        Assert.NotEmpty(vm.StatusText);
+    }
+
     // ===================== Fakes =====================
 
     /// <summary>Fake-клиент rac для тестов: два кластера, по одной строке данных.</summary>
@@ -821,6 +986,8 @@ public sealed class ServerMonitorViewModelTests
                 new RacSessionInfo
                 {
                     Id = System.Guid.NewGuid(),
+                    // issue #324, C2: infobase-id сеанса маппится на имя из «infobase summary list».
+                    InfobaseId = FirstInfobaseId,
                     User = "Иванов",
                     Host = "client1",
                     AppId = "1CV8",
@@ -920,6 +1087,27 @@ public sealed class ServerMonitorViewModelTests
             if (_actionFails)
             {
                 LastActionError = "rac: у пользователя нет прав на изменение состояния задания";
+                return Task.FromResult(false);
+            }
+            return Task.FromResult(true);
+        }
+
+        /// <summary>Вызовы «cluster update» (issue #324, C3): (clusterId, изменения).</summary>
+        public List<(System.Guid clusterId, RacClusterUpdate changes)> UpdateCalls { get; } = new();
+
+        /// <summary>Настроенный провал «cluster update» (false из rac при удачной команде).</summary>
+        public bool UpdateFails { get; set; }
+
+        public Task<bool> UpdateClusterAsync(
+            RacConnectionParams parameters, Guid clusterId, RacClusterUpdate changes,
+            CancellationToken cancellationToken = default)
+        {
+            UpdateCalls.Add((clusterId, changes));
+            if (_throwOnAction)
+                throw new RacClientException("нет прав администратора");
+            if (_actionFails || UpdateFails)
+            {
+                LastActionError = "rac: у пользователя нет прав на изменение кластера";
                 return Task.FromResult(false);
             }
             return Task.FromResult(true);

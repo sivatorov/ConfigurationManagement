@@ -285,4 +285,25 @@ public sealed class PlatformDistributionPickerTests
         Assert.Equal("8_3_27_2214_updsetup.zip", options[1].File.FileName);
         Assert.False(options[1].IsRecommended);
     }
+
+    [Fact]
+    public void DisplayName_RarWindowsArchive_ShowsActualExtension()
+    {
+        // issue #330: дистрибутивы платформы отдаются и архивами .rar — подпись
+        // варианта не должна вводить в заблуждение «(zip)».
+        var option = new PlatformDistributionOption(
+            File("setup_8_5_1_1522.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+
+        Assert.StartsWith("Полный клиент (rar)", option.DisplayName);
+        Assert.Contains("x64", option.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_ThinClientRarArchive_ShowsThinClientWithExtension()
+    {
+        var option = new PlatformDistributionOption(
+            File("setup_8_5_1_1522_thin_64.7z", "x64", PlatformDistributionKind.WindowsSetupZip));
+
+        Assert.StartsWith("Тонкий клиент (7z)", option.DisplayName);
+    }
 }

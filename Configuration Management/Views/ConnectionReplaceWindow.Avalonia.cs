@@ -69,7 +69,8 @@ namespace Configuration_Management
             var findButton = BuildActionButton(LocalizationManager.T("ConnectionReplace.FindButton"), "🔍",
                 () => _vm.RefreshPreviewCommand.Execute(null));
 
-            // Панель параметров — две строки (WrapPanel не имеет Spacing в Avalonia).
+            // Панель параметров — ДВЕ СТРОКИ (issue #357): на первой только «Найти» и
+            // «Заменить на», на второй — Поле / Область / Режим / регистр + «Найти».
             var paramsRow1 = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -78,8 +79,7 @@ namespace Configuration_Management
                 Children =
                 {
                     Labeled("ConnectionReplace.FindLabel", findBox),
-                    Labeled("ConnectionReplace.ReplaceLabel", replaceBox),
-                    Labeled("ConnectionReplace.FieldLabel", fieldCombo)
+                    Labeled("ConnectionReplace.ReplaceLabel", replaceBox)
                 }
             };
             var paramsRow2 = new StackPanel
@@ -89,6 +89,7 @@ namespace Configuration_Management
                 Margin = new Thickness(0, 0, 0, 8),
                 Children =
                 {
+                    Labeled("ConnectionReplace.FieldLabel", fieldCombo),
                     Labeled("ConnectionReplace.ScopeLabel", scopeCombo),
                     Labeled("ConnectionReplace.ModeLabel", modeCombo),
                     ignoreCaseCheck,

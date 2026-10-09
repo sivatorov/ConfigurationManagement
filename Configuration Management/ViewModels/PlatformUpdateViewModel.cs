@@ -217,21 +217,30 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     }
 
     /// <summary>Добавляет строку в журнал и уведомляет UI (<see cref="LogText"/>).
-    /// Журнал ограничивается хвостом (защита от бесконечного роста при длинной загрузке).</summary>
+    /// Журнал ограничивается хвостом (защита от бесконечного роста при длинной загрузке).
+    /// Выполняется строго в UI-потоке (issue #334): операции удаления/установки продолжаются
+    /// после <c>ConfigureAwait(false)</c> в фоновом потоке, а уведомление
+    /// <c>PropertyChanged</c> из фонового потока заставляет окна (обработчики
+    /// PropertyChanged, автопрокрутка) и привязки работать с UI-объектами вне потока
+    /// Dispatcher. С маршаллером (окна передают <see cref="UiDispatch"/>) тело уходит
+    /// в UI-поток; без маршаллера (тесты) — прямой вызов.</summary>
     public void AppendLog(string message)
     {
-        _log.AppendLine(message ?? string.Empty);
-
-        const int maxLength = 64 * 1024;
-        const int keepTail = 32 * 1024;
-        if (_log.Length > maxLength)
+        UiDispatch.Run(_dispatchToUi, () =>
         {
-            var text = _log.ToString();
-            _log.Clear();
-            _log.Append(text.Substring(text.Length - keepTail));
-        }
+            _log.AppendLine(message ?? string.Empty);
 
-        OnPropertyChanged(nameof(LogText));
+            const int maxLength = 64 * 1024;
+            const int keepTail = 32 * 1024;
+            if (_log.Length > maxLength)
+            {
+                var text = _log.ToString();
+                _log.Clear();
+                _log.Append(text.Substring(text.Length - keepTail));
+            }
+
+            OnPropertyChanged(nameof(LogText));
+        });
     }
 
     /// <summary>Читает установленные версии платформы через инжектируемый делегат.
@@ -565,8 +574,15 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         {
             if (_availableReleases.Count == 0)
                 return;
-            RebuildRows(LoadInstalledAsync(), _availableReleases);
-            AppendLog(LocalizationManager.T("PlatformUpdate.Status.Installed"));
+            // Перестройка Rows мутирует ObservableCollection — строго в UI-потоке
+            // (issue #334: после удаления/установки метод вызывается из продолжений
+            // с ConfigureAwait(false), а CollectionView запрещает менять SourceCollection
+            // вне потока Dispatcher).
+            UiDispatch.Run(_dispatchToUi, () =>
+            {
+                RebuildRows(LoadInstalledAsync(), _availableReleases);
+                AppendLog(LocalizationManager.T("PlatformUpdate.Status.Installed"));
+            });
         }
         catch (Exception ex)
         {
@@ -774,6 +790,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             if (removed.Count > 0)
             {
                 _appLogger?.Info("Обновление платформы: перечитывание установленных версий после удаления");
+                // RefreshInstalledAsync маршалит перестройку Rows в UI-поток сам
+                // (issue #334: продолжение после ConfigureAwait(false) — фоновый поток).
                 await RefreshInstalledAsync().ConfigureAwait(false);
             }
 

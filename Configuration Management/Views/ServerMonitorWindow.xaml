@@ -207,6 +207,10 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Width="1.2*" Header="{loc:Loc ServerMonitor.Columns.Session.User}"
                                             Binding="{Binding User}" ElementStyle="{StaticResource CellTextAccent}"/>
+                        <!-- issue #324, C2: колонка «Информационная база» (имя из
+                             «infobase summary list» по infobase-id сеанса). -->
+                        <DataGridTextColumn Width="1.1*" Header="{loc:Loc ServerMonitor.Columns.Session.Infobase}"
+                                            Binding="{Binding InfobaseName}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="1.1*" Header="{loc:Loc ServerMonitor.Columns.Session.Host}"
                                             Binding="{Binding Host}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.App}"
@@ -479,12 +483,69 @@
                 </DockPanel>
             </TabItem>
 
-            <!-- Информация о кластере -->
+            <!-- Информация о кластере (issue #324, C3): свойства в виде «свойство — значение»,
+                 правится безопасный набор параметров (имя, таймауты/лимиты, уровень
+                 безопасности, пинг, аутентификация); порт кластера rac не меняет. -->
             <TabItem Header="{loc:Loc ServerMonitor.Tabs.Info}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
-                    <TextBlock x:Name="InfoText" FontFamily="Consolas" FontSize="12"
-                               Text="{Binding ClusterInfoText}"/>
-                </ScrollViewer>
+                <DockPanel>
+                    <Button DockPanel.Dock="Top" Style="{StaticResource ModernButton}"
+                            Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                            Margin="0,0,0,8" HorizontalAlignment="Left"
+                            Click="OnSaveClusterInfo_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="💾" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{loc:Loc ServerMonitor.Cluster.Save}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <ItemsControl ItemsSource="{Binding ClusterProperties}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="340" SharedSizeGroup="Property"/>
+                                            <ColumnDefinition Width="340" SharedSizeGroup="Value"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding DisplayName}"
+                                                   VerticalAlignment="Center" Margin="0,0,12,0"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding RawKey}"/>
+                                        <!-- Правка — только для безопасного набора параметров. -->
+                                        <TextBox Grid.Column="1" Padding="4,2"
+                                                 Text="{Binding EditValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 VerticalContentAlignment="Center">
+                                            <TextBox.Style>
+                                                <Style TargetType="TextBox">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBox.Style>
+                                        </TextBox>
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="4,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsEditable}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <TextBlock.Text>
+                                                <Binding Path="OriginalValue"/>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </TabItem>
         </TabControl>
 

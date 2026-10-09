@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -331,6 +332,63 @@ public sealed class PlatformUpdateServiceTests
         Assert.Equal("https://releases.1c.ru/version_files?nick=Platform83&ver=8.3.27.2214", result.FetchedUrl);
         Assert.Equal(transferMarkup.Length, result.BodyLength);
         Assert.Equal(2, result.ParsedFileCount);
+    }
+
+    [Fact]
+    public async Task LoadReleaseFilesAsync_ZeroRecognizedFiles_SavesDiagnosticsBody()
+    {
+        // issue #330/#334: страница получена (валидный HTML), но ни один файл не
+        // распознан — тело ответа сохраняется в файл диагностики рядом с журналом
+        // (образец разметки для будущих регрессий парсера).
+        const string unknownMarkup = "<html><body><p>Новая разметка портала</p></body></html>";
+        var tempDir = Path.Combine(Path.GetTempPath(), "cm_tests_" + Guid.NewGuid().ToString("N"));
+        PlatformUpdateService.LogDirectoryResolver = () => tempDir;
+        try
+        {
+            var release = new PlatformRelease { Version = "8.5.1.1522", Nick = OneCPlatformCatalogParser.Platform85Nick };
+            var service = CreateService(_ => Task.FromResult<string?>(unknownMarkup));
+
+            var result = await service.LoadReleaseFilesAsync(release);
+
+            Assert.Equal(PortalFetchStatus.Ok, result.Status);
+            Assert.Equal(0, result.ParsedFileCount);
+
+            var diagnosticsFiles = Directory.GetFiles(tempDir, "version_files_debug_*.html");
+            var diagFile = Assert.Single(diagnosticsFiles);
+            var content = File.ReadAllText(diagFile);
+            Assert.Contains(unknownMarkup, content, StringComparison.Ordinal);
+            Assert.Contains("version_files?nick=Platform85&ver=8.5.1.1522", content, StringComparison.Ordinal);
+        }
+        finally
+        {
+            PlatformUpdateService.LogDirectoryResolver = null;
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LoadReleaseFilesAsync_FilesRecognized_NoDiagnosticsBodySaved()
+    {
+        // При успешно распознанных файлах файл диагностики не создаётся.
+        var tempDir = Path.Combine(Path.GetTempPath(), "cm_tests_" + Guid.NewGuid().ToString("N"));
+        PlatformUpdateService.LogDirectoryResolver = () => tempDir;
+        try
+        {
+            var release = new PlatformRelease { Version = "8.3.27.2214", VersionFilesUrl = "/version_files?nick=Platform83&ver=8.3.27.2214" };
+            var service = CreateService(_ => Task.FromResult<string?>(VersionFilesJson));
+
+            await service.LoadReleaseFilesAsync(release);
+
+            Assert.Equal(4, release.Files.Count);
+            Assert.False(Directory.Exists(tempDir) && Directory.GetFiles(tempDir, "version_files_debug_*.html").Length > 0);
+        }
+        finally
+        {
+            PlatformUpdateService.LogDirectoryResolver = null;
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
