@@ -110,6 +110,10 @@ public sealed class RacClient : IRacClient
                     $"«{(string.IsNullOrWhiteSpace(c.Name) ? (string.IsNullOrWhiteSpace(c.Host) ? "?" : c.Host) : c.Name)}» (порт {c.Port})")));
         }
 
+        // issue #324: непустой вывод без единого кластера — так же подозрителен, как
+        // и для остальных list-команд (WARN + понятная ошибка вместо «кластеров: 0»).
+        EnsureParsedOrThrow(output, clusters.Count, "cluster list", _logger);
+
         return clusters;
     }
 
@@ -194,7 +198,7 @@ public sealed class RacClient : IRacClient
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         var processes = RacOutputParser.ToProcesses(output);
-        EnsureParsedOrThrow(output, processes.Count, "process list");
+        EnsureParsedOrThrow(output, processes.Count, "process list", _logger);
         return processes;
     }
 
@@ -206,7 +210,7 @@ public sealed class RacClient : IRacClient
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         var sessions = RacOutputParser.ToSessions(output);
-        EnsureParsedOrThrow(output, sessions.Count, "session list");
+        EnsureParsedOrThrow(output, sessions.Count, "session list", _logger);
         return sessions;
     }
 
@@ -218,7 +222,7 @@ public sealed class RacClient : IRacClient
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         var connections = RacOutputParser.ToConnections(output);
-        EnsureParsedOrThrow(output, connections.Count, "connection list");
+        EnsureParsedOrThrow(output, connections.Count, "connection list", _logger);
         return connections;
     }
 
@@ -230,7 +234,7 @@ public sealed class RacClient : IRacClient
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         var locks = RacOutputParser.ToLocks(output);
-        EnsureParsedOrThrow(output, locks.Count, "lock list");
+        EnsureParsedOrThrow(output, locks.Count, "lock list", _logger);
         return locks;
     }
 
@@ -242,7 +246,7 @@ public sealed class RacClient : IRacClient
                 $"--cluster={clusterId}")
             .ConfigureAwait(false);
         var infobases = RacOutputParser.ToInfobaseSummaries(output);
-        EnsureParsedOrThrow(output, infobases.Count, "infobase summary list");
+        EnsureParsedOrThrow(output, infobases.Count, "infobase summary list", _logger);
         return infobases;
     }
 
@@ -310,7 +314,7 @@ public sealed class RacClient : IRacClient
         }
 
         var jobs = RacOutputParser.ToJobs(output);
-        EnsureParsedOrThrow(output, jobs.Count, "job list");
+        EnsureParsedOrThrow(output, jobs.Count, "job list", _logger);
         return jobs;
     }
 
@@ -354,14 +358,36 @@ public sealed class RacClient : IRacClient
     /// каждые 5 с. Пустой вывод — легитимный случай (данных нет) и ошибкой не считается.
     /// Internal — для юнит-тестов правила «непустой вывод + 0 строк» без запуска процесса rac.
     /// </summary>
-    internal static void EnsureParsedOrThrow(string output, int rowCount, string commandName)
+    internal static void EnsureParsedOrThrow(
+        string output, int rowCount, string commandName, IAppLogger? logger = null)
     {
         if (!string.IsNullOrWhiteSpace(output) && rowCount == 0)
         {
+            // Диагностика «exit=0, stdout>0, а вкладки пустые» (issue #324, лог 7OH
+            // от 2026-10-08): раньше сбой разбора молча уходил в статус-строку окна,
+            // в журнале не оставалось НИЧЕГО — по логу невозможно понять, какая из
+            // шести параллельных list-команд не распознана и в каком виде пришёл
+            // вывод. Пишем WARN с командой, объёмом и началом вывода.
+            logger?.Warn(
+                $"RAC: {commandName} — вывод rac не распознан: exit=0, stdout={output.Length} симв., " +
+                $"0 записей. Начало вывода: «{Preview(output)}»");
             throw new RacOutputParseException(
                 $"Вывод rac «{commandName}» не распознан (возможно, новая версия формата): " +
                 $"код 0, но 0 строк данных при непустом выводе.");
         }
+    }
+
+    /// <summary>
+    /// Однострочный фрагмент вывода для журнала: переводы строк и табуляции заменены
+    /// пробелами, берутся первые 200 символов. Internal — для юнит-тестов формата.
+    /// </summary>
+    internal static string Preview(string output)
+    {
+        var flat = string.Join(
+            " ",
+            output.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries));
+        flat = flat.Trim();
+        return flat.Length <= 200 ? flat : flat.Substring(0, 200) + "…";
     }
 
     /// <inheritdoc />
@@ -465,6 +491,10 @@ public sealed class RacClient : IRacClient
         params string[] commandAndArgs)
     {
         var args = BuildArguments(parameters, commandAndArgs);
+        // Метка команды для журнала: строка «выполнено» должна указывать, КАКАЯ именно
+        // list-команда завершилась (issue #324: шесть параллельных команд — по строкам
+        // «выполнено, exit=0, stdout=N» их невозможно сопоставить с вкладками).
+        var commandLabel = SensitiveDataMasker.MaskRacPassword(string.Join(" ", commandAndArgs));
         // Диагностика «подключение стало дольше» (issue #324): время выполнения одной
         // rac-команды видно в журнале — где остаются секунды (старт rac или сервер).
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -573,7 +603,7 @@ public sealed class RacClient : IRacClient
             // при «монитор не видит кластер» / «подключение стало дольше» (issue #324).
             stopwatch.Stop();
             _logger.Info(
-                $"RAC: выполнено, exit={process.ExitCode}, stdout={stdout.Length} симв., " +
+                $"RAC: {commandLabel} — выполнено, exit={process.ExitCode}, stdout={stdout.Length} симв., " +
                 $"stderr={stderr.Length} симв., за {stopwatch.ElapsedMilliseconds} мс");
             return stdout;
         }

@@ -227,8 +227,11 @@ namespace Configuration_Management
             searchBox.TextChanged += (_, _) => _viewModel.VersionSearchQuery = searchBox.Text ?? string.Empty;
             ToolTip.SetTip(searchBox, T("PlatformDownload.SearchVersionsTooltip"));
             treeHeader.Children.Add(searchBox);
-            treeHeader.Children.Add(MakeButton(T("PlatformDownload.ExpandAll"), ExecuteExpandAll, secondary: true));
-            treeHeader.Children.Add(MakeButton(T("PlatformDownload.CollapseAll"), ExecuteCollapseAll, secondary: true));
+            // issue #330 (комментарий 7OH от 2026-10-09): кнопки свертки дерева —
+            // компактные иконки (как в главном окне), поле поиска остаётся видимым.
+            // Назначение поясняют подсказки (тултипы).
+            treeHeader.Children.Add(MakeIconButton("IconExpandAll", T("PlatformDownload.ExpandAll"), ExecuteExpandAll));
+            treeHeader.Children.Add(MakeIconButton("IconCollapseAll", T("PlatformDownload.CollapseAll"), ExecuteCollapseAll));
 
             var treeGrid = new Grid { RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(new GridLength(1, GridUnitType.Star)) } };
             Grid.SetRow(treeHeader, 0);
@@ -481,6 +484,26 @@ namespace Configuration_Management
                 button.Styled(ControlThemes.DialogConfirmButton);
             else if (secondary)
                 button.Styled(ControlThemes.SecondaryButton);
+            button.Click += (_, _) => onClick();
+            return button;
+        }
+
+        /// <summary>Значковая кнопка без текста (issue #330, комментарий 7OH от 2026-10-09):
+        /// иконка из Icons.axaml по ключу геометрии + подсказка с назначением. Размер
+        /// и стиль совпадают с текстовыми кнопками панели, чтобы строка поиска была видна.</summary>
+        private static Button MakeIconButton(string iconKey, string tooltip, Action onClick)
+        {
+            var button = new Button
+            {
+                Content = IconHelper.MakeIcon(iconKey, 16),
+                Width = 34,
+                Height = 28,
+                Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            button.Styled(ControlThemes.SecondaryButton);
+            ToolTip.SetTip(button, tooltip);
             button.Click += (_, _) => onClick();
             return button;
         }

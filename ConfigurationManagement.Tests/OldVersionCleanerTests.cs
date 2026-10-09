@@ -216,4 +216,187 @@ public sealed class OldVersionCleanerTests
         Assert.Null(OldVersionCleaner.ExtractExecutablePath("   "));
         Assert.Null(OldVersionCleaner.ExtractExecutablePath("\"не закрытая кавычка"));
     }
+
+    // ---------- issue #334: полный список версий с признаками риска ----------
+
+    [Fact]
+    public void SelectDeletionEntries_IncludesAllVersions_WithRiskFlags()
+    {
+        // Требование автора issue: пользователь САМ решает, что считать старым, —
+        // в списке остаются ВСЕ версии, включая новейшую и используемые, только
+        // с выставленными признаками.
+        var installed = new[]
+        {
+            Installed("8.3.27.2214", @"C:\1cv8\8.3.27.2214"),
+            Installed("8.3.27.1688", @"C:\1cv8\8.3.27.1688"),
+            Installed("8.3.26.1890", @"C:\1cv8\8.3.26.1890"),
+        };
+        var bases = new List<Infobase>
+        {
+            Base("1", "8.3.27.1688"),
+            Base("2", "8.3.27.1688"),
+        };
+        var runningBinPaths = new List<string> { @"C:\1cv8\8.3.26.1890\bin\1cv8c.exe" };
+
+        var entries = OldVersionCleaner.SelectDeletionEntries(installed, bases, runningBinPaths);
+
+        Assert.Equal(3, entries.Count);
+
+        var newest = Assert.Single(entries, e => e.IsNewest);
+        Assert.Equal("8.3.27.2214", newest.Version.Display);
+        Assert.False(newest.IsUsedByBases);
+        Assert.False(newest.IsUsedByProcesses);
+
+        var usedByBases = Assert.Single(entries, e => e.IsUsedByBases);
+        Assert.Equal("8.3.27.1688", usedByBases.Version.Display);
+        Assert.Equal(new[] { "База 1", "База 2" }, usedByBases.ReferencingBaseNames.ToArray());
+        Assert.False(usedByBases.IsNewest);
+
+        var usedByProcesses = Assert.Single(entries, e => e.IsUsedByProcesses);
+        Assert.Equal("8.3.26.1890", usedByProcesses.Version.Display);
+        Assert.Equal(
+            new[] { @"C:\1cv8\8.3.26.1890\bin\1cv8c.exe" },
+            usedByProcesses.RunningProcessPaths.ToArray());
+    }
+
+    [Fact]
+    public void SelectDeletionEntries_DefaultChecked_OnlyForNonRiskVersions()
+    {
+        // Защита от глупостей: у новейшей/используемых версий флажок по умолчанию снят,
+        // у «просто старых» — установлен.
+        var installed = new[]
+        {
+            Installed("8.3.27.2214"),
+            Installed("8.3.27.1688"),
+            Installed("8.3.26.1890"),
+        };
+        var bases = new List<Infobase> { Base("1", "8.3.27.1688") };
+
+        var entries = OldVersionCleaner.SelectDeletionEntries(installed, bases, Array.Empty<string>());
+
+        Assert.False(entries.Single(e => e.Version.Display == "8.3.27.2214").IsCheckedByDefault);
+        Assert.False(entries.Single(e => e.Version.Display == "8.3.27.1688").IsCheckedByDefault);
+        Assert.True(entries.Single(e => e.Version.Display == "8.3.26.1890").IsCheckedByDefault);
+    }
+
+    [Fact]
+    public void SelectDeletionEntries_BothArchitecturesOfNewest_AreMarkedNewest()
+    {
+        var installed = new[]
+        {
+            Installed("8.3.27.2214 (64)"),
+            Installed("8.3.27.2214 (32)"),
+            Installed("8.3.27.1688 (64)"),
+        };
+
+        var entries = OldVersionCleaner.SelectDeletionEntries(
+            installed, Array.Empty<Infobase>(), Array.Empty<string>());
+
+        Assert.True(entries.Single(e => e.Version.Display == "8.3.27.2214 (64)").IsNewest);
+        Assert.True(entries.Single(e => e.Version.Display == "8.3.27.2214 (32)").IsNewest);
+        Assert.False(entries.Single(e => e.Version.Display == "8.3.27.1688 (64)").IsNewest);
+    }
+
+    [Fact]
+    public void SelectDeletionEntries_EmptyInstalled_ReturnsEmpty()
+    {
+        Assert.Empty(OldVersionCleaner.SelectDeletionEntries(
+            Array.Empty<PlatformVersionInfo>(), Array.Empty<Infobase>(), Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void SelectDeletionEntries_ResultIsSortedByVersionDescending()
+    {
+        var installed = new[]
+        {
+            Installed("8.3.10.2012"),
+            Installed("8.3.27.2214"),
+            Installed("8.3.9.2577"),
+        };
+
+        var entries = OldVersionCleaner.SelectDeletionEntries(
+            installed, Array.Empty<Infobase>(), Array.Empty<string>());
+
+        Assert.Equal(
+            new[] { "8.3.27.2214", "8.3.10.2012", "8.3.9.2577" },
+            entries.Select(e => e.Version.Display).ToArray());
+    }
+
+    [Fact]
+    public void BuildDeletionConfirmations_NewestSelected_ReturnsNewestWarning()
+    {
+        var installed = new[]
+        {
+            Installed("8.3.27.2214"),
+            Installed("8.3.27.1688"),
+        };
+        var entries = OldVersionCleaner.SelectDeletionEntries(
+            installed, Array.Empty<Infobase>(), Array.Empty<string>());
+        var selected = new[] { installed[0] };
+
+        var warnings = OldVersionCleaner.BuildDeletionConfirmations(entries, selected);
+
+        var warning = Assert.Single(warnings);
+        Assert.Equal(OldVersionCleanupRiskKind.Newest, warning.Kind);
+        Assert.Equal("8.3.27.2214", warning.VersionDisplay);
+        Assert.Empty(warning.Details);
+    }
+
+    [Fact]
+    public void BuildDeletionConfirmations_BaseReferencedSelected_ReturnsWarningWithBaseNames()
+    {
+        var installed = new[] { Installed("8.3.27.2214"), Installed("8.3.27.1688") };
+        var bases = new List<Infobase> { Base("1", "8.3.27.1688"), Base("2", "8.3.27.1688 (64)") };
+        var entries = OldVersionCleaner.SelectDeletionEntries(installed, bases, Array.Empty<string>());
+        var selected = new[] { installed[1] };
+
+        var warnings = OldVersionCleaner.BuildDeletionConfirmations(entries, selected);
+
+        var warning = Assert.Single(warnings);
+        Assert.Equal(OldVersionCleanupRiskKind.UsedByBases, warning.Kind);
+        Assert.Equal("8.3.27.1688", warning.VersionDisplay);
+        Assert.Equal(new[] { "База 1", "База 2" }, warning.Details.ToArray());
+    }
+
+    [Fact]
+    public void BuildDeletionConfirmations_ProcessRunningSelected_ReturnsWarningWithProcessPath()
+    {
+        var installed = new[]
+        {
+            Installed("8.3.27.2214", @"C:\1cv8\8.3.27.2214"),
+            Installed("8.3.27.1688", @"C:\1cv8\8.3.27.1688"),
+        };
+        var runningBinPaths = new List<string> { @"C:\1cv8\8.3.27.1688\bin\1cv8c.exe" };
+        var entries = OldVersionCleaner.SelectDeletionEntries(
+            installed, Array.Empty<Infobase>(), runningBinPaths);
+        var selected = new[] { installed[1] };
+
+        var warnings = OldVersionCleaner.BuildDeletionConfirmations(entries, selected);
+
+        var warning = Assert.Single(warnings);
+        Assert.Equal(OldVersionCleanupRiskKind.UsedByProcesses, warning.Kind);
+        Assert.Equal(
+            new[] { @"C:\1cv8\8.3.27.1688\bin\1cv8c.exe" },
+            warning.Details.ToArray());
+    }
+
+    [Fact]
+    public void BuildDeletionConfirmations_NonRiskOrUnselectedVersions_NoWarnings()
+    {
+        var installed = new[]
+        {
+            Installed("8.3.27.2214"),
+            Installed("8.3.27.1688"),
+            Installed("8.3.26.1890"),
+        };
+        var entries = OldVersionCleaner.SelectDeletionEntries(
+            installed, Array.Empty<Infobase>(), Array.Empty<string>());
+
+        // Отмечена только «просто старая» версия — предупреждений нет.
+        Assert.Empty(OldVersionCleaner.BuildDeletionConfirmations(
+            entries, new[] { installed[2] }));
+        // Пустой выбор — предупреждений нет.
+        Assert.Empty(OldVersionCleaner.BuildDeletionConfirmations(
+            entries, Array.Empty<PlatformVersionInfo>()));
+    }
 }

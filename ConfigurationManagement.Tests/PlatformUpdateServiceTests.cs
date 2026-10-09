@@ -296,6 +296,62 @@ public sealed class PlatformUpdateServiceTests
         Assert.Equal(4, catalog.Releases[0].Files.Count);
     }
 
+    [Fact]
+    public async Task LoadReleaseFilesAsync_TransferFileMarkup_ParsesFilesAndMakesUrlsAbsolute()
+    {
+        // issue #330 (комментарий 7OH от 2026-10-09): альтернативная разметка страницы
+        // version_files — дистрибутивы перечислены эндпоинтами transfer_file (без прямых
+        // ссылок на архивы в href). Парсер распознаёт файлы по query-параметру path,
+        // сервис делает адреса абсолютными (иначе не скачиваются).
+        const string transferMarkup = """
+            <html><body>
+            <table>
+              <tr><td>Технологическая платформа 8.3 для Windows (64-бит)</td>
+                  <td><a href="transfer_file?nick=Platform83&path=Distr%2Fsetup_8_3_27_2214_x64.zip">Скачать</a></td></tr>
+              <tr><td>Технологическая платформа 8.3 для Linux (deb)</td>
+                  <td><a href="/transfer_file?nick=Platform83&path=Distr%2F8_3_27_2214_amd64.deb">Скачать</a></td></tr>
+            </table>
+            </body></html>
+            """;
+        var release = new PlatformRelease { Version = "8.3.27.2214", VersionFilesUrl = "/version_files?nick=Platform83&ver=8.3.27.2214" };
+        var service = CreateService(_ => Task.FromResult<string?>(transferMarkup));
+
+        var result = await service.LoadReleaseFilesAsync(release);
+
+        Assert.Equal(PortalFetchStatus.Ok, result.Status);
+        Assert.Equal(2, release.Files.Count);
+        Assert.Contains(release.Files, f => f.FileName == "setup_8_3_27_2214_x64.zip"
+            && f.Kind == PlatformDistributionKind.WindowsSetupZip
+            && f.Url.Contains("transfer_file?nick=Platform83&path=Distr%2Fsetup_8_3_27_2214_x64.zip", StringComparison.Ordinal));
+        Assert.Contains(release.Files, f => f.FileName == "8_3_27_2214_amd64.deb"
+            && f.Kind == PlatformDistributionKind.LinuxDeb
+            && f.Url.StartsWith("https://releases.1c.ru/transfer_file", StringComparison.Ordinal));
+
+        // Диагностика (issue #330): URL, длина ответа и число распознанных файлов.
+        Assert.Equal("https://releases.1c.ru/version_files?nick=Platform83&ver=8.3.27.2214", result.FetchedUrl);
+        Assert.Equal(transferMarkup.Length, result.BodyLength);
+        Assert.Equal(2, result.ParsedFileCount);
+    }
+
+    [Fact]
+    public async Task LoadReleaseFilesAsync_RelativeFileLinks_MadeAbsolute()
+    {
+        // Прямые ссылки на архивы могут быть относительными (/version_files/get/…):
+        // ViewModel передаёт адрес напрямую в загрузчик — он обязан стать абсолютным.
+        const string relativeMarkup = """
+            <a href="/version_files/get/8.3.27.2214_x64.zip">x64</a>
+            """;
+        var release = new PlatformRelease { Version = "8.3.27.2214", VersionFilesUrl = "/version_files?nick=Platform83&ver=8.3.27.2214" };
+        var service = CreateService(_ => Task.FromResult<string?>(relativeMarkup));
+
+        var result = await service.LoadReleaseFilesAsync(release);
+
+        Assert.Equal(PortalFetchStatus.Ok, result.Status);
+        var zip = Assert.Single(release.Files);
+        Assert.StartsWith("https://releases.1c.ru/", zip.Url, StringComparison.Ordinal);
+        Assert.EndsWith("version_files/get/8.3.27.2214_x64.zip", zip.Url, StringComparison.Ordinal);
+    }
+
     // --- PickDistribution / PickForPlatform ---
 
     [Fact]

@@ -1416,6 +1416,17 @@ public string HotkeyEnterprise
         }
     }
 
+    /// <summary>Горячая клавиша меню закладок (issue #356). По умолчанию Ctrl+B.</summary>
+    public string HotkeyBookmarksMenu
+    {
+        get => _hotkeyBookmarksMenu;
+        set
+        {
+            if (SetProperty(ref _hotkeyBookmarksMenu, NormalizeHotkey(value, "Ctrl+B")))
+                ScheduleSaveSettings();
+        }
+    }
+
     /// <summary>Горячая клавиша показа вкладки «Недавние». Пусто — не назначена.</summary>
     public string HotkeyShowRecent
     {

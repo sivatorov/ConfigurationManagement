@@ -471,6 +471,8 @@ namespace Configuration_Management
             var hkFindInList = ReadHotkeyBox(HotkeyFindInListBox);
             // Командная палитра (Ctrl+K).
             var hkCommandPalette = ReadHotkeyBox(HotkeyCommandPaletteBox);
+            // Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B.
+            var hkBookmarksMenu = ReadHotkeyBox(HotkeyBookmarksMenuBox);
             // Автообновление платформы 1С (функция 9, этап 0.3.9.214): Ctrl+F9.
             var hkPlatformUpdate = ReadHotkeyBox(HotkeyPlatformUpdateBox);
             var hkSwitchUser = ReadHotkeyBox(HotkeySwitchUserBox);
@@ -505,6 +507,7 @@ namespace Configuration_Management
                 (LocalizationManager.T("Main.CollapseRightPanel"), hkRightPanelDetails),
                 (LocalizationManager.T("Main.FindInList"), hkFindInList),
                 (LocalizationManager.T("Settings.Hotkeys.CommandPalette"), hkCommandPalette),
+                (LocalizationManager.T("Settings.Hotkeys.BookmarksMenu"), hkBookmarksMenu),
                 (LocalizationManager.T("Settings.Hotkeys.PlatformUpdate"), hkPlatformUpdate),
                 (LocalizationManager.T("Main.SwitchUser"), hkSwitchUser),
                 (LocalizationManager.T("SessionLock.Title"), hkSessionLock),
@@ -582,7 +585,8 @@ namespace Configuration_Management
                 hotkeyZoomIn: hkZoomIn,
                 hotkeyZoomOut: hkZoomOut,
                 hotkeyZoomReset: hkZoomReset,
-                hotkeyShowRunning: hkShowRunning);
+                hotkeyShowRunning: hkShowRunning,
+                hotkeyBookmarksMenu: hkBookmarksMenu);
 
             // Автообновление платформы 1С (функция 9, этап 0.3.9.214).
             _viewModel.HotkeyPlatformUpdate = hkPlatformUpdate;

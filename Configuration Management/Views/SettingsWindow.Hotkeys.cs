@@ -46,6 +46,8 @@ namespace Configuration_Management
             BindHotkeyBox(HotkeyRightPanelDetailsBox, _viewModel.HotkeyRightPanelDetails);
             BindHotkeyBox(HotkeyFindInListBox, _viewModel.HotkeyFindInList);
             BindHotkeyBox(HotkeyCommandPaletteBox, _viewModel.HotkeyCommandPalette);
+            // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+            BindHotkeyBox(HotkeyBookmarksMenuBox, _viewModel.HotkeyBookmarksMenu);
             BindHotkeyBox(HotkeySwitchUserBox, _viewModel.HotkeySwitchUser);
         }
 

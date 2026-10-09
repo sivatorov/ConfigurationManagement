@@ -1151,4 +1151,134 @@ public sealed class RacOutputParserTests
         Assert.Equal("Обновление информационной базы", job.Name);
         Assert.Equal("ОбновлениеИнформационнойБазы", job.MethodName);
     }
+
+    // ---------- issue #324 (лог 7OH от 2026-10-08 23:26): exit=0, stdout>0, вкладки пусты ----------
+    // rac 8.5.4.1878 переименовывает ключи схем list-команд (у connection list — «conn-id»
+    // вместо «session» и т.п.); если стартер блока не «process»/«session»/«infobase»/«job»,
+    // а их «-id»-вариант, парсер раньше давал 0 строк и EnsureParsedOrThrow опустошал ВСЕ
+    // вкладки. Тесты фиксируют разбор схем со стартерами-алиасами и выравниванием пробелами.
+
+    [Fact]
+    public void ToProcesses_ParsesKeyValueBlocks_WithProcessIdStarter()
+    {
+        // Схема с выравниванием пробелами (как в реальных логах 8.5.4.1878) и стартером
+        // «process-id : GUID» вместо «process : GUID» — раньше 0 строк → пустая вкладка.
+        const string output =
+            "process-id                             : 6d29b3a6-95a1-4a3e-9c34-cf2f830a4b47\n" +
+            "host                                   : ALF\n" +
+            "port                                   : 27560\n" +
+            "pid                                    : 8412\n" +
+            "started-at                             : 2026-10-08T21:50:11\n" +
+            "memory-size                            : 205127680\n" +
+            "memory-total                           : 3089715200\n" +
+            "memory-available                       : 2884587520\n" +
+            "memory-excess                          : 0\n" +
+            "threads                                : 60\n" +
+            "cpu                                    : 0\n" +
+            "available-performances                 : 1000\n" +
+            "running                                : 1\n" +
+            "infobases                              : 2\n";
+
+        var process = Assert.Single(RacOutputParser.ToProcesses(output));
+
+        Assert.Equal(Guid.Parse("6d29b3a6-95a1-4a3e-9c34-cf2f830a4b47"), process.Id);
+        Assert.Equal("ALF", process.Host);
+        Assert.Equal(27560, process.Port);
+        Assert.Equal(8412, process.Pid);
+        Assert.Equal(60, process.Threads);
+        Assert.True(process.Running);
+        Assert.Equal(2, process.Infobases);
+    }
+
+    [Fact]
+    public void ToProcesses_NumericProcessIdInsideBlock_DoesNotSplitBlock()
+    {
+        // Обратный вариант: стартер «process», а «process-id : 1234» (число) — ВНУТРИ
+        // блока. Числовой process-id не должен разрывать блок и должен читаться как pid.
+        const string output =
+            "process                                : 6d29b3a6-95a1-4a3e-9c34-cf2f830a4b47\n" +
+            "process-id                             : 8412\n" +
+            "host                                   : ALF\n" +
+            "port                                   : 27560\n" +
+            "running                                : 1\n" +
+            "\n" +
+            "process                                : 7d29b3a6-95a1-4a3e-9c34-cf2f830a4b48\n" +
+            "process-id                             : 8413\n" +
+            "host                                   : ALF\n" +
+            "port                                   : 27561\n" +
+            "running                                : 0\n";
+
+        var processes = RacOutputParser.ToProcesses(output);
+
+        Assert.Equal(2, processes.Count);
+        Assert.Equal(Guid.Parse("6d29b3a6-95a1-4a3e-9c34-cf2f830a4b47"), processes[0].Id);
+        Assert.Equal(8412, processes[0].Pid);
+        Assert.Equal(27560, processes[0].Port);
+        Assert.True(processes[0].Running);
+        Assert.Equal(Guid.Parse("7d29b3a6-95a1-4a3e-9c34-cf2f830a4b48"), processes[1].Id);
+        Assert.Equal(8413, processes[1].Pid);
+        Assert.False(processes[1].Running);
+    }
+
+    [Fact]
+    public void ToSessions_ParsesKeyValueBlocks_WithSessionIdStarter()
+    {
+        // Схема «session-id : GUID» со стартером-алиасом (как «conn-id» у connection
+        // list 8.5.4.1878) — раньше 0 строк → пустая вкладка сеансов.
+        const string output =
+            "session-id                             : 9a2b3c4d-0000-0000-0000-0000000000aa\n" +
+            "infobase                               : 1a2b3c4d-0000-0000-0000-0000000000ab\n" +
+            "user-name                              : \"Иванов\"\n" +
+            "host                                   : ALF\n" +
+            "app-id                                 : \"Designer\"\n" +
+            "started-at                             : 2026-10-08T23:20:00\n" +
+            "last-active-at                         : 2026-10-08T23:26:00\n" +
+            "blocked-by-ls                          : 0\n" +
+            "hibernate                              : 0\n" +
+            "state                                  : \"Normal\"\n";
+
+        var session = Assert.Single(RacOutputParser.ToSessions(output));
+
+        Assert.Equal(Guid.Parse("9a2b3c4d-0000-0000-0000-0000000000aa"), session.Id);
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-0000000000ab"), session.InfobaseId);
+        Assert.Equal("Иванов", session.User);
+        Assert.Equal("Designer", session.AppId);
+        Assert.Equal("Normal", session.State);
+    }
+
+    [Fact]
+    public void ToInfobaseSummaries_ParsesKeyValueBlocks_WithInfobaseIdStarter()
+    {
+        const string output =
+            "infobase-id                            : 1a2b3c4d-0000-0000-0000-0000000000ab\n" +
+            "name                                   : \"BUH3\"\n" +
+            "descr                                  : \"Бухгалтерия\"\n" +
+            "dbms                                   : MSSQLServer\n" +
+            "locale                                 : ru_RU\n" +
+            "security-level                         : 0\n" +
+            "licensed                               : 0\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-0000000000ab"), infobase.InfobaseId);
+        Assert.Equal("BUH3", infobase.Name);
+        Assert.Equal("Бухгалтерия", infobase.Descr);
+        Assert.Equal("MSSQLServer", infobase.Dbms);
+    }
+
+    [Fact]
+    public void ToJobs_ParsesKeyValueBlocks_WithJobIdStarter()
+    {
+        const string output =
+            "job-id                                 : 1a2b3c4d-0000-0000-0000-000000000001\n" +
+            "name                                   : \"Обновление информационной базы\"\n" +
+            "infobase                               : 1a2b3c4d-0000-0000-0000-0000000000ab\n" +
+            "state                                  : \"scheduled\"\n";
+
+        var job = Assert.Single(RacOutputParser.ToJobs(output));
+
+        Assert.Equal(Guid.Parse("1a2b3c4d-0000-0000-0000-000000000001"), job.Id);
+        Assert.Equal("Обновление информационной базы", job.Name);
+        Assert.Equal("scheduled", job.State);
+    }
 }

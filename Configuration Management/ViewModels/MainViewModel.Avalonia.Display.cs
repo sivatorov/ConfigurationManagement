@@ -441,6 +441,8 @@ public partial class MainViewModel : ViewModelBase
     public string HotkeyRightPanelDetails => _settings.HotkeyRightPanelDetails;
     public string HotkeyFindInList => _settings.HotkeyFindInList;
     public string HotkeyCommandPalette => _settings.HotkeyCommandPalette;
+    /// <summary>Горячая клавиша меню закладок (issue #356). По умолчанию Ctrl+B.</summary>
+    public string HotkeyBookmarksMenu => _settings.HotkeyBookmarksMenu;
     public string HotkeySwitchUser => _settings.HotkeySwitchUser;
     public string HotkeyCheckUpdate => _settings.HotkeyCheckUpdate;
     public string HotkeyActualReleases => _settings.HotkeyActualReleases;
@@ -462,7 +464,9 @@ public partial class MainViewModel : ViewModelBase
         string checkIntegrity = "", string serverConsole = "",
         string zoomIn = "", string zoomOut = "", string zoomReset = "",
         string commandPalette = "", string platformUpdate = "",
-        string showRunning = "")
+        string showRunning = "",
+        // Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B.
+        string bookmarksMenu = "")
     {
         _settings.HotkeyEnterprise = enterprise ?? string.Empty;
         _settings.HotkeyConfigurator = configurator ?? string.Empty;
@@ -484,6 +488,8 @@ public partial class MainViewModel : ViewModelBase
         _settings.HotkeySwitchUser = switchUser ?? string.Empty;
         // Командная палитра (Ctrl+K): быстрый поиск баз и команд.
         _settings.HotkeyCommandPalette = commandPalette ?? string.Empty;
+        // Меню закладок (issue #356).
+        _settings.HotkeyBookmarksMenu = bookmarksMenu ?? string.Empty;
         // Блокировка сеансов ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
         _settings.HotkeySessionLock = sessionLock ?? string.Empty;
         _settings.HotkeyLockApp = lockApp ?? string.Empty;
@@ -516,6 +522,8 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyRightPanelDetails));
         OnPropertyChanged(nameof(HotkeyFindInList));
         OnPropertyChanged(nameof(HotkeyCommandPalette));
+        // Меню закладок (issue #356).
+        OnPropertyChanged(nameof(HotkeyBookmarksMenu));
         OnPropertyChanged(nameof(HotkeySwitchUser));
         OnPropertyChanged(nameof(HotkeySessionLock));
         OnPropertyChanged(nameof(HotkeyLockApp));

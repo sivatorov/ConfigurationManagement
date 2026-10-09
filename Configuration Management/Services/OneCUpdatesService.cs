@@ -606,6 +606,15 @@ public class OneCUpdatesService : IOneCUpdatesService
     /// релиза (version_files) → страница скачивания файла → сам файл. Защита от зацикливания.</summary>
     private const int MaxDistributionResolutionDepth = 5;
 
+    /// <summary>Суффикс временного файла загрузки (issue #352, комментарий 7OH от
+    /// 2026-10-09): файл качается как <c><имя>.download</c> и лишь по успешном
+    /// завершении переименовывается в финальное имя. Прерванная загрузка не оставляет
+    /// «недокачанного» файла под финальным именем, а остаток <c>.download</c> при
+    /// следующем запуске скачанным не считается. Суффикс <c>.part</c> не используется —
+    /// он занят частичными файлами сегментов многопоточной загрузки
+    /// (<see cref="ParallelDownloader"/>: <c><имя>.<i>.part</c>).</summary>
+    internal const string PartialSuffix = ".download";
+
     /// <inheritdoc />
     public async Task<string?> DownloadUpdateAsync(
         string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default)
@@ -672,6 +681,20 @@ public class OneCUpdatesService : IOneCUpdatesService
                 var next = SelectNextDistributionUrl(body, currentUrl, visited);
                 if (string.IsNullOrWhiteSpace(next))
                 {
+                    // Файловый эндпоинт (transfer_file/additional_file) отдал сам файл,
+                    // пометив его HTML-типом контента и без ссылки на следующую страницу
+                    // (issue #352, комментарий 7OH от 2026-10-09: additional_file для
+                    // Trade110\RasshirenieGISMTsRPT.cf). Такой ответ сохраняем как файл.
+                    // Настоящую HTML-страницу (документ) без ссылки на файл не сохраняем —
+                    // это ошибка портала, а не дистрибутив.
+                    if (IsFileEndpointUrl(currentUrl) && !LooksLikeHtmlDocument(body))
+                    {
+                        var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? currentUrl;
+                        targetPath = AdjustTargetExtension(targetPath, finalUrl);
+                        return await SaveResponseToFileAsync(response, targetPath, progress, ct)
+                            .ConfigureAwait(false);
+                    }
+
                     _logger.Warn($"[Updates] В ответе не найдена ссылка на дистрибутив: {currentUrl}");
                     return null;
                 }
@@ -684,37 +707,81 @@ public class OneCUpdatesService : IOneCUpdatesService
         }
         catch (OperationCanceledException)
         {
+            TryDelete(targetPath + PartialSuffix);
             TryDelete(targetPath);
             return null;
         }
         catch (Exception ex)
         {
             _logger.Warn($"[Updates] Ошибка загрузки обновления: {ex.GetType().Name}: {ex.Message}");
+            TryDelete(targetPath + PartialSuffix);
             TryDelete(targetPath);
             return null;
         }
     }
 
-    /// <summary>Сохраняет уже полученный (бинарный) ответ в файл с индикацией прогресса.</summary>
+    /// <summary>True, если адрес — конечный эндпоинт передачи файла портала
+    /// (<c>transfer_file?…</c>/<c>additional_file?…</c>): его ответ считается самим файлом,
+    /// а не страницей с дальнейшей ссылкой (issue #352, комментарий 7OH от 2026-10-09:
+    /// additional_file отдаёт расширение конфигурации напрямую). Internal — для юнит-тестов.</summary>
+    internal static bool IsFileEndpointUrl(string? url)
+        => !string.IsNullOrWhiteSpace(url) &&
+           (url.Contains("transfer_file?", StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("additional_file?", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True, если текст ответа выглядит настоящим HTML-документом (начинается с
+    /// <c><!DOCTYPE html></c>/<c><html></c>/<c><?xml</c>): такой ответ файлом
+    /// дистрибутива быть не может (issue #352). Binary-контент, ошибочно помеченный сервером
+    /// как text/html, документом не является и сохраняется как файл.</summary>
+    private static bool LooksLikeHtmlDocument(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return false;
+
+        var trimmed = body.TrimStart();
+        return trimmed.StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Сохраняет уже полученный (бинарный) ответ в файл с индикацией прогресса.
+    /// Сначала ответ пишется во временный файл <c><имя>.download</c>, и лишь по
+    /// успешном завершении атомарно переименовывается в финальное имя (issue #352,
+    /// комментарий 7OH от 2026-10-09): прерванная загрузка не оставляет «недокачанного»
+    /// файла под финальным именем, который при повторном запуске считался бы скачанным.
+    /// При сбое временный файл удаляется.</summary>
     private static async Task<string?> SaveResponseToFileAsync(
         HttpResponseMessage response, string targetPath, IProgress<double>? progress, CancellationToken ct)
     {
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+        var partPath = targetPath + PartialSuffix;
 
-        await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-        await using (var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write,
-                         FileShare.None, 81920, useAsync: true))
+        try
         {
-            var buffer = new byte[81920];
-            long readTotal = 0;
-            int read;
-            while ((read = await contentStream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+            await using (var fileStream = new FileStream(partPath, FileMode.Create, FileAccess.Write,
+                             FileShare.None, 81920, useAsync: true))
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                readTotal += read;
-                if (totalBytes > 0 && progress is not null)
-                    progress.Report(Math.Min(1.0, (double)readTotal / totalBytes));
+                var buffer = new byte[81920];
+                long readTotal = 0;
+                int read;
+                while ((read = await contentStream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    readTotal += read;
+                    if (totalBytes > 0 && progress is not null)
+                        progress.Report(Math.Min(1.0, (double)readTotal / totalBytes));
+                }
             }
+
+            // Атомарная публикация: переименовываем временный файл в финальное имя
+            // (перезапись существующего файла — прежнее поведение одиночного скачивания).
+            File.Move(partPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            TryDelete(partPath);
+            throw;
         }
 
         return File.Exists(targetPath) ? targetPath : null;

@@ -450,8 +450,12 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// Загружает данные выбранного кластера: процессы, сеансы, соединения, блокировки,
     /// регламентные задания, информационные базы (для имён владельцев заданий) и
     /// «cluster info» (параллельно). Результаты применяются через <see cref="_dispatchToUi"/>
-    /// (null — напрямую, тесты). Сбой списка баз не роняет вкладку заданий — маппинг
-    /// имён просто остаётся пустым (см. <see cref="SafeInfobasesAsync"/>).
+    /// (null — напрямую, тесты). Каждая вкладка загружается ИЗОЛИРОВАННО (issue #324,
+    /// лог 7OH от 2026-10-08): сбой ОДНОЙ rac-команды (например, нераспознанная схема
+    /// вывода при exit=0 и непустом stdout) больше не проваливает общий
+    /// <see cref="Task.WhenAll"/> — остальные вкладки заполняются тем, что удалось
+    /// разобрать, а сбойные перечисляются в <see cref="ErrorMessage"/>; автообновление
+    /// останавливается, ручное «Обновить» остаётся доступным.
     /// </summary>
     public async Task LoadClusterDataAsync(Guid clusterId, CancellationToken cancellationToken = default)
     {
@@ -464,13 +468,72 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             StatusText = LocalizationManager.T("ServerMonitor.Status.Loading");
 
             var parameters = BuildParams();
-            var processesTask = _rac.GetProcessesAsync(parameters, clusterId, cancellationToken);
-            var sessionsTask = _rac.GetSessionsAsync(parameters, clusterId, cancellationToken);
-            var connectionsTask = _rac.GetConnectionsAsync(parameters, clusterId, cancellationToken);
-            var locksTask = _rac.GetLocksAsync(parameters, clusterId, cancellationToken);
-            var jobsTask = _rac.GetJobsAsync(parameters, clusterId, cancellationToken);
-            var infobasesTask = SafeInfobasesAsync(parameters, clusterId, cancellationToken);
-            var infoTask = _rac.GetClusterInfoAsync(parameters, clusterId, cancellationToken);
+            var errors = new List<string>();
+            var hasParseError = false;
+
+            // Изолированная загрузка одной вкладки: исключение не роняет общий цикл.
+            async Task<IReadOnlyList<T>> LoadTabAsync<T>(
+                string tabLabel, Func<Task<IReadOnlyList<T>>> load)
+            {
+                try
+                {
+                    return await load().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (RacOutputParseException ex)
+                {
+                    hasParseError = true;
+                    errors.Add($"{tabLabel}: {BuildErrorMessage(ex)}");
+                    return Array.Empty<T>();
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{tabLabel}: {BuildErrorMessage(ex)}");
+                    return Array.Empty<T>();
+                }
+            }
+
+            async Task<RacClusterInfo?> LoadInfoAsync()
+            {
+                try
+                {
+                    return await _rac.GetClusterInfoAsync(parameters, clusterId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(
+                        $"{LocalizationManager.T("ServerMonitor.Tabs.Info")}: {BuildErrorMessage(ex)}");
+                    return null;
+                }
+            }
+
+            var processesTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Processes"),
+                () => _rac.GetProcessesAsync(parameters, clusterId, cancellationToken));
+            var sessionsTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Sessions"),
+                () => _rac.GetSessionsAsync(parameters, clusterId, cancellationToken));
+            var connectionsTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Connections"),
+                () => _rac.GetConnectionsAsync(parameters, clusterId, cancellationToken));
+            var locksTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Locks"),
+                () => _rac.GetLocksAsync(parameters, clusterId, cancellationToken));
+            var jobsTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Jobs"),
+                () => _rac.GetJobsAsync(parameters, clusterId, cancellationToken));
+            var infobasesTask = LoadTabAsync(
+                LocalizationManager.T("ServerMonitor.Tabs.Jobs"),
+                () => _rac.GetInfobasesAsync(parameters, clusterId, cancellationToken));
+            var infoTask = LoadInfoAsync();
 
             await Task.WhenAll(
                 processesTask, sessionsTask, connectionsTask, locksTask, jobsTask, infobasesTask, infoTask)
@@ -486,28 +549,34 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
             ApplyClusterData(processes, sessions, connections, locks, jobs, infobases, info);
 
-            StatusText = string.Format(
-                LocalizationManager.T("ServerMonitor.Status.LoadedFormat"),
-                processes.Count, sessions.Count, connections.Count, locks.Count, jobs.Count);
+            if (errors.Count > 0)
+            {
+                // Часть данных не загружена (issue #324): сбойные вкладки перечислены
+                // в ошибке, остальные заполнены. Автообновление останавливается — как
+                // и раньше при полной ошибке; ручное «Обновить» остаётся доступным,
+                // после успеха таймер возобновится.
+                ErrorMessage = LocalizationManager.T("ServerMonitor.Status.PartialLoad") +
+                               "\n" + string.Join("\n", errors);
+                StatusText = hasParseError
+                    ? LocalizationManager.T("ServerMonitor.Status.ParseFailed")
+                    : LocalizationManager.T("ServerMonitor.Status.LoadFailed");
+                StopAutoRefresh();
+            }
+            else
+            {
+                StatusText = string.Format(
+                    LocalizationManager.T("ServerMonitor.Status.LoadedFormat"),
+                    processes.Count, sessions.Count, connections.Count, locks.Count, jobs.Count);
 
-            // issue #324: после УСПЕШНОЙ загрузки автообновление возобновляется, если
-            // переключатель включён (например, ручное «Обновить» после ошибки разбора).
-            if (IsAutoRefreshEnabled && _autoRefreshTimer is null)
-                StartAutoRefresh();
+                // issue #324: после УСПЕШНОЙ загрузки автообновление возобновляется, если
+                // переключатель включён (например, ручное «Обновить» после ошибки разбора).
+                if (IsAutoRefreshEnabled && _autoRefreshTimer is null)
+                    StartAutoRefresh();
+            }
         }
         catch (OperationCanceledException)
         {
             StatusText = LocalizationManager.T("ServerMonitor.Status.Cancelled");
-        }
-        catch (RacOutputParseException ex)
-        {
-            // issue #324: формат вывода rac не распознан (новая версия платформы) — повторять
-            // каждые 5 с бессмысленно: таймер останавливается, прежние данные НЕ очищаются,
-            // ручное «Обновить» остаётся доступным (после успеха автообновление вернётся).
-            ErrorMessage = LocalizationManager.T("ServerMonitor.Status.ParseFailedDetail") +
-                           " " + BuildErrorMessage(ex);
-            StatusText = LocalizationManager.T("ServerMonitor.Status.ParseFailed");
-            StopAutoRefresh();
         }
         catch (Exception ex)
         {
@@ -515,7 +584,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             // (бесконечный ретрай каждые 5 с после разрыва соединения не нужен —
             // «после ошибки продолжает пытаться получить данные»). Ручное «Обновить»
             // остаётся доступным; после успешной загрузки таймер возобновляется,
-            // если переключатель включён (см. выше, строка 461).
+            // если переключатель включён.
             ErrorMessage = BuildErrorMessage(ex);
             StatusText = LocalizationManager.T("ServerMonitor.Status.LoadFailed");
             StopAutoRefresh();
@@ -876,25 +945,6 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             ? Jobs.Where(j => j.InfobaseId == id)
             : Jobs;
         ReplaceRows(FilteredJobs, rows);
-    }
-
-    /// <summary>
-    /// Загрузка списка баз для маппинга имён владельцев заданий: сбой не роняет вкладку
-    /// заданий — имена показываются как «—», текст ошибки попадает в статус-строку.
-    /// </summary>
-    private async Task<IReadOnlyList<RacInfobaseSummary>> SafeInfobasesAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _rac.GetInfobasesAsync(parameters, clusterId, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = BuildErrorMessage(ex);
-            return Array.Empty<RacInfobaseSummary>();
-        }
     }
 
     private static void ReplaceRows<T>(ObservableCollection<T> target, IEnumerable<T> rows)

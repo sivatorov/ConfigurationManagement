@@ -452,6 +452,13 @@ public class AppSettings
     /// <summary>Горячая клавиша показа вкладки «Избранное». Пусто — не назначена.</summary>
     public string HotkeyShowFavorites { get; set; } = "";
 
+    /// <summary>
+    /// Горячая клавиша меню закладок (issue #356). По умолчанию Ctrl+B; ранее
+    /// сочетание было зашито в коде, и назначение Ctrl+B другому действию
+    /// (например, «Показать избранное») молча не работало.
+    /// </summary>
+    public string HotkeyBookmarksMenu { get; set; } = "Ctrl+B";
+
     /// <summary>Горячая клавиша показа вкладки «Недавние». Пусто — не назначена.</summary>
     public string HotkeyShowRecent { get; set; } = "";
 

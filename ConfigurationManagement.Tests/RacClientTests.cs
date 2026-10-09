@@ -414,6 +414,58 @@ public sealed class RacClientTests
         Assert.Null(RacClient.ExtractClusterBlock("port : 1541", id));
     }
 
+    // ---------- Диагностика нераспознанного вывода (issue #324, лог 7OH от 2026-10-08):
+    // при exit=0, stdout>0 и 0 распознанных записей в журнал пишется WARN с командой,
+    // объёмом вывода и его началом — по журналу видно, какая из шести параллельных
+    // list-команд не распознана и в каком виде пришёл вывод. ----------
+
+    [Fact]
+    public void EnsureParsedOrThrow_WithLogger_WarnsWithCommandAndOutputPreview()
+    {
+        var logger = new CapturingLogger();
+        const string output = "some future format line 1\nsome future format line 2\n";
+
+        Assert.Throws<RacOutputParseException>(
+            () => RacClient.EnsureParsedOrThrow(output, 0, "session list", logger));
+
+        var warn = Assert.Single(logger.Warnings);
+        Assert.Contains("session list", warn);                       // какая команда
+        Assert.Contains($"stdout={output.Length}", warn);            // объём вывода
+        Assert.Contains("some future format line 1", warn);          // начало вывода
+        Assert.DoesNotContain("\n", warn);                           // одна строка журнала
+    }
+
+    [Fact]
+    public void EnsureParsedOrThrow_WithoutLogger_StillThrows()
+    {
+        // Логгер опционален: старые вызовы (3 аргумента) продолжают работать.
+        Assert.Throws<RacOutputParseException>(
+            () => RacClient.EnsureParsedOrThrow("future format", 0, "process list"));
+    }
+
+    [Fact]
+    public void Preview_FlattensLines_AndTruncatesTo200Chars()
+    {
+        var longOutput = string.Concat(Enumerable.Repeat("абвгд ", 60)); // 360 символов
+
+        var preview = RacClient.Preview(longOutput);
+
+        Assert.True(preview.Length <= 201); // 200 символов + «…»
+        Assert.EndsWith("…", preview);
+        Assert.DoesNotContain("\n", RacClient.Preview("a\r\nb\tc"));
+        Assert.Contains("a b c", RacClient.Preview("a\r\nb\tc"));
+    }
+
+    /// <summary>Логгер-заглушка: собирает сообщения для проверки диагностики.</summary>
+    private sealed class CapturingLogger : IAppLogger
+    {
+        public List<string> Warnings { get; } = new();
+
+        public void Info(string message) { }
+        public void Warn(string message) => Warnings.Add(message);
+        public void Error(string message, Exception? exception = null) { }
+    }
+
     [Fact]
     public void ToClusterInfo_FromExtractedBlock_FillsNameAndPort()
     {

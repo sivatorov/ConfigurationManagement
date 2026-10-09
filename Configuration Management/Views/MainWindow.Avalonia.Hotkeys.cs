@@ -114,12 +114,18 @@ namespace Configuration_Management
                 Command = new ViewModels.RelayCommand(_ => _vm.LaunchAllBookmarks())
             });
 
-            // Ctrl+B — меню закладок.
-            KeyBindings.Add(new KeyBinding
+            // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+            // Ранее сочетание было зашито, и назначение Ctrl+B другому действию
+            // (например, «Показать избранное») молча не работало.
+            if (Controls.HotkeyBox.TryParse(_vm.HotkeyBookmarksMenu, out var bookmarksGesture)
+                && bookmarksGesture is not null)
             {
-                Gesture = new KeyGesture(Key.B, KeyModifiers.Control),
-                Command = new ViewModels.RelayCommand(_ => ShowBookmarksMenu())
-            });
+                KeyBindings.Add(new KeyBinding
+                {
+                    Gesture = bookmarksGesture,
+                    Command = new ViewModels.RelayCommand(_ => ShowBookmarksMenu())
+                });
+            }
 
             // Delete в привязки не идёт: он правит текст, и в поле ввода
             // не должен удалять базу. Ему отдельный обработчик ниже.
@@ -350,8 +356,11 @@ namespace Configuration_Management
                     return;
                 }
 
-                // Ctrl+B — меню закладок.
-                if (e.Key == Key.B && !shiftKm && !altKm)
+                // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+                if (Controls.HotkeyBox.TryParse(_vm.HotkeyBookmarksMenu, out var bookmarksGesture)
+                    && bookmarksGesture is not null
+                    && e.Key == bookmarksGesture.Key
+                    && km == bookmarksGesture.KeyModifiers)
                 {
                     ShowBookmarksMenu();
                     e.Handled = true;
@@ -524,6 +533,12 @@ namespace Configuration_Management
                 Header = LocalizationManager.T("Main.BookmarksClearAll"),
                 Command = new ViewModels.RelayCommand(_ => _vm.ClearAllBookmarks())
             });
+
+            // issue #356 (комментарий 2): меню закладок участвует в стабилизации
+            // выделения после закрытия (механизм issue #340) наравне с контекстным
+            // меню дерева — клик по строке, закрывший меню, должен выбирать строку.
+            // Обработчик OnTreeContextMenuIsOpenChanged подписан на все ContextMenu.
+            menu.Tag = BatchSelectionHelper.BookmarksMenuTag;
 
             menu.Open(this);
         }

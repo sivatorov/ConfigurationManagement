@@ -2810,6 +2810,8 @@ namespace Configuration_Management
             var hotkeyFindInList = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.FindInList"), _viewModel.HotkeyFindInList);
             // Командная палитра (Ctrl+K): быстрый поиск баз и команд интерфейса.
             var hotkeyCommandPalette = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.CommandPalette"), _viewModel.HotkeyCommandPalette);
+            // Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B.
+            var hotkeyBookmarksMenu = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.BookmarksMenu"), _viewModel.HotkeyBookmarksMenu);
             // Автообновление платформы 1С (функция 9, этап 0.3.9.214): Ctrl+F9.
             var hotkeyPlatformUpdate = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.PlatformUpdate"), _viewModel.HotkeyPlatformUpdate);
             var hotkeySwitchUser = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.SwitchUser"), _viewModel.HotkeySwitchUser);
@@ -3059,6 +3061,9 @@ namespace Configuration_Management
                     (LocalizationManager.T("Main.ClearSearch"), hotkeyClearSearch),
                     (LocalizationManager.T("Main.ClearTags"), hotkeyClearTags),
                     (LocalizationManager.T("Settings.Hotkeys.CommandPalette"), hotkeyCommandPalette),
+                    // Меню закладок (issue #356): по умолчанию Ctrl+B; конфликт
+                    // с другими сочетаниями проверяется наравне с ними.
+                    (LocalizationManager.T("Settings.Hotkeys.BookmarksMenu"), hotkeyBookmarksMenu),
                     // Автообновление платформы 1С (функция 9, этап 0.3.9.214).
                     (LocalizationManager.T("Settings.Hotkeys.PlatformUpdate"), hotkeyPlatformUpdate),
                     // Панель информации (Ctrl+D, issue #172) участвует в проверке
@@ -3173,7 +3178,8 @@ namespace Configuration_Management
                     hotkeyCheckIntegrity.Value, hotkeyServerConsole.Value,
                     hotkeyZoomIn.Value, hotkeyZoomOut.Value, hotkeyZoomReset.Value,
                     hotkeyCommandPalette.Value, hotkeyPlatformUpdate.Value,
-                    hotkeyShowRunning.Value);
+                    hotkeyShowRunning.Value,
+                    bookmarksMenu: hotkeyBookmarksMenu.Value);
 
                 // Копия экрана (функция №30) и автозапуск при старте ОС (функция №31, Этап 8).
                 _viewModel.ScreenshotHotkey = hotkeyScreenshot.Value ?? "";

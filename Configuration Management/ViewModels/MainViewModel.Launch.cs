@@ -687,6 +687,8 @@ public partial class MainViewModel : ViewModelBase
         s.HotkeyClearTags = _hotkeyClearTags;
         s.HotkeyRightPanelDetails = _hotkeyRightPanelDetails;
         s.HotkeyFindInList = _hotkeyFindInList;
+        // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+        s.HotkeyBookmarksMenu = _hotkeyBookmarksMenu;
         s.HotkeySwitchUser = _hotkeySwitchUser;
         s.HotkeyCheckUpdate = _hotkeyCheckUpdate;
         s.HotkeyActualReleases = _hotkeyActualReleases;

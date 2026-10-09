@@ -52,13 +52,14 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     private readonly Action<string> _copyToClipboard;
 
     /// <summary>
-    /// Диалог выбора удаляемых старых версий (issue #334): по списку кандидатов
-    /// (<see cref="OldVersionCleaner.SelectCandidates"/>) возвращает подмножество,
+    /// Диалог выбора удаляемых старых версий (issue #334): по ПОЛНОМУ списку
+    /// установленных версий с признаками риска
+    /// (<see cref="OldVersionCleaner.SelectDeletionEntries"/>) возвращает подмножество,
     /// которое пользователь выбрал для удаления, или null (отмена). null — делегат
     /// не задан (тесты/окружение без UI): используется общий диалог подтверждения
-    /// <c>_confirmDialog</c> на весь список.
+    /// <c>_confirmDialog</c> на версии без признаков риска.
     /// </summary>
-    private readonly Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? _chooseVersionsToDelete;
+    private readonly Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? _chooseVersionsToDelete;
 
     /// <summary>True — Windows-ветка удаления (инжектирован делегат удаления каталога);
     /// false — Linux-ветка (показ команды sudo с копированием в буфер).</summary>
@@ -174,7 +175,7 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Action<string>? copyToClipboard = null,
         Action<Action>? dispatchToUi = null,
         Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null,
-        Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
+        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
@@ -352,7 +353,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var picked = await ResolvePickedFileAsync(row).ConfigureAwait(false);
             if (picked is null)
             {
-                AppendLog(LocalizationManager.T("PlatformUpdate.Error.NoSetup"));
+                // Диагностика уже записана в журнал ResolvePickedFileAsync (файлы релиза,
+                // причина отсутствия варианта); скачивание и установка не выполняются.
                 return;
             }
 
@@ -364,6 +366,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var zipPath = Path.Combine(targetDir, OneCUpdatesService.BuildTargetFileName(row.Version, picked.FileName));
 
             AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Progress.Download"), picked.FileName));
+            // issue #334: полная диагностика шага — прямая ссылка и путь сохранения,
+            // в журнал окна И файловый журнал («в логах пусто» недопустимо).
+            AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Diag.DownloadUrl"), picked.Url));
+            AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Diag.SavePath"), zipPath));
+            _appLogger?.Info(
+                $"Обновление платформы {row.Version}: скачивание {picked.FileName} из {picked.Url} в {zipPath}");
             var progress = new Progress<double>(v =>
             {
                 row.Progress = v;
@@ -374,11 +382,15 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             if (string.IsNullOrWhiteSpace(downloaded))
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.Network"));
+                _appLogger?.Error(
+                    $"Обновление платформы {row.Version}: не удалось скачать {picked.FileName} из {picked.Url}");
                 return;
             }
 
             row.Progress = 1;
             Progress = 1;
+            // issue #334: фактический размер скачанного файла — в журнал окна и файловый журнал.
+            LogDownloadedSize(downloaded);
 
             // Проверка готовности к установке (этап 0.3.9.214): занятые процессы 1С,
             // права администратора, свободное место, подпись файла. При замечаниях —
@@ -471,7 +483,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var picked = await ResolvePickedFileAsync(row).ConfigureAwait(false);
             if (picked is null)
             {
-                AppendLog(LocalizationManager.T("PlatformUpdate.Error.NoSetup"));
+                // Диагностика уже записана в журнал ResolvePickedFileAsync; скачивание
+                // не выполняется, установка после «Только скачать» не запускается.
                 return;
             }
 
@@ -490,6 +503,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             row.IsDownloading = true;
             row.Progress = 0;
             AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Progress.Download"), picked.FileName));
+            // issue #334: полная диагностика шага — ссылка и путь сохранения, в журнал
+            // окна И файловый журнал («в логах пусто» недопустимо).
+            AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Diag.DownloadUrl"), picked.Url));
+            AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Diag.SavePath"), targetPath));
+            _appLogger?.Info(
+                $"Обновление платформы {row.Version}: скачивание {picked.FileName} из {picked.Url} в {targetPath}");
 
             var progress = new Progress<double>(v =>
             {
@@ -501,6 +520,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             if (string.IsNullOrWhiteSpace(saved))
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.Network"));
+                _appLogger?.Error(
+                    $"Обновление платформы {row.Version}: не удалось скачать {picked.FileName} из {picked.Url}");
                 NotifyError(string.Format(
                     LocalizationManager.T("Notify.PlatformUpdateError"),
                     LocalizationManager.T("PlatformUpdate.Error.Network")));
@@ -509,6 +530,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
             row.Progress = 1;
             Progress = 1;
+            // issue #334: фактический размер скачанного файла — в журнал окна и файловый журнал.
+            LogDownloadedSize(saved);
             AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Progress.Done"), targetPath));
             _appLogger?.Info($"Обновление платформы: дистрибутив сохранён в «{targetPath}»");
 
@@ -554,14 +577,16 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// «Удалить старые версии…» (этап 0.3.9.215, issue #334): отбирает кандидатов через
-    /// <see cref="OldVersionCleaner.SelectCandidates"/> (новейшая, используемые базами
-    /// и запущенные исключаются). Если кандидатов нет — показывает ИНФОРМАЦИОННОЕ
-    /// уведомление (не прячет его), а не только строку в журнале. Если кандидаты есть —
-    /// показывает диалог со списком версий, где пользователь выбирает, что удалить:
-    /// инжектируемый делегат <c>_chooseVersionsToDelete</c> (окна) либо резервный
-    /// общий диалог подтверждения на весь список. Windows: удаляет каталоги выбранных
-    /// версий последовательно через инжектируемый делегат
+    /// «Удалить старые версии…» (этап 0.3.9.215, issue #334, доработка по комментарию
+    /// автора): показывает в диалоге ВСЕ установленные версии с признаками
+    /// (<see cref="OldVersionCleaner.SelectDeletionEntries"/> — «новейшая», «используется
+    /// базами», «используется запущенными процессами»), ничего не отфильтровывая —
+    /// пользователь сам решает, что считать старым. «Нет версий для удаления» — только
+    /// когда платформа 1С вообще не установлена. Защита от глупостей: по умолчанию
+    /// отмечены только версии без признаков риска; при попытке удалить новейшую или
+    /// используемую версию — отдельное предупреждение с подтверждением
+    /// (<see cref="OldVersionCleaner.BuildDeletionConfirmations"/>). Windows: удаляет
+    /// каталоги выбранных версий последовательно через инжектируемый делегат
     /// (<c>PlatformInstaller.DeleteVersionDirectoryAsync</c>) и перестраивает список.
     /// Linux: показывает команды удаления (<c>PlatformInstaller.BuildSudoUninstallCommand</c>)
     /// в журнале и копирует их в буфер обмена (делегат). Результат — уведомление
@@ -608,11 +633,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                 runningBinPaths = Array.Empty<string>();
             }
 
-            var candidates = OldVersionCleaner.SelectCandidates(installed, bases, runningBinPaths);
-            if (candidates.Count == 0)
+            // «Нет версий для удаления» — только когда на компьютере вообще не
+            // установлено ни одной платформы 1С (issue #334, комментарий автора).
+            if (installed.Count == 0)
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.RemoveNothing"));
-                _appLogger?.Info("Обновление платформы: нет старых версий для удаления");
+                _appLogger?.Info("Обновление платформы: нет установленных версий платформы 1С");
                 // issue #334: результат операции должен быть ВИДЕН пользователю —
                 // информационное уведомление вместо «молчаливой» строки в журнале.
                 _notify(
@@ -623,12 +649,20 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                 return;
             }
 
-            // issue #334: диалог со списком версий, где пользователь выбирает, что удалить
-            // (окна); без делегата (тесты/окружение без UI) — общий вопрос на весь список.
+            // issue #334: ПОЛНЫЙ список версий с признаками риска (новейшая, используется
+            // базами/процессами) — ничего не фильтруется, решает пользователь.
+            var entries = OldVersionCleaner.SelectDeletionEntries(installed, bases, runningBinPaths);
+            _appLogger?.Info(
+                $"Обновление платформы: установлено {entries.Count} версий, "
+                + $"с признаками риска — {entries.Count(e => e.HasRiskMarkers)}");
+
+            // Диалог со списком всех версий, где пользователь выбирает, что удалить
+            // (окна); без делегата (тесты/окружение без UI) — общий вопрос на список
+            // версий без признаков риска.
             IReadOnlyList<PlatformVersionInfo> selected;
             if (_chooseVersionsToDelete is not null)
             {
-                var chosen = _chooseVersionsToDelete(candidates);
+                var chosen = _chooseVersionsToDelete(entries);
                 if (chosen is null || chosen.Count == 0)
                 {
                     AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
@@ -640,7 +674,18 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             }
             else
             {
-                var listText = string.Join("\n", candidates.Select(c => $"• {c.Display}"));
+                selected = entries
+                    .Where(e => e.IsCheckedByDefault)
+                    .Select(e => e.Version)
+                    .ToList();
+                if (selected.Count == 0)
+                {
+                    AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
+                    _appLogger?.Info("Обновление платформы: нет версий без признаков риска — удаление не предложено");
+                    return;
+                }
+
+                var listText = string.Join("\n", selected.Select(c => $"• {c.Display}"));
                 var message = string.Format(
                     LocalizationManager.T("PlatformUpdate.Confirm.RemoveMessage"), listText);
                 var confirmed = _confirmDialog(LocalizationManager.T("PlatformUpdate.Confirm.RemoveTitle"), message);
@@ -650,8 +695,34 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                     _appLogger?.Info("Обновление платформы: удаление старых версий отменено пользователем");
                     return;
                 }
+            }
 
-                selected = candidates;
+            // issue #334: защита от глупостей — при удалении новейшей/используемой
+            // версии отдельное предупреждение с подтверждением (решение за пользователем).
+            var warnings = OldVersionCleaner.BuildDeletionConfirmations(entries, selected);
+            if (warnings.Count > 0)
+            {
+                var lines = warnings.Select(FormatCleanupWarning).ToList();
+                foreach (var line in lines)
+                    AppendLog(line);
+                // issue #334: детали риска (имена баз, пути процессов) — в файловый
+                // журнал в машинном виде, независимо от локализации.
+                _appLogger?.Warn("Обновление платформы: предупреждения удаления спорных версий — "
+                    + string.Join(" | ", warnings.Select(w =>
+                        $"{w.VersionDisplay}: {w.Kind} {string.Join("/", w.Details)}")));
+                var riskMessage = string.Format(
+                    LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskMessage"),
+                    string.Join("\n", lines));
+                var riskConfirmed = _confirmDialog(
+                    LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskTitle"), riskMessage);
+                AppendLog(riskConfirmed
+                    ? LocalizationManager.T("PlatformUpdate.Preflight.Continue")
+                    : LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
+                if (!riskConfirmed)
+                {
+                    _appLogger?.Info("Обновление платформы: удаление старых версий отменено пользователем");
+                    return;
+                }
             }
 
             // Linux-ветка: команды sudo в журнал + копирование в буфер (без удаления из GUI).
@@ -796,8 +867,33 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         var files = row.Release?.Files ?? (IReadOnlyList<PlatformReleaseFile>)Array.Empty<PlatformReleaseFile>();
         var options = PlatformDistributionPicker.BuildOptions(
             files, OperatingSystem.IsWindows(), Environment.Is64BitOperatingSystem);
+
+        // issue #334: ПОЛНАЯ диагностика выбора дистрибутива в журнал окна И файловый
+        // журнал — какие файлы есть у релиза и почему вариант не выбран. Ранее при
+        // пустом списке вариантов пользователь получал вводящее в заблуждение
+        // «setup.exe не найден в архиве», а файловый журнал оставался пустым.
+        var fileListing = files.Count == 0
+            ? "—"
+            : string.Join("; ", files.Select(DescribeDistributionFile));
+        AppendLog(string.Format(
+            LocalizationManager.T("PlatformUpdate.Diag.DistributionFiles"), fileListing));
+        _appLogger?.Info(
+            $"Обновление платформы {row.Version}: файлы релиза — {fileListing}; "
+            + $"подходящих вариантов для текущей ОС — {options.Count}");
+
         if (options.Count == 0)
+        {
+            // issue #334: вместо «setup.exe не найден в архиве» — точное объяснение:
+            // в каталоге версии нет дистрибутива для текущей ОС, показан список файлов.
+            var message = string.Format(
+                LocalizationManager.T("PlatformUpdate.Diag.NoDistributions"), row.Version, fileListing);
+            AppendLog(message);
+            _appLogger?.Warn(
+                $"Обновление платформы {row.Version}: нет дистрибутива для текущей ОС "
+                + $"(файлы релиза: {fileListing})");
+            NotifyError(string.Format(LocalizationManager.T("Notify.PlatformUpdateError"), message));
             return Task.FromResult<PlatformReleaseFile?>(null);
+        }
 
         if (options.Count == 1 || _chooseDistribution is null)
             return Task.FromResult<PlatformReleaseFile?>(options[0].File);
@@ -805,6 +901,55 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         var chosen = _chooseDistribution(options);
         var file = chosen?.File ?? options.FirstOrDefault(o => o.IsRecommended)?.File ?? options[0].File;
         return Task.FromResult<PlatformReleaseFile?>(file);
+    }
+
+    /// <summary>Краткое описание файла дистрибутива для журнала: имя, размер, разрядность
+    /// («8.3.27.2214_x64.zip (1,2 ГБ, x64)»).</summary>
+    private static string DescribeDistributionFile(PlatformReleaseFile file)
+    {
+        var parts = new List<string>();
+        if (file.SizeBytes > 0)
+            parts.Add($"{file.SizeBytes} байт");
+        if (!string.IsNullOrWhiteSpace(file.Architecture))
+            parts.Add(file.Architecture);
+        var suffix = parts.Count == 0 ? string.Empty : $" ({string.Join(", ", parts)})";
+        return file.FileName + suffix;
+    }
+
+    /// <summary>Пишет фактический размер скачанного файла в журнал окна и файловый журнал
+    /// (issue #334: скачивание должно оставлять след в обоих журналах).</summary>
+    private void LogDownloadedSize(string downloadedPath)
+    {
+        long bytes = 0;
+        try
+        {
+            if (File.Exists(downloadedPath))
+                bytes = new FileInfo(downloadedPath).Length;
+        }
+        catch
+        {
+            // Файл недоступен для чтения размера — не роняем операцию, пишем 0.
+        }
+
+        AppendLog(string.Format(
+            LocalizationManager.T("PlatformUpdate.Diag.DownloadedSize"), bytes));
+        _appLogger?.Info($"Обновление платформы: размер скачанного файла {downloadedPath} — {bytes} байт");
+    }
+
+    /// <summary>Локализованный текст предупреждения удаления спорной версии
+    /// (issue #334): новейшая / используется базами (с именами) / процессами 1С.</summary>
+    private string FormatCleanupWarning(OldVersionCleanupWarning warning)
+    {
+        return warning.Kind switch
+        {
+            OldVersionCleanupRiskKind.Newest => string.Format(
+                LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskNewest"), warning.VersionDisplay),
+            OldVersionCleanupRiskKind.UsedByBases => string.Format(
+                LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskBases"),
+                warning.VersionDisplay, string.Join(", ", warning.Details)),
+            _ => string.Format(
+                LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskProcesses"), warning.VersionDisplay),
+        };
     }
 
     /// <summary>Перестраивает список строк: сопоставление установленных и доступных

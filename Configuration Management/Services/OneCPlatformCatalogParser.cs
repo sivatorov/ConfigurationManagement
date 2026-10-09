@@ -59,6 +59,17 @@ public static class OneCPlatformCatalogParser
         @"(?<url>(?:https?://|/)[^""'\s<>]*?\.(?:zip|deb|rpm|tar\.gz)(?:[?#][^""'\s<>]*)?)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Регулярное выражение для ссылок на передачу файла дистрибутива
+    /// (<c>transfer_file?…</c>/<c>additional_file?…</c>, issue #330): альтернативная
+    /// разметка страницы <c>version_files</c>, где дистрибутив отдаётся эндпоинтом
+    /// передачи файла, а имя/расширение файла находятся в query-параметрах
+    /// <c>path</c>/<c>file</c>/<c>filename</c>. Паттерн повторяет
+    /// <c>OneCUpdatesService.FileEndpointUrlRegex</c> (issue #352): поиск ведётся
+    /// в любом месте ответа, включая JS-редиректы и встроенный JSON.</summary>
+    private static readonly Regex FileEndpointUrlRegex = new(
+        @"(?<url>(?:https?://[^\s""'<>]*)?(?:transfer_file|additional_file)\?[^\s""'<>]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>Регулярное выражение для извлечения размера файла из JSON-полей
     /// <c>size</c>/<c>filesize</c>.</summary>
     private static readonly Regex SizeFieldRegex = new(
@@ -223,14 +234,48 @@ public static class OneCPlatformCatalogParser
 
         foreach (Match match in DistributionFileLinkRegex.Matches(body))
         {
-            var url = match.Groups["url"].Value.Trim().Trim('"', '\'', '\\');
+            // HTML-сущности в href декодируются (issue #330): иначе адрес с «&»
+            // уходит на портал с параметром «amp;…» и файл не скачивается.
+            var url = NormalizeUrl(match.Groups["url"].Value);
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+
+            var fileName = ExtractFileNameFromUrl(url);
+            // Расширение дистрибутива в ИМЕНИ файла обязательно (issue #330): адрес вида
+            // «/transfer_file?…path=Distr%2Ffile.deb» без этого guard давал бы мусорную
+            // запись «transfer_file» — расширение в нём находится в query, а не в пути.
+            if (string.IsNullOrWhiteSpace(fileName) ||
+                ClassifyKind(fileName) == PlatformDistributionKind.Other)
+                continue;
+            if (!seen.Add(url))
+                continue;
+
+            result.Add(new PlatformReleaseFile
+            {
+                FileName = fileName,
+                Url = url,
+                SizeBytes = FindSizeNear(body, fileName),
+                Architecture = DetectArchitecture(fileName),
+                Kind = ClassifyKind(fileName),
+            });
+        }
+
+        // Альтернативная разметка (issue #330, комментарий 7OH от 2026-10-09): страница
+        // version_files может перечислять дистрибутивы ссылками на эндпоинты передачи
+        // файла (transfer_file/additional_file) — без прямого адреса архива в href.
+        // Имя/расширение файла берём из query-параметров path/file/filename.
+        foreach (Match match in FileEndpointUrlRegex.Matches(body))
+        {
+            var url = NormalizeUrl(match.Groups["url"].Value);
             if (string.IsNullOrWhiteSpace(url))
                 continue;
             if (!seen.Add(url))
                 continue;
 
-            var fileName = ExtractFileNameFromUrl(url);
+            var fileName = ExtractFileEndpointFileName(url);
             if (string.IsNullOrWhiteSpace(fileName))
+                continue;
+            if (ClassifyKind(fileName) == PlatformDistributionKind.Other)
                 continue;
 
             result.Add(new PlatformReleaseFile
@@ -308,6 +353,63 @@ public static class OneCPlatformCatalogParser
         if (string.IsNullOrWhiteSpace(version))
             return false;
         return version.IndexOf('.') >= 0 && version.Any(char.IsDigit);
+    }
+
+    /// <summary>Нормализует URL из HTML/JSON ответа: декодирование HTML-сущностей
+    /// («&amp;» → «&», issue #330 — иначе запрос уходит с параметром «amp;…»),
+    /// удаление кавычек, экранирований и внешних пробелов.</summary>
+    private static string NormalizeUrl(string raw)
+    {
+        var decoded = WebUtility.HtmlDecode(raw ?? string.Empty);
+        return decoded.Trim().Trim('"', '\'', '\\');
+    }
+
+    /// <summary>Извлекает имя файла из адреса эндпоинта передачи файла
+    /// (<c>transfer_file?…</c>/<c>additional_file?…</c>, issue #330): имя ищется в
+    /// query-параметрах <c>path</c>/<c>file</c>/<c>filename</c> (последний сегмент
+    /// после <c>/</c> или <c>\</c>), с декодированием процент-экранирования и
+    /// HTML-сущностей. Возвращает null, если параметры не содержат имени файла.</summary>
+    private static string? ExtractFileEndpointFileName(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        var question = url.IndexOf('?');
+        if (question < 0)
+            return null;
+
+        var query = url[(question + 1)..];
+        var hash = query.IndexOf('#');
+        if (hash >= 0)
+            query = query[..hash];
+
+        foreach (var pair in query.Split('&'))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq <= 0)
+                continue;
+
+            var name = pair[..eq].ToLowerInvariant();
+            if (name is not ("path" or "file" or "filename"))
+                continue;
+
+            var value = WebUtility.HtmlDecode(pair[(eq + 1)..]);
+            try
+            {
+                value = Uri.UnescapeDataString(value);
+            }
+            catch
+            {
+                // Оставляем значение как есть при некорректном экранировании.
+            }
+
+            var slash = Math.Max(value.LastIndexOf('/'), value.LastIndexOf('\\'));
+            var fileName = slash >= 0 ? value[(slash + 1)..] : value;
+            if (!string.IsNullOrWhiteSpace(fileName))
+                return fileName;
+        }
+
+        return null;
     }
 
     /// <summary>Извлекает имя файла из ссылки: последний сегмент пути до <c>?</c>/<c>#</c>,

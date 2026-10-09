@@ -293,6 +293,114 @@ public sealed class OneCUpdatesDistributionResolutionTests
     }
 
     [Fact]
+    public async Task DownloadUpdateAsync_AdditionalFileBinaryTypedAsHtml_SavesFileDirectly()
+    {
+        // issue #352 (комментарий 7OH от 2026-10-09): additional_file отдаёт сам файл
+        // (расширение конфигурации .cf), ошибочно помечая его text/html — страница не
+        // содержит ссылок, и ответ должен сохраняться как бинарный файл, а не приводить
+        // к «В ответе не найдена ссылка на дистрибутив».
+        const string url =
+            "https://releases.1c.ru/additional_file?nick=Trade110&path=Trade%5cExtrafiles%5cRasshirenieGISMTsRPT.cf";
+        var handler = new RoutingHandler(_ => Binary(DistributionBytes, "text/html"));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "RasshirenieGISMTsRPT.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(url, targetPath);
+
+            Assert.NotNull(saved);
+            Assert.EndsWith(".cf", saved, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+            Assert.Single(handler.Requests);
+            // Временный файл загрузки (.download) после успеха переименован, не оставлен.
+            Assert.False(File.Exists(saved + OneCUpdatesService.PartialSuffix));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_TransferFileBinaryTypedAsHtml_SavesFileDirectly()
+    {
+        // transfer_file ведёт себя так же: binary-контент с HTML-типом сохраняется напрямую,
+        // без попытки «искать следующую ссылку» (issue #352, комментарий 7OH 2026-10-09).
+        var handler = new RoutingHandler(_ => Binary(DistributionBytes, "text/html"));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "setup_1cv8.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/transfer_file?file=setup_1cv8.zip", targetPath);
+
+            Assert.NotNull(saved);
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+            Assert.Single(handler.Requests);
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_AdditionalFileHtmlErrorPage_ReturnsNullWithoutSaving()
+    {
+        // Настоящий HTML-документ от файлового эндпоинта без ссылки на файл — ошибка
+        // портала: мусор под именем дистрибутива не сохраняется (issue #352).
+        var handler = new RoutingHandler(_ => Html(
+            """<html><body><h1>Файл не найден</h1></body></html>"""));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "missing.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/additional_file?nick=X&path=Trade%5cmissing.cf", targetPath);
+
+            Assert.Null(saved);
+            Assert.False(File.Exists(targetPath));
+            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+            Assert.Single(handler.Requests);
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_OnSaveError_RemovesTempFile()
+    {
+        // Прерванное скачивание (поток ответа упал mid-stream): временный файл .download
+        // удаляется, финальное имя не создаётся — повторный запуск не сочтёт файл скачанным.
+        var handler = new RoutingHandler(_ => ThrowingBinary(DistributionBytes.Length));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "broken.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/files/setup_1cv8.zip", targetPath);
+
+            Assert.Null(saved);
+            Assert.False(File.Exists(targetPath));
+            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
     public async Task DownloadUpdateAsync_RarDistribution_AdjustsTargetExtension()
     {
         // Диалог сохранения предлагает «.zip», а дистрибутив оказался «.rar» (issue #352):
@@ -581,6 +689,54 @@ public sealed class OneCUpdatesDistributionResolutionTests
         var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+    }
+
+    /// <summary>Бинарный ответ, чей поток падает исключением в середине чтения —
+    /// имитация обрыва соединения при скачивании (issue #352).</summary>
+    private static HttpResponseMessage ThrowingBinary(int totalLength)
+    {
+        var content = new StreamContent(new ThrowingReadStream(totalLength));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+    }
+
+    /// <summary>Поток, отдающий половину байтов, а затем бросающий IOException.</summary>
+    private sealed class ThrowingReadStream : Stream
+    {
+        private readonly byte[] _data;
+        private int _position;
+
+        public ThrowingReadStream(int totalLength)
+        {
+            _data = new byte[totalLength];
+            for (var i = 0; i < totalLength; i++)
+                _data[i] = (byte)(i % 251 + 1);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _data.Length;
+        public override long Position { get => _position; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position >= _data.Length / 2)
+                throw new IOException("Соединение оборвано (имитация, issue #352).");
+
+            var toRead = Math.Min(count, _data.Length / 2 - _position);
+            Array.Copy(_data, _position, buffer, offset, toRead);
+            _position += toRead;
+            return toRead;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static void TryDeleteDirectory(string dir)

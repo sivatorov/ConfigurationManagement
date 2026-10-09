@@ -269,6 +269,20 @@ public static class RacOutputParser
         string output,
         string blockStartKey,
         Func<string, bool>? blockStartValuePredicate = null)
+        => TryParseKeyValueBlocks(output, new[] { blockStartKey }, blockStartValuePredicate);
+
+    /// <summary>
+    /// Вариант с НЕСКОЛЬКИМИ ключами-стартерами блока (issue #324): rac 8.5.4.1878
+    /// переименовывает ключи (у connection list — «conn-id», у process list возможен
+    /// стартер «process-id» вместо «process») — блок распознаётся по любому из них.
+    /// Предикат <paramref name="blockStartValuePredicate"/> (например <see cref="IsGuid"/>)
+    /// не даёт разорвать блок на одноимённом ключе с числовым значением внутри него
+    /// («process-id : 1234» внутри блока «process»).
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyDictionary<string, string>> TryParseKeyValueBlocks(
+        string output,
+        string[] blockStartKeys,
+        Func<string, bool>? blockStartValuePredicate)
     {
         var blocks = new List<IReadOnlyDictionary<string, string>>();
         Dictionary<string, string>? current = null;
@@ -290,7 +304,17 @@ public static class RacOutputParser
             var value = line.Substring(colon + 1).Trim();
 
             // Строка «blockStartKey : value» начинает новый блок (и завершает текущий).
-            if (string.Equals(key, blockStartKey, StringComparison.OrdinalIgnoreCase) &&
+            var isStartKey = false;
+            foreach (var startKey in blockStartKeys)
+            {
+                if (string.Equals(key, startKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    isStartKey = true;
+                    break;
+                }
+            }
+
+            if (isStartKey &&
                 (blockStartValuePredicate is null || blockStartValuePredicate(value)))
             {
                 if (current is not null)
@@ -389,11 +413,18 @@ public static class RacOutputParser
         }
 
         // issue #324: новые версии rac отдают «process list» блоками «ключ : значение».
+        // 8.5.4.1878 переименовывает ключи (у connection list — «conn-id» вместо «session»
+        // и т.п.), поэтому стартер блока пробуем и как «process-id», а идентификатор —
+        // из любого из двух ключей. Предикат IsGuid не даёт разорвать блок на числовом
+        // «process-id : 1234» внутри блока (issue #324, пустые вкладки при exit=0).
         if (processes.Count == 0 && LooksLikeKeyValueOutput(output))
         {
-            foreach (var block in TryParseKeyValueBlocks(output, "process"))
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "process", "process-id" }, IsGuid))
             {
                 var id = ParseGuid(Get(block, "process"));
+                if (id == Guid.Empty)
+                    id = ParseGuid(Get(block, "process-id"));
                 if (id == Guid.Empty)
                     continue; // блок без валидного идентификатора — пропускаем
 
@@ -401,7 +432,7 @@ public static class RacOutputParser
                 {
                     Id = id,
                     Host = Unquote(Get(block, "host")),
-                    Pid = ParseInt(Get(block, "pid")),
+                    Pid = ParseInt(GetAny(block, "pid", "process-id")),
                     Port = ParseInt(Get(block, "port")),
                     StartedAt = ParseDateTime(Get(block, "started-at")),
                     MemorySize = ParseLong(Get(block, "memory-size")),
@@ -470,11 +501,16 @@ public static class RacOutputParser
         }
 
         // issue #324: новые версии rac отдают «session list» блоками «ключ : значение».
+        // Стартер «session-id» (по аналогии с «conn-id» у connection list 8.5.4.1878)
+        // пробуем наравне с «session»; идентификатор — из любого из двух ключей.
         if (sessions.Count == 0 && LooksLikeKeyValueOutput(output))
         {
-            foreach (var block in TryParseKeyValueBlocks(output, "session"))
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "session", "session-id" }, IsGuid))
             {
                 var id = ParseGuid(Get(block, "session"));
+                if (id == Guid.Empty)
+                    id = ParseGuid(Get(block, "session-id"));
                 if (id == Guid.Empty)
                     continue;
 
@@ -552,9 +588,12 @@ public static class RacOutputParser
         // Читаем через GetAny-алиасы, чтобы обе схемы ложились в одну модель.
         if (connections.Count == 0 && LooksLikeKeyValueOutput(output))
         {
-            foreach (var block in TryParseKeyValueBlocks(output, "connection"))
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "connection", "conn-id" }, IsGuid))
             {
                 var id = ParseGuid(Get(block, "connection"));
+                if (id == Guid.Empty)
+                    id = ParseGuid(Get(block, "conn-id"));
                 if (id == Guid.Empty)
                     continue;
 
@@ -692,11 +731,16 @@ public static class RacOutputParser
         }
 
         // issue #324: новые версии rac отдают «infobase summary list» блоками «ключ : значение».
+        // Стартер «infobase-id» пробуем наравне с «infobase» (переименование ключей в
+        // 8.5.4.1878, issue #324); идентификатор — из любого из двух ключей.
         if (infobases.Count == 0 && LooksLikeKeyValueOutput(output))
         {
-            foreach (var block in TryParseKeyValueBlocks(output, "infobase"))
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "infobase", "infobase-id" }, IsGuid))
             {
                 var id = ParseGuid(Get(block, "infobase"));
+                if (id == Guid.Empty)
+                    id = ParseGuid(Get(block, "infobase-id"));
                 if (id == Guid.Empty)
                     continue;
 
@@ -764,11 +808,16 @@ public static class RacOutputParser
         }
 
         // issue #324: новые версии rac отдают «job list» блоками «ключ : значение».
+        // Стартер «job-id» пробуем наравне с «job» (переименование ключей в 8.5.4.1878,
+        // issue #324); идентификатор — из любого из двух ключей.
         if (jobs.Count == 0 && LooksLikeKeyValueOutput(output))
         {
-            foreach (var block in TryParseKeyValueBlocks(output, "job"))
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "job", "job-id" }, IsGuid))
             {
                 var id = ParseGuid(Get(block, "job"));
+                if (id == Guid.Empty)
+                    id = ParseGuid(Get(block, "job-id"));
                 if (id == Guid.Empty)
                     continue;
 

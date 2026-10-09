@@ -261,7 +261,10 @@ namespace Configuration_Management
         {
             if (e.NewValue is not bool isOpen)
                 return;
-            var isTreeMenu = ReferenceEquals(menu, _tree?.ContextMenu);
+            // Меню закладок (issue #356) обрабатывается наравне с контекстным меню
+            // дерева: клик по строке, закрывший меню, должен выбирать строку.
+            var isTreeMenu = BatchSelectionHelper.IsTreeLikeMenu(
+                ReferenceEquals(menu, _tree?.ContextMenu), menu.Tag);
             MenuCloseTrace.Log(isOpen
                 ? $"MenuOpened: isTreeMenu={isTreeMenu}"
                 : $"MenuClosed: isTreeMenu={isTreeMenu}");

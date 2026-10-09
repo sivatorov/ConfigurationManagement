@@ -670,23 +670,43 @@ namespace Configuration_Management
 
             try
             {
-                var total = variant.Steps.Count;
+                // issue #352 (комментарий 7OH от 2026-10-09): докачка цепочки — файлы,
+                // уже скачанные ранее (существуют и непусты), пропускаются ещё на старте;
+                // счётчик «Скачивается X из Y» считается только по требующим скачивания.
+                var baseName = SanitizeFileName(_row.Name);
+                var targetPaths = variant.Steps
+                    .Select(step => Path.Combine(folder, $"{baseName}_{step.Version}.zip"))
+                    .ToList();
+                var pending = UpdateChainDownloadPlanner.SelectPendingSteps(targetPaths);
+                var skipped = variant.Steps.Count - pending.Count;
+                if (skipped > 0)
+                    _logger.Info($"Пропущено уже скачанных файлов цепочки «{_row.Name}»: {skipped} из {variant.Steps.Count}.");
+
+                if (pending.Count == 0)
+                {
+                    _dialogs.ShowInfo(string.Format(
+                            T("Updates.Chain.AllDownloaded"), variant.Steps.Count, folder),
+                        T("Updates.CheckTitle"));
+                    return;
+                }
+
+                var total = pending.Count;
                 var ok = 0;
                 var failed = 0;
-                var baseName = SanitizeFileName(_row.Name);
 
-                for (var i = 0; i < total; i++)
+                for (var n = 0; n < total; n++)
                 {
+                    var i = pending[n];
                     var step = variant.Steps[i];
                     var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
-                    var targetPath = Path.Combine(folder, $"{baseName}_{step.Version}.zip");
+                    var targetPath = targetPaths[i];
 
                     _row.ChainProgressText = string.Format(
-                        T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version);
-                    _row.ChainProgress = (double)i / total;
+                        T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version);
+                    _row.ChainProgress = (double)n / total;
 
                     var progress = new Progress<double>(p => Dispatcher.UIThread.Post(() =>
-                        _row.ChainProgress = Math.Clamp((i + p) / total, 0, 1)));
+                        _row.ChainProgress = Math.Clamp((n + p) / total, 0, 1)));
                     var saved = await Task.Run(() =>
                         _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
 
@@ -701,15 +721,21 @@ namespace Configuration_Management
                         _logger.Warn($"Не удалось скачать версию {step.Version} цепочки ({url}).");
                     }
 
-                    _row.ChainProgress = (double)(i + 1) / total;
+                    _row.ChainProgress = (double)(n + 1) / total;
                     _row.ChainProgressText = string.Format(
-                            T("Updates.Chain.DownloadProgress"), i + 1, total, step.Version)
-                        + " " + string.Format(T("Updates.Chain.Remaining"), total - i - 1);
+                            T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version)
+                        + " " + string.Format(T("Updates.Chain.Remaining"), total - n - 1);
                 }
 
                 if (failed > 0)
                 {
                     _dialogs.ShowWarning(string.Format(T("Updates.Chain.LoadedFailed"), failed),
+                        T("Updates.CheckTitle"));
+                }
+                else if (skipped > 0)
+                {
+                    _dialogs.ShowInfo(string.Format(
+                        T("Updates.Chain.LoadedOkSkipped"), ok, total, skipped, folder),
                         T("Updates.CheckTitle"));
                 }
                 else

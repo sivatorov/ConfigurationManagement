@@ -14,6 +14,22 @@ namespace Configuration_Management.Services;
 public static class BatchSelectionHelper
 {
     /// <summary>
+    /// Метка (<c>ContextMenu.Tag</c>) меню закладок, открытого по хоткею (issue #356).
+    /// Такое меню участвует в стабилизации выделения после закрытия наравне с
+    /// контекстным меню дерева (механизм issue #340): клик по строке, закрывший
+    /// меню, должен выбирать строку.
+    /// </summary>
+    public const string BookmarksMenuTag = "BookmarksMenu";
+
+    /// <summary>
+    /// Считается ли меню «меню дерева» для механизма стабилизации выделения после
+    /// закрытия (issues #340/#356): помимо контекстного меню дерева это меню
+    /// закладок, помеченное <see cref="BookmarksMenuTag"/>.
+    /// </summary>
+    public static bool IsTreeLikeMenu(bool isTreeMenu, object? menuTag) =>
+        isTreeMenu || string.Equals(menuTag as string, BookmarksMenuTag, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Строка узла «Закреплённые» несёт обёртку <see cref="PinnedInfobaseItem"/>
     /// (уникальные данные строки, issues #301/#314), обычная строка базы — саму
     /// модель <see cref="Infobase"/>. По типу данных контейнера определяется

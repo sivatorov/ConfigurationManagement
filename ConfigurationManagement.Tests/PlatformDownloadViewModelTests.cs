@@ -47,7 +47,8 @@ public sealed class PlatformDownloadViewModelTests
         string? directory = null,
         bool is64Bit = true,
         bool isWindows = true,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        IAppLogger? appLogger = null)
     {
         var dir = directory ?? Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
         return new PlatformDownloadViewModel(
@@ -58,6 +59,7 @@ public sealed class PlatformDownloadViewModelTests
             is64Bit: is64Bit,
             defaultDirectory: dir,
             isWindows: isWindows,
+            appLogger: appLogger,
             dispatchToUi: dispatchToUi);
     }
 
@@ -445,6 +447,18 @@ public sealed class PlatformDownloadViewModelTests
         public void Error(string message, Exception? exception = null) { }
     }
 
+    /// <summary>Логгер, накапливающий сообщения (проверка диагностики, issue #330).</summary>
+    private sealed class CapturingLogger : IAppLogger
+    {
+        public List<string> Infos { get; } = new();
+        public List<string> Warnings { get; } = new();
+        public List<string> Errors { get; } = new();
+
+        public void Info(string message) => Infos.Add(message);
+        public void Warn(string message) => Warnings.Add(message);
+        public void Error(string message, Exception? exception = null) => Errors.Add(message);
+    }
+
     /// <summary>Репозиторий в памяти: настройки пусты, старые поля авторизации не заданы
     /// (креды должны прийти из справочника ИТС — issue #333/#334).</summary>
     private sealed class MemRepo : IInfobaseRepository
@@ -538,6 +552,68 @@ public sealed class PlatformDownloadViewModelTests
             """;
     }
 
+    // ---------- Диагностика журнала (issue #330, комментарий 7OH от 2026-10-09) ----------
+
+    [Fact]
+    public async Task LoadCatalogAsync_EmptyFiles_WritesDiagnosticsToWindowLog()
+    {
+        // Страница version_files получена, но файлов не распознано: в журнал окна
+        // выводится диагностическая строка (PlatformDownload.Status.FilesDiag), а в
+        // файловый журнал — URL запроса, длина ответа и число распознанных файлов,
+        // чтобы пользователь мог прислать диагностику (issue #330).
+        var logger = new CapturingLogger();
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214") },
+            },
+            FilesFetchedUrl = "https://releases.1c.ru/version_files?nick=Platform83&ver=8.3.27.2214",
+            FilesBodyLength = 1234,
+            FilesParsedFileCount = 0,
+        };
+        var vm = CreateVm(service, appLogger: logger);
+
+        await vm.LoadCatalogAsync();
+
+        // Журнал окна: статус ошибки и диагностическая строка (в тестовой среде
+        // LocalizationManager.T возвращает ключ — он и попадает в журнал).
+        Assert.Contains(LocalizationManager.T("PlatformDownload.Error.NoFiles"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformDownload.Status.FilesDiag"), vm.LogText);
+
+        // Файловый журнал: фактические URL/длина/число файлов.
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("version_files?nick=Platform83&ver=8.3.27.2214", warning);
+        Assert.Contains("bodyLength=1234", warning);
+        Assert.Contains("parsedFiles=0", warning);
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_FilesLoaded_LogsFileCount()
+    {
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var logger = new CapturingLogger();
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+            FilesParsedFileCount = 1,
+        };
+        var vm = CreateVm(service, appLogger: logger);
+
+        await vm.LoadCatalogAsync();
+
+        // Журнал окна: ключ строки «файлов дистрибутива: N» (в тестовой среде — ключ).
+        Assert.Contains(LocalizationManager.T("PlatformDownload.Status.Files"), vm.LogText);
+        // Файловый журнал: диагностика с числом файлов.
+        Assert.Contains(logger.Infos, m => m.Contains("parsedFiles=1", StringComparison.Ordinal));
+        Assert.NotNull(vm.PickedFile);
+    }
+
     // ---------- Fake-сервис ----------
 
     /// <summary>Ждёт выполнения условия с таймаутом (для асинхронных отчётов прогресса).</summary>
@@ -558,6 +634,11 @@ public sealed class PlatformDownloadViewModelTests
     {
         public PlatformCatalogResult AvailableResult { get; set; } = new() { Status = PortalFetchStatus.Ok };
 
+        /// <summary>Диагностика загрузки файлов версии (issue #330): URL/длина/число файлов.</summary>
+        public string? FilesFetchedUrl { get; set; }
+        public int FilesBodyLength { get; set; }
+        public int FilesParsedFileCount { get; set; }
+
         public Task<PlatformCatalogResult> GetAvailableReleasesAsync(CancellationToken ct = default)
             => Task.FromResult(AvailableResult);
 
@@ -568,10 +649,24 @@ public sealed class PlatformDownloadViewModelTests
             => Task.FromResult(AvailableResult);
 
         public Task<PlatformCatalogResult> LoadReleaseFilesAsync(PlatformRelease release, CancellationToken ct = default)
-            => Task.FromResult(new PlatformCatalogResult { Status = PortalFetchStatus.Ok, Release = release });
+            => Task.FromResult(new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Release = release,
+                FetchedUrl = FilesFetchedUrl,
+                BodyLength = FilesBodyLength,
+                ParsedFileCount = FilesParsedFileCount,
+            });
 
         public Task<PlatformCatalogResult> LoadReleaseFilesForNickAsync(PlatformRelease release, string nick, CancellationToken ct = default)
-            => Task.FromResult(new PlatformCatalogResult { Status = PortalFetchStatus.Ok, Release = release });
+            => Task.FromResult(new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Release = release,
+                FetchedUrl = FilesFetchedUrl,
+                BodyLength = FilesBodyLength,
+                ParsedFileCount = FilesParsedFileCount,
+            });
 
         public PlatformReleaseFile? PickDistribution(IReadOnlyList<PlatformReleaseFile> files)
             => files.FirstOrDefault();

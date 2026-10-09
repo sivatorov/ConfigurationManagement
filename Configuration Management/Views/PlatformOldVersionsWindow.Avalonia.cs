@@ -13,29 +13,65 @@ using Configuration_Management.Themes;
 
 namespace Configuration_Management
 {
-    /// <summary>Строка списка диалога удаления: версия + состояние флажка.</summary>
+    /// <summary>Строка списка диалога удаления (issue #334): версия, признаки риска
+    /// («новейшая», «используется базами», «используется запущенными процессами 1С»)
+    /// и состояние флажка. По умолчанию отмечены только версии без признаков риска —
+    /// решение, что считать старым, остаётся за пользователем.</summary>
     public sealed class PlatformOldVersionChoice
     {
-        /// <param name="version">Информация об установленной версии.</param>
-        public PlatformOldVersionChoice(PlatformVersionInfo version)
-            => Version = version;
+        /// <param name="entry">Версия с признаками риска
+        /// (<see cref="Services.OldVersionCleanupEntry"/>).</param>
+        public PlatformOldVersionChoice(Services.OldVersionCleanupEntry entry)
+        {
+            Version = entry.Version;
+            IsNewest = entry.IsNewest;
+            IsUsedByBases = entry.IsUsedByBases;
+            IsUsedByProcesses = entry.IsUsedByProcesses;
+            IsChecked = entry.IsCheckedByDefault;
+
+            var badges = new List<string>();
+            if (IsNewest)
+                badges.Add(LocalizationManager.T("PlatformUpdate.OldVersions.Badge.Newest"));
+            if (IsUsedByBases)
+                badges.Add(LocalizationManager.T("PlatformUpdate.OldVersions.Badge.UsedByBases"));
+            if (IsUsedByProcesses)
+                badges.Add(LocalizationManager.T("PlatformUpdate.OldVersions.Badge.UsedByProcesses"));
+            Badges = badges.Count == 0 ? string.Empty : " — " + string.Join(", ", badges);
+        }
 
         /// <summary>Информация об установленной версии (Display + путь каталога).</summary>
         public PlatformVersionInfo Version { get; }
 
+        /// <summary>True — новейшая установленная версия.</summary>
+        public bool IsNewest { get; }
+
+        /// <summary>True — на версию ссылается хотя бы одна база.</summary>
+        public bool IsUsedByBases { get; }
+
+        /// <summary>True — из каталога версии запущен процесс 1С.</summary>
+        public bool IsUsedByProcesses { get; }
+
         /// <summary>Отображаемый текст (номер версии с разрядностью).</summary>
         public string Display => Version.Display;
 
-        /// <summary>True — версия отмечена к удалению (по умолчанию все отмечены).</summary>
-        public bool IsChecked { get; set; } = true;
+        /// <summary>Текстовые пометки риска (пусто — признаков нет).</summary>
+        public string Badges { get; }
+
+        /// <summary>True — версия отмечена к удалению.</summary>
+        public bool IsChecked { get; set; }
     }
 
     /// <summary>
-    /// Диалог выбора удаляемых старых версий платформы 1С (issue #334, Linux/Avalonia):
-    /// список версий с флажками (по умолчанию отмечены все), пользователь выбирает,
-    /// что удалить. Кнопка удаления активна, пока отмечена хотя бы одна версия;
-    /// <see cref="Result"/> возвращает выбранные версии, отмена — null.
-    /// Avalonia/Linux-версия WPF-окна <see cref="PlatformOldVersionsWindow"/>.
+    /// Диалог выбора удаляемых старых версий платформы 1С (issue #334, доработка по
+    /// комментарию автора; Linux/Avalonia): в списке ПОКАЗЫВАЮТСЯ ВСЕ установленные
+    /// версии — включая новейшую и используемые базами/процессами (с текстовыми
+    /// пометками); ничего не фильтруется, пользователь сам решает, что считать старым.
+    /// По умолчанию отмечены только версии без признаков риска; попытка удалить
+    /// спорную версию дополнительно подтверждается в
+    /// <see cref="ViewModels.PlatformUpdateViewModel"/>. Кнопка удаления активна,
+    /// пока отмечена хотя бы одна версия; <see cref="Result"/> возвращает выбранные
+    /// версии, отмена — null. Avalonia/Linux-версия WPF-окна
+    /// <see cref="PlatformOldVersionsWindow"/>.
     /// </summary>
     public sealed class PlatformOldVersionsWindow : ModalWindowBase
     {
@@ -45,9 +81,9 @@ namespace Configuration_Management
         // null! — чтобы nullable-анализ не ругался на чтение поля в замыкании.
         private readonly Button _deleteButton = null!;
 
-        /// <param name="candidates">Кандидаты на удаление (см.
-        /// <see cref="Services.OldVersionCleaner.SelectCandidates"/>).</param>
-        public PlatformOldVersionsWindow(IEnumerable<PlatformVersionInfo> candidates)
+        /// <param name="entries">ВСЕ установленные версии с признаками риска (см.
+        /// <see cref="Services.OldVersionCleaner.SelectDeletionEntries"/>).</param>
+        public PlatformOldVersionsWindow(IEnumerable<Services.OldVersionCleanupEntry> entries)
         {
             Title = LocalizationManager.T("PlatformUpdate.OldVersions.Title");
             Width = 520;
@@ -83,23 +119,45 @@ namespace Configuration_Management
             ThemeBrushes.Bind(listBorder, Border.BorderBrushProperty, "BorderColorBrush");
 
             var panel = new StackPanel { Spacing = 4 };
-            foreach (var candidate in candidates ?? Enumerable.Empty<PlatformVersionInfo>())
+            foreach (var entry in entries ?? Enumerable.Empty<Services.OldVersionCleanupEntry>())
             {
-                var choice = new PlatformOldVersionChoice(candidate);
+                var choice = new PlatformOldVersionChoice(entry);
                 _choices.Add(choice);
 
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4) };
                 var checkBox = new CheckBox
                 {
-                    Content = choice.Display,
                     IsChecked = choice.IsChecked,
-                    Margin = new Thickness(4)
+                    VerticalContentAlignment = VerticalAlignment.Center
                 };
                 checkBox.IsCheckedChanged += (_, _) =>
                 {
                     choice.IsChecked = checkBox.IsChecked == true;
                     _deleteButton.IsEnabled = _choices.Any(c => c.IsChecked);
                 };
-                panel.Children.Add(checkBox);
+                row.Children.Add(checkBox);
+
+                row.Children.Add(new TextBlock
+                {
+                    Text = choice.Display,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                if (!string.IsNullOrEmpty(choice.Badges))
+                {
+                    var badges = new TextBlock
+                    {
+                        Text = choice.Badges,
+                        FontStyle = FontStyle.Italic,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(6, 0, 0, 0)
+                    };
+                    ThemeBrushes.Bind(badges, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                    row.Children.Add(badges);
+                }
+
+                panel.Children.Add(row);
             }
 
             listBorder.Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };

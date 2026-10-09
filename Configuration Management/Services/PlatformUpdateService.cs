@@ -169,14 +169,61 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
         var url = BuildVersionFilesUrl(release, nick);
         var (status, text) = await FetchPageAsync(url, ct).ConfigureAwait(false);
         if (status != PortalFetchStatus.Ok)
+        {
+            // Диагностика в журнал (issue #330): адрес и статус запроса страницы файлов.
+            _logger.Warn($"[PlatformUpdate] version_files: {url}; статус {status}");
             return Failure(status);
+        }
 
         var files = OneCPlatformCatalogParser.ParseDistributionFiles(text!);
+
+        // issue #330: ссылки дистрибутивов делаются абсолютными относительно адреса
+        // страницы version_files — относительные адреса (transfer_file?…, /version_files/get/…)
+        // иначе не скачиваются (DownloadDistributionAsync получает URL напрямую).
+        foreach (var file in files)
+            file.Url = MakeAbsoluteUrl(url, file.Url);
+
         release.VersionFilesUrl = url;
         release.Files.Clear();
         release.Files.AddRange(files);
 
-        return new PlatformCatalogResult { Status = PortalFetchStatus.Ok, Release = release };
+        // Диагностика (issue #330, комментарий 7OH от 2026-10-09): URL запроса, длина
+        // HTML, число распознанных файлов — в журнал приложения и в результат (окно
+        // показывает её пользователю, если файлов не распознано).
+        _logger.Info($"[PlatformUpdate] version_files: {url}; длина ответа {text!.Length}; распознано файлов {files.Count}");
+        return new PlatformCatalogResult
+        {
+            Status = PortalFetchStatus.Ok,
+            Release = release,
+            FetchedUrl = url,
+            BodyLength = text!.Length,
+            ParsedFileCount = files.Count,
+        };
+    }
+
+    /// <summary>Дополняет относительную ссылку из ответа <c>version_files</c> до
+    /// абсолютной относительно адреса этой страницы (issue #330). Абсолютные ссылки
+    /// возвращаются без изменений; при ошибке разбора — минимальная достройка хостом
+    /// портала для корневых ссылок.</summary>
+    private static string MakeAbsoluteUrl(string baseUrl, string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        try
+        {
+            return new Uri(new Uri(baseUrl), url).ToString();
+        }
+        catch
+        {
+            return url.StartsWith("/", StringComparison.Ordinal)
+                ? $"https://releases.1c.ru{url}"
+                : url;
+        }
     }
 
     /// <inheritdoc />

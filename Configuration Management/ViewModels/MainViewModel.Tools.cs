@@ -2441,6 +2441,8 @@ public partial class MainViewModel : ViewModelBase
         string? hotkeyZoomOut = null,
         string? hotkeyZoomReset = null,
         string? hotkeyCommandPalette = null,
+        // Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B.
+        string? hotkeyBookmarksMenu = null,
         // Отбор «Только запущенные» (issue #339): настраиваемая горячая клавиша.
         string? hotkeyShowRunning = null)
     {
@@ -2482,6 +2484,8 @@ public partial class MainViewModel : ViewModelBase
         if (hotkeyZoomReset != null) HotkeyZoomReset = hotkeyZoomReset.Trim();
         // Командная палитра (Ctrl+K).
         if (hotkeyCommandPalette != null) HotkeyCommandPalette = hotkeyCommandPalette.Trim();
+        // Меню закладок (issue #356).
+        if (hotkeyBookmarksMenu != null) HotkeyBookmarksMenu = hotkeyBookmarksMenu.Trim();
         OnPropertyChanged(nameof(AllowMultipleInstances));
         OnPropertyChanged(nameof(CheckForUpdatesOnStartup));
         OnPropertyChanged(nameof(AutoUpdateEnabled));
@@ -2507,6 +2511,8 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyClearTags));
         OnPropertyChanged(nameof(HotkeyRightPanelDetails));
         OnPropertyChanged(nameof(HotkeyFindInList));
+        // Меню закладок (issue #356).
+        OnPropertyChanged(nameof(HotkeyBookmarksMenu));
         OnPropertyChanged(nameof(HotkeySwitchUser));
         OnPropertyChanged(nameof(HotkeyCheckIntegrity));
         OnPropertyChanged(nameof(HotkeyServerConsole));

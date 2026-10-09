@@ -179,6 +179,8 @@ public partial class MainViewModel
             _hotkeyRightPanelDetails = settings.HotkeyRightPanelDetails?.Trim() ?? "";
             _hotkeyFindInList = string.IsNullOrWhiteSpace(settings.HotkeyFindInList) ? "Ctrl+T" : settings.HotkeyFindInList.Trim();
             _hotkeyCommandPalette = string.IsNullOrWhiteSpace(settings.HotkeyCommandPalette) ? "Ctrl+K" : settings.HotkeyCommandPalette.Trim();
+            // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+            _hotkeyBookmarksMenu = string.IsNullOrWhiteSpace(settings.HotkeyBookmarksMenu) ? "Ctrl+B" : settings.HotkeyBookmarksMenu.Trim();
             _hotkeySwitchUser = settings.HotkeySwitchUser?.Trim() ?? "";
 
             // Тема и схема нового профиля.
@@ -223,6 +225,8 @@ public partial class MainViewModel
             OnPropertyChanged(nameof(HotkeyRightPanelDetails));
             OnPropertyChanged(nameof(HotkeyFindInList));
             OnPropertyChanged(nameof(HotkeyCommandPalette));
+            // Меню закладок (issue #356).
+            OnPropertyChanged(nameof(HotkeyBookmarksMenu));
             OnPropertyChanged(nameof(HotkeySwitchUser));
             FavoriteHotkeysChanged?.Invoke(this, EventArgs.Empty);
         }

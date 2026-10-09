@@ -540,17 +540,18 @@ namespace Configuration_Management
         }
 
         /// <summary>
-        /// Диалог выбора удаляемых старых версий (issue #334): список версий с флажками;
-        /// возвращает выбранные пользователем версии или null при отмене. Может
-        /// вызываться из фонового потока — показ переводится в UI-поток.
+        /// Диалог выбора удаляемых старых версий (issue #334): список ВСЕХ версий
+        /// с признаками риска и флажками; возвращает выбранные пользователем версии
+        /// или null при отмене. Может вызываться из фонового потока — показ
+        /// переводится в UI-поток.
         /// </summary>
         private IReadOnlyList<PlatformVersionInfo>? ChooseOldVersionsToDelete(
-            IReadOnlyList<PlatformVersionInfo> candidates)
+            IReadOnlyList<OldVersionCleanupEntry> entries)
         {
             IReadOnlyList<PlatformVersionInfo>? result = null;
             if (Dispatcher.UIThread.CheckAccess())
             {
-                var picker = new PlatformOldVersionsWindow(candidates);
+                var picker = new PlatformOldVersionsWindow(entries);
                 if (picker.ShowDialogSync(this))
                     result = picker.Result;
             }
@@ -558,7 +559,7 @@ namespace Configuration_Management
             {
                 Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    var picker = new PlatformOldVersionsWindow(candidates);
+                    var picker = new PlatformOldVersionsWindow(entries);
                     if (picker.ShowDialogSync(this))
                         result = picker.Result;
                 }).Wait();

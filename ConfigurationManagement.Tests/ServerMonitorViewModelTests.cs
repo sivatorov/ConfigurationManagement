@@ -627,6 +627,30 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
+    public async Task LoadClusterData_ParseErrorOnOneTab_OtherTabsStillFill()
+    {
+        // issue #324 (лог 7OH от 2026-10-08): rac вернул exit=0 и непустой stdout по всем
+        // шести list-командам, но сбой разбора ОДНОЙ из них раньше проваливал общий
+        // Task.WhenAll — и ВСЕ вкладки оставались пустыми. Теперь сбойная вкладка пуста,
+        // остальные заполнены, ошибка перечислена, автообновление остановлено.
+        var vm = new ServerMonitorViewModel(
+            new FakeRacClient(throwParseOnSessions: true), new RecordingDialogs());
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        Assert.Empty(vm.Sessions);            // сбойная вкладка
+        Assert.NotEmpty(vm.Processes);        // остальные заполнены
+        Assert.NotEmpty(vm.Connections);
+        Assert.NotEmpty(vm.Locks);
+        Assert.NotEmpty(vm.Jobs);
+        Assert.NotNull(vm.ClusterInfo);
+        // Сбойная вкладка названа в ошибке: текст исключения fake-клиента упоминает
+        // команду session list (культуро-независимый фрагмент — не локализация).
+        Assert.Contains("session list", vm.ErrorMessage);
+        Assert.False(vm.AutoRefreshActive);
+    }
+
+    [Fact]
     public async Task SetAutoRefreshEnabled_TurnsOffAndOn_Timer()
     {
         var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
@@ -681,12 +705,13 @@ public sealed class ServerMonitorViewModelTests
         private readonly bool _throwOnParse;
         private readonly bool _singleCluster;
         private readonly bool _throwOnLoad;
+        private readonly bool _throwParseOnSessions;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnAction = false,
             bool actionFails = false, TimeSpan? delay = null,
             bool throwOnParse = false, bool singleCluster = false,
-            bool throwOnLoad = false)
+            bool throwOnLoad = false, bool throwParseOnSessions = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnAction = throwOnAction;
@@ -695,6 +720,7 @@ public sealed class ServerMonitorViewModelTests
             _throwOnParse = throwOnParse;
             _singleCluster = singleCluster;
             _throwOnLoad = throwOnLoad;
+            _throwParseOnSessions = throwParseOnSessions;
         }
 
         /// <summary>Текст последней ошибки действия (как в реальном клиенте).</summary>
@@ -786,6 +812,10 @@ public sealed class ServerMonitorViewModelTests
         public Task<IReadOnlyList<RacSessionInfo>> GetSessionsAsync(
             RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
         {
+            // issue #324: сбой разбора ОДНОЙ вкладки (сеансы) — остальные заполняются.
+            if (_throwParseOnSessions)
+                throw new RacOutputParseException("тест: вывод session list не распознан");
+
             return Task.FromResult<IReadOnlyList<RacSessionInfo>>(new[]
             {
                 new RacSessionInfo

@@ -198,6 +198,8 @@ public partial class MainViewModel : ViewModelBase
     private string _hotkeyRightPanelDetails = "";
     private string _hotkeyFindInList = "Ctrl+T";
     private string _hotkeyCommandPalette = "Ctrl+K";
+    // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+    private string _hotkeyBookmarksMenu = "Ctrl+B";
     private string _hotkeySwitchUser = "";
     private string _sortField = "Name";
     private bool _sortAscending = true;
@@ -462,6 +464,10 @@ public partial class MainViewModel : ViewModelBase
         _hotkeyCommandPalette = string.IsNullOrWhiteSpace(settings.HotkeyCommandPalette)
             ? "Ctrl+K"
             : settings.HotkeyCommandPalette.Trim();
+        // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+        _hotkeyBookmarksMenu = string.IsNullOrWhiteSpace(settings.HotkeyBookmarksMenu)
+            ? "Ctrl+B"
+            : settings.HotkeyBookmarksMenu.Trim();
         _hotkeySwitchUser = settings.HotkeySwitchUser?.Trim() ?? "";
         _sortField = string.IsNullOrWhiteSpace(settings.SortField) ? "Name" : settings.SortField;
         _sortAscending = settings.SortAscending;

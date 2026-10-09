@@ -183,17 +183,18 @@ public partial class PlatformUpdateWindow : Window
     }
 
     /// <summary>
-    /// Диалог выбора удаляемых старых версий (issue #334): список версий с флажками;
-    /// возвращает выбранные пользователем версии или null при отмене. Может вызываться
-    /// из фонового потока — показ переводится в UI-поток через <see cref="Dispatcher"/>.
+    /// Диалог выбора удаляемых старых версий (issue #334): список ВСЕХ версий
+    /// с признаками риска и флажками; возвращает выбранные пользователем версии
+    /// или null при отмене. Может вызываться из фонового потока — показ переводится
+    /// в UI-поток через <see cref="Dispatcher"/>.
     /// </summary>
     private IReadOnlyList<PlatformVersionInfo>? ShowOldVersionsPicker(
-        IReadOnlyList<PlatformVersionInfo> candidates)
+        IReadOnlyList<OldVersionCleanupEntry> entries)
     {
         IReadOnlyList<PlatformVersionInfo>? result = null;
         void Show()
         {
-            var picker = new PlatformOldVersionsWindow(candidates) { Owner = this };
+            var picker = new PlatformOldVersionsWindow(entries) { Owner = this };
             if (picker.ShowDialog() == true)
                 result = picker.Result;
         }

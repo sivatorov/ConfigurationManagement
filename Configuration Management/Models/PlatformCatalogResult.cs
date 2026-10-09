@@ -62,6 +62,17 @@ public sealed class PlatformCatalogResult
 
     /// <summary>Релиз с подгруженными файлами дистрибутива (для <c>LoadReleaseFilesAsync</c>).</summary>
     public PlatformRelease? Release { get; init; }
+
+    /// <summary>Адрес страницы, из которой получен результат (диагностика issue #330:
+    /// попадает в журнал окна «Скачивание версии платформы 1С», чтобы пользователь мог
+    /// прислать его при пустом списке файлов). null — диагностика не заполнялась.</summary>
+    public string? FetchedUrl { get; init; }
+
+    /// <summary>Длина тела ответа в символах (диагностика issue #330).</summary>
+    public int BodyLength { get; init; }
+
+    /// <summary>Число распознанных файлов дистрибутива в ответе (диагностика issue #330).</summary>
+    public int ParsedFileCount { get; init; }
 }
 
 /// <summary>

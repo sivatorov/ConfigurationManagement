@@ -76,7 +76,7 @@ public sealed class PlatformUpdateViewModelTests
         Func<string, string>? buildUninstall = null,
         Action<string>? copyCommand = null,
         Action<Action>? dispatchToUi = null,
-        Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
+        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
     {
         return new PlatformUpdateViewModel(
             service ?? OkService(),
@@ -798,8 +798,12 @@ public sealed class PlatformUpdateViewModelTests
     }
 
     [Fact]
-    public async Task RemoveOldVersions_ExcludesBaseReferencedAndRunningVersions()
+    public async Task RemoveOldVersions_AllVersionsRisky_FallbackSelectsNothing()
     {
+        // issue #334: без диалога выбора (окружение без UI) по умолчанию предлагаются
+        // только версии без признаков риска; если таких нет — операция не выполняется.
+        // Сообщение «Нет версий для удаления» в этой ситуации НЕ показывается:
+        // оно допустимо только когда платформа 1С вообще не установлена.
         var service = OkService(Release("8.3.27.2214"), Release("8.3.27.1688"), Release("8.3.26.1890"));
         var installedInfos = new List<PlatformVersionInfo>
         {
@@ -825,9 +829,10 @@ public sealed class PlatformUpdateViewModelTests
 
         await vm.RemoveOldVersionsAsync();
 
-        // Новейшая + используемая базой + запущенная — кандидатов нет.
+        // Новейшая + используемая базой + запущенная — версий без риска нет, ничего не удалено.
         Assert.Empty(deleted);
-        Assert.Contains(LocalizationManager.T("PlatformUpdate.RemoveNothing"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Error.Cancelled"), vm.LogText);
+        Assert.DoesNotContain(LocalizationManager.T("PlatformUpdate.RemoveNothing"), vm.LogText);
     }
 
     [Fact]
@@ -905,6 +910,52 @@ public sealed class PlatformUpdateViewModelTests
     }
 
     [Fact]
+    public async Task RemoveOldVersions_SelectionDialog_ShowsAllVersionsWithRiskFlags()
+    {
+        // issue #334 (комментарий автора): в диалоге ПОКАЗЫВАЮТСЯ ВСЕ установленные
+        // версии с признаками (новейшая/используемые базами/процессами) — ничего
+        // не фильтруется, решение за пользователем.
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214", Path = @"C:\1cv8\8.3.27.2214" },
+            new() { Display = "8.3.27.1688", Path = @"C:\1cv8\8.3.27.1688" },
+            new() { Display = "8.3.26.1890", Path = @"C:\1cv8\8.3.26.1890" },
+        };
+        var bases = new List<Infobase> { Base("1", "8.3.27.1688") };
+        var runningBinPaths = new List<string> { @"C:\1cv8\8.3.26.1890\bin\1cv8c.exe" };
+        IReadOnlyList<OldVersionCleanupEntry>? received = null;
+
+        IReadOnlyList<PlatformVersionInfo>? Choose(IReadOnlyList<OldVersionCleanupEntry> entries)
+        {
+            received = entries;
+            return entries.Select(e => e.Version).ToList();
+        }
+
+        var vm = CreateVm(
+            service: OkService(),
+            bases: bases,
+            installedInfos: () => installedInfos.ToList(),
+            runningBinPaths: () => runningBinPaths,
+            chooseVersionsToDelete: Choose);
+
+        await vm.RemoveOldVersionsAsync();
+
+        Assert.NotNull(received);
+        // Все 3 версии показаны, включая новейшую и используемые.
+        Assert.Equal(3, received!.Count);
+        var newest = Assert.Single(received, e => e.IsNewest);
+        Assert.Equal("8.3.27.2214", newest.Version.Display);
+        Assert.False(newest.IsCheckedByDefault); // чекбокс новейшей снят по умолчанию
+        var usedByBase = Assert.Single(received, e => e.IsUsedByBases);
+        Assert.Equal("8.3.27.1688", usedByBase.Version.Display);
+        Assert.Equal(new[] { "База 1" }, usedByBase.ReferencingBaseNames.ToArray());
+        Assert.False(usedByBase.IsCheckedByDefault);
+        var usedByProcess = Assert.Single(received, e => e.IsUsedByProcesses);
+        Assert.Equal("8.3.26.1890", usedByProcess.Version.Display);
+        Assert.False(usedByProcess.IsCheckedByDefault);
+    }
+
+    [Fact]
     public async Task RemoveOldVersions_SelectionDialog_DeletesOnlyChosenVersions()
     {
         // issue #334: диалог со списком версий — пользователь выбирает подмножество,
@@ -917,9 +968,8 @@ public sealed class PlatformUpdateViewModelTests
         };
         var deleted = new List<string>();
         var confirmCalls = 0;
-        IReadOnlyList<PlatformVersionInfo>? Choose(
-            IReadOnlyList<PlatformVersionInfo> candidates)
-            => candidates.Take(1).ToList(); // пользователь отметил только новейшую из кандидатов
+        IReadOnlyList<PlatformVersionInfo>? Choose(IReadOnlyList<OldVersionCleanupEntry> entries)
+            => entries.Where(e => !e.HasRiskMarkers).Select(e => e.Version).ToList();
 
         var vm = CreateVm(
             installedInfos: () => installedInfos.ToList(),
@@ -938,9 +988,95 @@ public sealed class PlatformUpdateViewModelTests
 
         await vm.RemoveOldVersionsAsync();
 
-        Assert.Equal(new[] { "8.3.27.1688" }, deleted);
-        Assert.Equal(0, confirmCalls); // общий диалог не показывается при диалоге выбора
+        // Отмечены только версии без признаков риска (новейшая 8.3.27.2214 исключена
+        // самим пользователем в диалоге); предупреждение не показывается.
+        Assert.Equal(new[] { "8.3.27.1688", "8.3.26.1890" }, deleted);
+        Assert.Equal(0, confirmCalls);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task RemoveOldVersions_RemoveNewestVersion_RequiresConfirmation()
+    {
+        // issue #334: при попытке удалить новейшую версию — предупреждение с
+        // подтверждением; отмена подтверждения прерывает удаление.
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214", Path = @"C:\1cv8\8.3.27.2214" },
+            new() { Display = "8.3.27.1688", Path = @"C:\1cv8\8.3.27.1688" },
+        };
+        var deleted = new List<string>();
+        var confirmMessages = new List<string>();
+        IReadOnlyList<PlatformVersionInfo>? Choose(IReadOnlyList<OldVersionCleanupEntry> entries)
+            => entries.Where(e => e.IsNewest).Select(e => e.Version).ToList();
+
+        var vm = CreateVm(
+            installedInfos: () => installedInfos.ToList(),
+            deleteVersion: (version, log, ct) =>
+            {
+                deleted.Add(version.Display);
+                return Task.FromResult((Success: true, ErrorKey: (string?)null));
+            },
+            confirm: (_, message) =>
+            {
+                confirmMessages.Add(message);
+                return false; // пользователь не подтвердил
+            },
+            chooseVersionsToDelete: Choose);
+
+        await vm.RemoveOldVersionsAsync();
+
+        Assert.Empty(deleted);
+        // Показано одно предупреждение с подтверждением (шаблон сообщения о риске).
+        var warning = Assert.Single(confirmMessages);
+        Assert.Equal(LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskMessage"), warning);
+        // Строка про новейшую версию — в журнале окна.
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskNewest"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Error.Cancelled"), vm.LogText);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task RemoveOldVersions_RemoveVersionUsedByBases_WarningContainsBaseNames()
+    {
+        // issue #334: при удалении версии, используемой базами, — подтверждение
+        // со списком баз; после подтверждения версия удаляется.
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214", Path = @"C:\1cv8\8.3.27.2214" },
+            new() { Display = "8.3.27.1688", Path = @"C:\1cv8\8.3.27.1688" },
+        };
+        var bases = new List<Infobase>
+        {
+            Base("1", "8.3.27.1688"),
+            Base("2", "8.3.27.1688 (64)"),
+        };
+        var deleted = new List<string>();
+        var logger = new FakeAppLogger();
+        IReadOnlyList<PlatformVersionInfo>? Choose(IReadOnlyList<OldVersionCleanupEntry> entries)
+            => entries.Where(e => e.IsUsedByBases).Select(e => e.Version).ToList();
+
+        var vm = CreateVm(
+            service: OkService(),
+            bases: bases,
+            installedInfos: () => installedInfos.ToList(),
+            deleteVersion: (version, log, ct) =>
+            {
+                deleted.Add(version.Display);
+                return Task.FromResult((Success: true, ErrorKey: (string?)null));
+            },
+            confirm: (_, _) => true,
+            logger: logger,
+            chooseVersionsToDelete: Choose);
+
+        await vm.RemoveOldVersionsAsync();
+
+        Assert.Equal(new[] { "8.3.27.1688" }, deleted);
+        // Строка предупреждения о базах — в журнале окна.
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Confirm.RemoveRiskBases"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Preflight.Continue"), vm.LogText);
+        // Детали (имена баз) — в файловом журнале.
+        Assert.Contains(logger.Warnings, m => m.Contains("8.3.27.1688") && m.Contains("База 1") && m.Contains("База 2"));
     }
 
     [Fact]
@@ -1013,6 +1149,132 @@ public sealed class PlatformUpdateViewModelTests
         Assert.Equal(new[] { "База 1", "База 2" }, vm.SelectedRow.CompatibleBaseNames);
         Assert.Contains("База 1", vm.LogText);
         Assert.Contains("База 2", vm.LogText);
+    }
+
+    // ---------- Диагностика скачивания (issue #334, комментарий 7OH) ----------
+
+    [Fact]
+    public async Task DownloadAndInstall_NoCompatibleDistribution_LogsReleaseFiles()
+    {
+        // issue #334: раньше при отсутствии вариантов дистрибутива для ОС выдавалось
+        // вводящее в заблуждение «setup.exe не найден в архиве», а файловый журнал
+        // оставался пустым. Теперь — точное сообщение с ПОЛНЫМ списком файлов релиза
+        // в журнале окна И файловом журнале; скачивание и установка не выполняются.
+        var otherFile = new PlatformReleaseFile
+        {
+            FileName = "readme.txt",
+            Url = "https://releases.1c.ru/dist/readme.txt",
+            Kind = PlatformDistributionKind.Other,
+        };
+        var service = OkService(Release("8.3.27.2214", otherFile));
+        service.FilesResult = new PlatformCatalogResult
+        {
+            Status = PortalFetchStatus.Ok,
+            Release = Release("8.3.27.2214", otherFile),
+        };
+        var logger = new FakeAppLogger();
+        var downloadCalled = false;
+        var installCalled = false;
+
+        var vm = CreateVm(
+            service,
+            download: (_, _, _, _) =>
+            {
+                downloadCalled = true;
+                return Task.FromResult<string?>(null);
+            },
+            install: (_, _, _, _, _) =>
+            {
+                installCalled = true;
+                return Task.FromResult((Success: true, ErrorKey: (string?)null, ExitCode: 0));
+            },
+            logger: logger);
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+
+        await vm.DownloadAndInstallAsync();
+
+        // Список файлов релиза и точное объяснение — в журнале окна (в тестовой среде
+        // LocalizationManager.T возвращает ключ — он и попадает в журнал).
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.DistributionFiles"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.NoDistributions"), vm.LogText);
+        // И в файловом журнале с фактическими данными («в логах пусто» больше невозможно).
+        Assert.Contains(logger.Infos, m => m.Contains("readme.txt"));
+        Assert.Contains(logger.Warnings, m => m.Contains("нет дистрибутива для текущей ОС")
+            && m.Contains("readme.txt"));
+        Assert.False(downloadCalled);
+        Assert.False(installCalled);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task DownloadOnly_LogsUrlSavePathAndSize_DoesNotInstall()
+    {
+        // issue #334: каждый шаг «Только скачать» журналируется (ссылка, путь,
+        // размер); установка после скачивания не запускается.
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        service.FilesResult = new PlatformCatalogResult
+        {
+            Status = PortalFetchStatus.Ok,
+            Release = Release("8.3.27.2214", file),
+        };
+        var installCalls = 0;
+
+        var logger = new FakeAppLogger();
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) => Task.FromResult<string?>(target),
+            install: (_, _, _, _, _) =>
+            {
+                installCalls++;
+                return Task.FromResult((Success: true, ErrorKey: (string?)null, ExitCode: 0));
+            },
+            saveDialog: _ => @"C:\out\8.3.27.2214_x64.zip",
+            logger: logger);
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+
+        await vm.DownloadOnlyAsync();
+
+        // Ссылка, путь сохранения и размер — в журнале окна (ключи диагностических строк).
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.DownloadUrl"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.SavePath"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.DownloadedSize"), vm.LogText);
+        // И в файловом журнале — с фактическими данными.
+        Assert.Contains(logger.Infos, m => m.Contains(file.Url));
+        Assert.Contains(logger.Infos, m => m.Contains(@"C:\out\8.3.27.2214_x64.zip"));
+        // Установка не запускается.
+        Assert.Equal(0, installCalls);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstall_LogsUrlAndSize()
+    {
+        // issue #334: «Скачать и установить» тоже журналирует ссылку и размер файла.
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        service.FilesResult = new PlatformCatalogResult
+        {
+            Status = PortalFetchStatus.Ok,
+            Release = Release("8.3.27.2214", file),
+        };
+
+        var logger = new FakeAppLogger();
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) => Task.FromResult<string?>(target),
+            logger: logger);
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+
+        await vm.DownloadAndInstallAsync();
+
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.DownloadUrl"), vm.LogText);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Diag.DownloadedSize"), vm.LogText);
+        // И в файловом журнале — с фактической ссылкой.
+        Assert.Contains(logger.Infos, m => m.Contains(file.Url));
     }
 
     // ---------- Хоткей окна (этап 0.3.9.214) ----------

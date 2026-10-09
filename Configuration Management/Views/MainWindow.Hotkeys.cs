@@ -293,18 +293,22 @@ namespace Configuration_Management
                 new ViewModels.RelayCommand(_ => _viewModel.LaunchAllBookmarks()),
                 Key.E, ModifierKeys.Alt));
 
-            // Ctrl+B — меню закладок.
-            InputBindings.Add(new KeyBinding(
-                new ViewModels.RelayCommand(_ => ShowBookmarksMenu()),
-                Key.B, ModifierKeys.Control));
+            // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+            // Ранее сочетание было зашито, и назначение Ctrl+B другому действию
+            // (например, «Показать избранное») молча не работало.
+            if (TryParseKeyGesture(_viewModel.HotkeyBookmarksMenu, out var bookmarksKey, out var bookmarksMods))
+                InputBindings.Add(new KeyBinding(
+                    new ViewModels.RelayCommand(_ => ShowBookmarksMenu()),
+                    bookmarksKey, bookmarksMods));
         }
 
         /// <summary>
         /// Признак того, что жесты (модификаторы + клавиша) относятся к системным
         /// сочетаниям закладок. Такие привязки удаляются перед повторной регистрацией,
-        /// чтобы пользовательские хоткеи не перебивали их.
+        /// чтобы пользовательские хоткеи не перебивали их. Сочетание меню закладок —
+        /// настраиваемое (issue #356, по умолчанию Ctrl+B).
         /// </summary>
-        private static bool IsBookmarkSystemBinding(ModifierKeys mods, Key key)
+        private bool IsBookmarkSystemBinding(ModifierKeys mods, Key key)
         {
             if (key >= Key.D1 && key <= Key.D9)
             {
@@ -319,10 +323,28 @@ namespace Configuration_Management
                 return true;
             if (mods == ModifierKeys.Alt && key == Key.E)
                 return true;
-            if (mods == ModifierKeys.Control && key == Key.B)
+            // Меню закладок (issue #356): настраиваемое сочетание, по умолчанию Ctrl+B.
+            if (TryParseKeyGesture(_viewModel?.HotkeyBookmarksMenu, out var bmKey, out var bmMods) &&
+                mods == bmMods && key == bmKey)
                 return true;
             return false;
         }
+
+        /// <summary>
+        /// Совпадает ли нажатие с настроенным сочетанием меню закладок (issue #356,
+        /// по умолчанию Ctrl+B). Используется надёжным fallback-обработчиком клавиатуры.
+        /// </summary>
+        private bool IsBookmarksMenuGesture(Key key, ModifierKeys mods) =>
+            TryParseKeyGesture(_viewModel.HotkeyBookmarksMenu, out var gestureKey, out var gestureMods)
+            && key == gestureKey && mods == gestureMods;
+
+        /// <summary>
+        /// Участвует ли меню в стабилизации выделения после закрытия (механизм issue #340):
+        /// контекстное меню дерева и меню закладок, открытое по хоткею (issue #356).
+        /// </summary>
+        private bool IsTreeLikeMenu(ContextMenu menu) =>
+            ReferenceEquals(menu, MainTree?.ContextMenu)
+            || string.Equals(menu.Tag as string, BatchSelectionHelper.BookmarksMenuTag, StringComparison.Ordinal);
 
         /// <summary>
         /// Показывает контекстное меню закладок (Ctrl+B) относительно позиции курсора.
@@ -374,6 +396,13 @@ namespace Configuration_Management
                 Header = LocalizationManager.T("Main.BookmarksClearAll"),
                 Command = new ViewModels.RelayCommand(_ => _viewModel.ClearAllBookmarks())
             });
+
+            // issue #356 (комментарий 2): меню закладок участвует в стабилизации
+            // выделения после закрытия (механизм issue #340) наравне с контекстным
+            // меню дерева — клик по строке, закрывший меню, должен выбирать строку.
+            menu.Tag = BatchSelectionHelper.BookmarksMenuTag;
+            menu.Opened += OnContextMenuOpened;
+            menu.Closed += OnContextMenuClosed;
 
             menu.Placement = PlacementMode.MousePoint;
             menu.IsOpen = true;
@@ -541,8 +570,8 @@ namespace Configuration_Management
                     return;
                 }
 
-                // Ctrl+B — меню закладок.
-                if (key == Key.B && !shift && !alt)
+                // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+                if (IsBookmarksMenuGesture(key, mods))
                 {
                     ShowBookmarksMenu();
                     e.Handled = true;
@@ -764,7 +793,7 @@ namespace Configuration_Management
                 _openContextMenus.Add(menu);
                 // issue #340 (0.3.9.308): безусловная запись открытия меню — диагностика
                 // не должна зависеть от guard-цепочки TryApplyTreeClickAfterMenuClosed.
-                var isTreeMenu = ReferenceEquals(menu, MainTree?.ContextMenu);
+                var isTreeMenu = IsTreeLikeMenu(menu);
                 MenuCloseTrace.Log($"MenuOpened: menuId={GetContextMenuId(menu)}, isTreeMenu={isTreeMenu}");
                 // issue #340 (0.3.9.317, 11-я итерация): для меню ДЕРЕВА фиксируем метку
                 // открытия, состояние клавиатурного фокуса до открытия и подписываемся на
@@ -807,7 +836,7 @@ namespace Configuration_Management
                 // дополнительно фиксируется метка закрытия — расширенный признак запуска
                 // стабилизации IsSelected (меню могло закрыться ESC/кликом мимо строки,
                 // когда снимок клика не записывался вовсе).
-                var isTreeMenu = ReferenceEquals(menu, MainTree?.ContextMenu);
+                var isTreeMenu = IsTreeLikeMenu(menu);
                 MenuCloseTrace.Log($"MenuClosed: menuId={GetContextMenuId(menu)}, isTreeMenu={isTreeMenu}");
                 if (isTreeMenu)
                     _lastMenuCloseTick = Environment.TickCount;
@@ -1007,7 +1036,9 @@ namespace Configuration_Management
         /// </summary>
         private void TryApplyTreeClickAfterMenuClosed(ContextMenu menu)
         {
-            if (!ReferenceEquals(menu, MainTree?.ContextMenu))
+            // Меню закладок (issue #356) обрабатывается наравне с контекстным меню
+            // дерева: клик по строке, закрывший меню, должен выбирать строку.
+            if (!IsTreeLikeMenu(menu))
                 return;
             if (_viewModel is null || !IsVisible)
                 return;

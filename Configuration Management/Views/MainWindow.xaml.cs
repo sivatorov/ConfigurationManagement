@@ -469,6 +469,14 @@ namespace Configuration_Management
                     QueueHeaderAlign();
                 }
 
+                // Меню закладок (issue #356): сочетание — часть системных биндингов
+                // закладок, перерегистрируется отдельно (RegisterFavoriteHotkeys).
+                if (e.PropertyName is nameof(MainViewModel.HotkeyBookmarksMenu))
+                {
+                    try { RegisterFavoriteHotkeys(); } catch { /* ignore */ }
+                    return;
+                }
+
                 if (e.PropertyName is nameof(MainViewModel.HotkeyEnterprise)
                     or nameof(MainViewModel.HotkeyConfigurator)
                     or nameof(MainViewModel.HotkeyFavorite)
@@ -486,6 +494,10 @@ namespace Configuration_Management
                     or nameof(MainViewModel.HotkeySwitchUser))
                 {
                     try { RegisterLaunchHotkeys(); } catch { /* ignore */ }
+                    // RegisterLaunchHotkeys снимает и системные биндинги закладок (все
+                    // сочетания, кроме Alt+…): восстанавливаем их сразу, иначе настроенное
+                    // сочетание меню закладок (issue #356) пропадало до перезапуска.
+                    try { RegisterFavoriteHotkeys(); } catch { /* ignore */ }
                 }
             };
         }

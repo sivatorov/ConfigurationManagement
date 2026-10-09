@@ -39,8 +39,17 @@
                 <ItemsControl x:Name="VersionsList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox Content="{Binding Display}" IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                      Margin="4,4,4,4" Checked="OnItemCheckedChanged" Unchecked="OnItemCheckedChanged"/>
+                            <!-- issue #334: отображаются ВСЕ версии; пометки риска
+                                 (новейшая, используется базами/процессами) — курсивом. -->
+                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                      Margin="4,4,4,4" Checked="OnItemCheckedChanged" Unchecked="OnItemCheckedChanged">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Display}"/>
+                                    <TextBlock Text="{Binding Badges}" Margin="6,0,0,0"
+                                               FontStyle="Italic" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                            </CheckBox>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

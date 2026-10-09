@@ -256,6 +256,66 @@ public sealed class OneCPlatformCatalogParserTests
         Assert.Empty(files);
     }
 
+    [Fact]
+    public void ParseDistributionFiles_TransferFileEndpoints_AlternativeMarkup_ParsesFiles()
+    {
+        // issue #330 (комментарий 7OH от 2026-10-09): альтернативная разметка страницы
+        // version_files — дистрибутивы перечислены ссылками на эндпоинты передачи файла
+        // (transfer_file), имя/расширение файла — в query-параметре path, HTML-сущности
+        // в href (&), относительные и абсолютные адреса.
+        var html = """
+            <html><body>
+            <table>
+              <tr><td>Технологическая платформа 8.3 для Windows (64-бит)</td>
+                  <td><a href="transfer_file?nick=Platform83&ver=8.3.27.2214&path=Distr%5C8_3_27_2214%5Csetup_8_3_27_2214_x64.zip">Скачать</a></td></tr>
+              <tr><td>Технологическая платформа 8.3 для Linux (deb)</td>
+                  <td><a href="https://releases.1c.ru/transfer_file?nick=Platform83&path=Distr%2F8_3_27_2214_amd64.deb">Скачать</a></td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Equal(2, files.Count);
+
+        var zip = files.Single(f => f.FileName == "setup_8_3_27_2214_x64.zip");
+        Assert.Equal(PlatformDistributionKind.WindowsSetupZip, zip.Kind);
+        Assert.Equal("x64", zip.Architecture);
+        Assert.Equal("transfer_file?nick=Platform83&ver=8.3.27.2214&path=Distr%5C8_3_27_2214%5Csetup_8_3_27_2214_x64.zip", zip.Url);
+
+        var deb = files.Single(f => f.FileName == "8_3_27_2214_amd64.deb");
+        Assert.Equal(PlatformDistributionKind.LinuxDeb, deb.Kind);
+        Assert.Equal("x64", deb.Architecture);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_TransferFileEndpointWithoutFileName_Skipped()
+    {
+        // Эндпоинт передачи без распознаваемого имени файла дистрибутива не попадает
+        // в список (иначе в «Выбор файла» добавлялся бы мусор).
+        var html = "<a href=\"transfer_file?nick=Platform83&session=abc\">Скачать</a>";
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Empty(files);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_HtmlEntitiesInDirectLinks_Decoded()
+    {
+        // issue #330: HTML-сущности в query прямых ссылок («&») декодируются —
+        // иначе адрес уходит на портал с параметром «amp;…».
+        var html = """
+            <a href="/total/8_3_27_2214/platform_x64.zip?nick=Platform83&ver=8.3.27.2214">x64</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        var zip = Assert.Single(files);
+        Assert.Equal("/total/8_3_27_2214/platform_x64.zip?nick=Platform83&ver=8.3.27.2214", zip.Url);
+        Assert.Equal(0, zip.SizeBytes);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

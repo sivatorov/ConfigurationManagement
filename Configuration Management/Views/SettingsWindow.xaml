@@ -1160,10 +1160,11 @@
                                 <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-<RowDefinition Height="Auto"/>
-<RowDefinition Height="Auto"/>
-<RowDefinition Height="Auto"/>
-</Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.Enterprise}" VerticalAlignment="Center" Margin="0,0,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
                             <controls:HotkeyBox x:Name="HotkeyEnterpriseBox" Grid.Row="0" Grid.Column="1"
@@ -1304,6 +1305,12 @@
                             <TextBlock Grid.Row="26" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ShowRunning}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
                             <controls:HotkeyBox x:Name="HotkeyShowRunningBox" Grid.Row="26" Grid.Column="1"
+                                                Height="34" Margin="0,6,0,6" FontSize="13"
+                                                Style="{StaticResource ModernTextBox}"/>
+                            <!-- Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B. -->
+                            <TextBlock Grid.Row="27" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.BookmarksMenu}" VerticalAlignment="Center" Margin="0,6,0,6"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <controls:HotkeyBox x:Name="HotkeyBookmarksMenuBox" Grid.Row="27" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                         </Grid>

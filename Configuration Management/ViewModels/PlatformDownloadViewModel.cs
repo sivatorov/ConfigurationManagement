@@ -484,14 +484,24 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             }
 
             // issue #330 (комментарий 7OH): страница version_files получена, но файлов
-            // не распознано — молча пустой список недопустим, объясняем причину в журнале.
+            // не распознано — молча пустой список недопустим. В журнал окна выводится
+            // диагностика запроса (URL, длина ответа, число распознанных файлов), чтобы
+            // пользователь мог прислать её с обратной связью.
             if (row.Release.Files.Count == 0)
             {
                 AppendLog(string.Format(
                     LocalizationManager.T("PlatformDownload.Error.NoFiles"), row.Version));
-                _appLogger?.Warn($"Скачивание платформы: страница файлов версии {row.Version} не содержит распознанных дистрибутивов");
+                AppendLog(BuildFilesDiagnostics(result));
+                _appLogger?.Warn($"Скачивание платформы: страница файлов версии {row.Version} не содержит распознанных дистрибутивов; {BuildFilesDiagnosticsRaw(result)}");
                 return;
             }
+
+            // Подтверждение загрузки в журнале окна (issue #330): пользователь видит,
+            // сколько файлов распознано, даже если варианты дистрибутива не поместились
+            // в комбобокс для его ОС.
+            AppendLog(string.Format(
+                LocalizationManager.T("PlatformDownload.Status.Files"), row.Release.Files.Count));
+            _appLogger?.Info($"Скачивание платформы: файлы версии {row.Version}; {BuildFilesDiagnosticsRaw(result)}");
 
             // RepickFile меняет свойства, связанные с UI (AvailableDownloadTypes,
             // DownloadTypeOptions, PickedFile) — также строго в UI-потоке (issue #330).
@@ -503,6 +513,24 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             _appLogger?.Error($"Скачивание платформы: исключение при подгрузке файлов {row.Version}: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
+
+    /// <summary>Строка диагностики загрузки страницы файлов версии для журнала окна
+    /// (issue #330, локализованный ключ PlatformDownload.Status.FilesDiag): URL запроса,
+    /// длина ответа, число распознанных файлов. Пробел в URL заменяется на «%20»,
+    /// чтобы адрес можно было скопировать целиком.</summary>
+    private static string BuildFilesDiagnostics(PlatformCatalogResult result)
+    {
+        var url = (result.FetchedUrl ?? "—").Replace(" ", "%20");
+        return string.Format(
+            LocalizationManager.T("PlatformDownload.Status.FilesDiag"),
+            url,
+            result.BodyLength,
+            result.ParsedFileCount);
+    }
+
+    /// <summary>Нелокализованная строка диагностики для журнала приложения (issue #330).</summary>
+    private static string BuildFilesDiagnosticsRaw(PlatformCatalogResult result)
+        => $"url={result.FetchedUrl ?? "-"}; bodyLength={result.BodyLength}; parsedFiles={result.ParsedFileCount}";
 
     /// <summary>Перестраивает дерево версий из сохранённого полного дерева по текущему
     /// поисковому запросу (issue #330, комментарий 7OH).</summary>
