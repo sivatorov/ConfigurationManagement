@@ -94,6 +94,28 @@ public sealed class OneCPlatformCatalogParserTests
     }
 
     [Fact]
+    public void ParseVersions_HtmlEntitiesInHref_AreDecodedInVersionFilesUrl()
+    {
+        // issue #330 (комментарий 7OH): реальный HTML каталога содержит & в href.
+        // Ранее адрес сохранялся как есть, уходил на портал с параметром «amp;ver»,
+        // страница файлов не содержала дистрибутивов — список «Выбор файла» был пуст.
+        const string html = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=Platform83&ver=8.3.27.2214&allUpdates=true">8.3.27.2214</a></td></tr>
+              <tr><td><a href="/version_files?nick=Platform83&ver=8.3.27.1688">8.3.27.1688</a></td></tr>
+            </table>
+            </body></html>
+            """;
+
+        var releases = OneCPlatformCatalogParser.ParseVersions(html, OneCPlatformCatalogParser.Platform83Nick);
+
+        Assert.Equal(2, releases.Count);
+        Assert.Equal("/version_files?nick=Platform83&ver=8.3.27.2214&allUpdates=true", releases[0].VersionFilesUrl);
+        Assert.Equal("/version_files?nick=Platform83&ver=8.3.27.1688", releases[1].VersionFilesUrl);
+    }
+
+    [Fact]
     public void ParseVersions_NoVersionsTable_FallsBackToLinksAcrossWholeHtml()
     {
         var html = """

@@ -128,6 +128,34 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
     }
 
     [Fact]
+    public void FindSetupExecutable_UpdateSetupName_FoundByFallback()
+    {
+        // issue #334: обновление-сборка дистрибутива кладёт установщик под именем
+        // вида «update-setup.exe»/«updsetup.exe» — находится по подстроке «setup».
+        var dir = CreateDir("updsetup");
+        File.WriteAllText(Path.Combine(dir, "update-setup.exe"), "stub");
+
+        var found = PlatformInstaller.FindSetupExecutable(dir);
+
+        Assert.NotNull(found);
+        Assert.Equal("update-setup.exe", Path.GetFileName(found));
+    }
+
+    [Fact]
+    public void FindSetupExecutable_ExactNameHasPriorityOverSubstring()
+    {
+        // Точный setup.exe приоритетнее других *setup*.exe, даже если тот ближе.
+        var root = CreateDir("priority");
+        File.WriteAllText(Path.Combine(root, "updsetup.exe"), "stub");
+        var nested = Directory.CreateDirectory(Path.Combine(root, "bin")).FullName;
+        File.WriteAllText(Path.Combine(nested, "setup.exe"), "stub");
+
+        var found = PlatformInstaller.FindSetupExecutable(root);
+
+        Assert.Equal(Path.Combine(nested, "setup.exe"), found);
+    }
+
+    [Fact]
     public void FindSetupExecutable_NonexistentDirectory_ReturnsNull()
     {
         Assert.Null(PlatformInstaller.FindSetupExecutable(Path.Combine(_tempRoot, "missing")));
@@ -341,6 +369,120 @@ public sealed class PlatformInstallerWindowsTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Equal(PlatformInstaller.ErrorSetupNotFound, result.ErrorKey);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
+    [Fact]
+    public async Task InstallFromZipCore_SetupNotFound_LogsArchiveContents()
+    {
+        // issue #334: при отсутствии setup.exe в журнале — понятное сообщение
+        // с фактическим содержимым архива.
+        var log = new List<string>();
+        var zipPath = CreateFakeZipFile();
+        try
+        {
+        var result = await PlatformInstaller.InstallFromZipCoreAsync(
+            zipPath, "8.3.27.2214", null, new Progress<string>(log.Add), CancellationToken.None,
+            (zip, dir) =>
+            {
+                File.WriteAllText(Path.Combine(dir, "readme.txt"), "stub");
+                File.WriteAllText(Path.Combine(dir, "1cv8.cfl"), "stub");
+                return true;
+            },
+            (exe, args, timeout, token) =>
+                Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: false)),
+            () => Array.Empty<string>());
+
+        Assert.False(result.Success);
+        Assert.Equal(PlatformInstaller.ErrorSetupNotFound, result.ErrorKey);
+        Assert.Contains(log, line => line.Contains("readme.txt") && line.Contains("1cv8.cfl"));
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
+    [Fact]
+    public async Task InstallFromZipCore_NestedZipWithSetup_ExtractsAndInstalls()
+    {
+        // issue #334: обновление-сборка (*_updsetup*.zip) — zip внутри zip. После
+        // распаковки вложенного архива установщик находится и установка проходит.
+        const string version = "8.3.27.2214";
+        var nestedExtractions = new List<string>();
+        var runCalls = new List<string>();
+        var zipPath = CreateFakeZipFile();
+        try
+        {
+        var result = await PlatformInstaller.InstallFromZipCoreAsync(
+            zipPath, version, null, null, CancellationToken.None,
+            (zip, dir) =>
+            {
+                if (zip == zipPath)
+                {
+                    // Внешний архив: вложенный zip + readme (без setup.exe).
+                    File.WriteAllText(Path.Combine(dir, "readme.txt"), "stub");
+                    File.WriteAllBytes(
+                        Path.Combine(dir, "8_3_27_2214_updsetup.zip"),
+                        new byte[] { 0x50, 0x4B, 0x03, 0x04, 0x00, 0x00 });
+                    return true;
+                }
+
+                // Вложенный архив: setup.exe внутри (каталог создаёт распаковщик).
+                nestedExtractions.Add(zip);
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, "setup.exe"), "stub");
+                return true;
+            },
+            (exe, args, timeout, token) =>
+            {
+                runCalls.Add(exe);
+                return Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: false));
+            },
+            () => new[] { version });
+
+        Assert.True(result.Success);
+        Assert.Null(result.ErrorKey);
+        Assert.Single(nestedExtractions);
+        Assert.Contains("setup.exe", runCalls.Single(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
+    [Fact]
+    public async Task InstallFromZipCore_UpdSetupExeInArchive_FoundAndInstalled()
+    {
+        // issue #334: архив с установщиком «update-setup.exe» (без setup.exe) —
+        // установка проходит через найденный файл.
+        const string version = "8.3.27.2214";
+        var runCalls = new List<string>();
+        var zipPath = CreateFakeZipFile();
+        try
+        {
+        var result = await PlatformInstaller.InstallFromZipCoreAsync(
+            zipPath, version, null, null, CancellationToken.None,
+            (zip, dir) =>
+            {
+                File.WriteAllText(Path.Combine(dir, "update-setup.exe"), "stub");
+                return true;
+            },
+            (exe, args, timeout, token) =>
+            {
+                runCalls.Add(exe);
+                return Task.FromResult(new PlatformInstaller.InstallerRunResult(Started: true, ExitCode: 0, TimedOut: false));
+            },
+            () => new[] { version });
+
+        Assert.True(result.Success);
+        Assert.Single(runCalls);
+        Assert.Contains("update-setup.exe", runCalls.Single(), StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using Configuration_Management.Models;
 
@@ -9,9 +10,14 @@ namespace Configuration_Management.Services;
 /// Узел дерева каталога версий платформы в окне «Скачивание версии платформы 1С»
 /// (issue #330: список должен быть деревом «8.x \ 8.x.yy \ полная версия» с сортировкой
 /// по убыванию). Группы/линии несут только заголовок, листья — ссылку на релиз каталога.
+/// Реализует <see cref="INotifyPropertyChanged"/> для свойства <see cref="IsExpanded"/>:
+/// команды «Развернуть все»/«Свернуть все» (issue #330, комментарий 7OH) меняют состояние
+/// контейнеров дерева в WPF/Avalonia через привязку к этому свойству.
 /// </summary>
-public sealed class PlatformCatalogNode
+public sealed class PlatformCatalogNode : INotifyPropertyChanged
 {
+    private bool _isExpanded = true;
+
     /// <param name="name">Заголовок узла («8.3», «8.3.27», «8.3.27.2214»).</param>
     /// <param name="release">Релиз каталога у листьев; null у групп.</param>
     public PlatformCatalogNode(string name, PlatformRelease? release = null)
@@ -31,6 +37,24 @@ public sealed class PlatformCatalogNode
 
     /// <summary>True — узел является листом (полной версией каталога).</summary>
     public bool IsLeaf => Release is not null;
+
+    /// <summary>Развернут ли узел в дереве (по умолчанию true — дерево раскрыто целиком,
+    /// как в стартере). Команды «Развернуть все»/«Свернуть все» меняют это свойство у
+    /// всех видимых узлов; UI привязывает <c>TreeViewItem.IsExpanded</c> к нему.</summary>
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value)
+                return;
+            _isExpanded = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
+        }
+    }
+
+    /// <inheritdoc />
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>
@@ -94,4 +118,55 @@ public static class PlatformVersionTreeBuilder
 
         return roots;
     }
+
+    /// <summary>
+    /// Фильтрует дерево по подстроке версии (issue #330, комментарий 7OH — «Туда же
+    /// поле для поиска»): остаются листья, чьё имя содержит запрос (без учёта регистра),
+    /// и линии/группы, в которых есть хоть один такой лист. Листья сохраняют свою ссылку
+    /// <see cref="PlatformRelease"/>; группы строятся заново с отфильтрованными детьми,
+    /// поэтому исходное дерево не мутируется. Пустой/пробельный запрос возвращает
+    /// исходное дерево без изменений; null-вход даёт пустой список.
+    /// </summary>
+    public static IReadOnlyList<PlatformCatalogNode> Filter(
+        IEnumerable<PlatformCatalogNode>? roots, string? query)
+    {
+        if (roots is null)
+            return Array.Empty<PlatformCatalogNode>();
+
+        var pattern = query?.Trim();
+        if (string.IsNullOrEmpty(pattern))
+            return roots.ToList();
+
+        var result = new List<PlatformCatalogNode>();
+        foreach (var root in roots)
+        {
+            var filtered = FilterNode(root, pattern);
+            if (filtered is not null)
+                result.Add(filtered);
+        }
+
+        return result;
+    }
+
+    /// <summary>Рекурсивный шаг фильтра: лист остаётся при совпадении имени,
+    /// группа — при наличии хотя бы одного оставшегося ребёнка; иначе null.</summary>
+    private static PlatformCatalogNode? FilterNode(PlatformCatalogNode node, string pattern)
+    {
+        if (node.IsLeaf)
+            return Contains(node.Name, pattern) ? node : null;
+
+        var copy = new PlatformCatalogNode(node.Name);
+        foreach (var child in node.Children)
+        {
+            var filteredChild = FilterNode(child, pattern);
+            if (filteredChild is not null)
+                copy.Children.Add(filteredChild);
+        }
+
+        return copy.Children.Count > 0 ? copy : null;
+    }
+
+    /// <summary>Поиск подстроки без учёта регистра (OrdinalIgnoreCase).</summary>
+    private static bool Contains(string name, string pattern)
+        => name.Contains(pattern, StringComparison.OrdinalIgnoreCase);
 }

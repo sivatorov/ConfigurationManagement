@@ -49,13 +49,6 @@ namespace Configuration_Management
 
         private TextBox? _logBox;
 
-        /// <summary>Таймер отложенного скрытия панели прогресса (анти-мигание, issue #334).</summary>
-        private DispatcherTimer? _hideProgressTimer;
-
-        /// <summary>Задержка скрытия панели прогресса после завершения операции: панель не
-        /// «мелькает» при мгновенном сбое проверки обновлений (issue #334).</summary>
-        private static readonly TimeSpan ProgressHideDelay = TimeSpan.FromMilliseconds(500);
-
         /// <summary>Открывает окно «Обновление платформы 1С».</summary>
         public PlatformUpdateWindow()
         {
@@ -79,10 +72,6 @@ namespace Configuration_Management
                     defaultName ?? "platform.zip",
                     "Архивы (*.zip)|*.zip|Пакеты Linux (*.deb;*.rpm)|*.deb;*.rpm|Все файлы (*.*)|*.*",
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
-                _ => _dialogs.OpenFileDialog(
-                    LocalizationManager.T("PlatformUpdate.ChooseInstaller"),
-                    "Пакеты Linux (*.deb;*.rpm)|*.deb;*.rpm|Архивы (*.zip;*.tar.gz)|*.zip;*.tar.gz|Все файлы (*.*)|*.*",
-                    null),
                 loadRunningProcesses: () => _running.GetRunning()
                     .Select(p => p.ProcessName)
                     .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -119,7 +108,9 @@ namespace Configuration_Management
                 // issue #334: обновление списка версий и связанных свойств — в UI-потоке.
                 dispatchToUi: action => Dispatcher.UIThread.Post(action),
                 // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
-                chooseDistribution: ChooseDistribution);
+                chooseDistribution: ChooseDistribution,
+                // issue #334: диалог выбора удаляемых старых версий (список с флажками).
+                chooseVersionsToDelete: ChooseOldVersionsToDelete);
 
             BuildRows();
             foreach (var row in _viewModel.Rows)
@@ -205,10 +196,11 @@ namespace Configuration_Management
                 AddRow(row);
         }
 
-        /// <summary>Автопрокрутка журнала в конец и анти-мигание панели прогресса
-        /// (issue #334): показ при старте операции, скрытие с задержкой
-        /// <see cref="ProgressHideDelay"/> после завершения — панель не «мелькает»
-        /// при мгновенном сбое проверки.</summary>
+        /// <summary>Автопрокрутка журнала в конец и показ панели прогресса (issue #334):
+        /// панель появляется при старте операции и ОСТАЁТСЯ видимой после завершения —
+        /// итог («Готово: …», ошибка, путь сохранения) не должен исчезать через
+        /// полсекунды (issue #334: после «только скачать» окно с информационными
+        /// сообщениями «пропадало»).</summary>
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(PlatformUpdateViewModel.LogText))
@@ -224,20 +216,8 @@ namespace Configuration_Management
             if (e.PropertyName != nameof(PlatformUpdateViewModel.IsBusy))
                 return;
 
-            _hideProgressTimer?.Stop();
             if (_viewModel.IsBusy)
-            {
                 _progressPanel.IsVisible = true;
-                return;
-            }
-
-            _hideProgressTimer = new DispatcherTimer { Interval = ProgressHideDelay };
-            _hideProgressTimer.Tick += (_, _) =>
-            {
-                _hideProgressTimer!.Stop();
-                _progressPanel.IsVisible = false;
-            };
-            _hideProgressTimer.Start();
         }
 
         private StackPanel _progressPanel = new();
@@ -520,41 +500,71 @@ namespace Configuration_Management
             Grid.SetRow(_progressPanel, 2);
             grid.Children.Add(_progressPanel);
 
-            // Нижняя панель: команды / закрыть.
-            var bottom = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-            bottom.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
-            bottom.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            // Нижняя панель (issue #334): две строки кнопок. Первая строка — «Проверить
+            // обновления», «Учётки», «Открыть в браузере»; вторая — операции с версиями.
+            // Кнопка «Закрыть» убрана: есть кнопка закрытия окна и ESC; «Выбрать файл
+            // установщика» удалена как лишняя (issue #334).
+            var bottom = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
 
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            // Действия при проблемах авторизации (issue #323/#330/#334): открыть login.1c.ru
-            // в браузере, справочник учётных данных ИТС.
-            var openLogin = new Button { Content = T("Updates.OpenLoginPage"), Height = 36 };
-            openLogin.Styled(ControlThemes.SecondaryButton);
-            openLogin.Click += (_, _) => OpenLogin();
-            buttons.Children.Add(openLogin);
+            var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row1.Children.Add(MakeCommandButton(T("PlatformUpdate.Check"), _viewModel.CheckCommand, primary: true));
 
+            // Действия при проблемах авторизации (issue #323/#330/#334): справочник
+            // учётных данных ИТС, login.1c.ru в браузере.
             var itsAccounts = new Button { Content = T("Updates.OpenItsAccounts"), Height = 36 };
             itsAccounts.Styled(ControlThemes.SecondaryButton);
             itsAccounts.Click += (_, _) => OpenItsAccounts();
-            buttons.Children.Add(itsAccounts);
+            row1.Children.Add(itsAccounts);
 
-            buttons.Children.Add(MakeCommandButton(T("PlatformUpdate.Check"), _viewModel.CheckCommand, primary: true));
-            buttons.Children.Add(MakeCommandButton(T("PlatformUpdate.DownloadInstall"), _viewModel.DownloadAndInstallCommand));
-            buttons.Children.Add(MakeCommandButton(T("PlatformUpdate.DownloadOnly"), _viewModel.DownloadOnlyCommand));
-            buttons.Children.Add(MakeCommandButton(T("PlatformUpdate.ChooseInstaller"), _viewModel.ChooseInstallerCommand));
-            buttons.Children.Add(MakeCommandButton(T("PlatformUpdate.RemoveOld"), _viewModel.RemoveOldVersionsCommand));
-            Grid.SetColumn(buttons, 0);
-            bottom.Children.Add(buttons);
+            var openLogin = new Button { Content = T("Updates.OpenLoginPage"), Height = 36 };
+            openLogin.Styled(ControlThemes.SecondaryButton);
+            openLogin.Click += (_, _) => OpenLogin();
+            row1.Children.Add(openLogin);
 
-            var close = BuildCancelActionButton(120);
-            close.Click += (_, _) => Close();
-            Grid.SetColumn(close, 1);
-            bottom.Children.Add(close);
+            var row2 = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            row2.Children.Add(MakeCommandButton(T("PlatformUpdate.DownloadInstall"), _viewModel.DownloadAndInstallCommand));
+            row2.Children.Add(MakeCommandButton(T("PlatformUpdate.DownloadOnly"), _viewModel.DownloadOnlyCommand));
+            row2.Children.Add(MakeCommandButton(T("PlatformUpdate.RemoveOld"), _viewModel.RemoveOldVersionsCommand));
 
+            bottom.Children.Add(row1);
+            bottom.Children.Add(row2);
             Grid.SetRow(bottom, 3);
             grid.Children.Add(bottom);
 
             return grid;
+        }
+
+        /// <summary>
+        /// Диалог выбора удаляемых старых версий (issue #334): список версий с флажками;
+        /// возвращает выбранные пользователем версии или null при отмене. Может
+        /// вызываться из фонового потока — показ переводится в UI-поток.
+        /// </summary>
+        private IReadOnlyList<PlatformVersionInfo>? ChooseOldVersionsToDelete(
+            IReadOnlyList<PlatformVersionInfo> candidates)
+        {
+            IReadOnlyList<PlatformVersionInfo>? result = null;
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                var picker = new PlatformOldVersionsWindow(candidates);
+                if (picker.ShowDialogSync(this))
+                    result = picker.Result;
+            }
+            else
+            {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    var picker = new PlatformOldVersionsWindow(candidates);
+                    if (picker.ShowDialogSync(this))
+                        result = picker.Result;
+                }).Wait();
+            }
+
+            return result;
         }
 
         /// <summary>Кнопка команды нижней панели: тема подтверждения для главной, вторичная — для остальных.</summary>

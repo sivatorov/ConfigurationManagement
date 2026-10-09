@@ -213,4 +213,76 @@ public sealed class PlatformDistributionPickerTests
         Assert.NotNull(recommended);
         Assert.Equal("8.3.27.2214_x86.zip", recommended!.File.FileName);
     }
+
+    // ---------- issue #334: обновление-сборка дистрибутива (*_updsetup*.zip) ----------
+
+    [Fact]
+    public void IsUpdateSetupPackage_DetectsUpdsetupInFileName()
+    {
+        Assert.True(PlatformDistributionPicker.IsUpdateSetupPackage(
+            File("8_3_27_2214_updsetup.zip", "x64", PlatformDistributionKind.WindowsSetupZip)));
+        Assert.True(PlatformDistributionPicker.IsUpdateSetupPackage(
+            File("8.3.27.2214_update-setup.zip", "x64", PlatformDistributionKind.WindowsSetupZip)));
+        Assert.False(PlatformDistributionPicker.IsUpdateSetupPackage(
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip)));
+    }
+
+    [Fact]
+    public void PickFile_WindowsAuto_PrefersSetupOverUpdsetup()
+    {
+        // issue #334: updsetup-архив не содержит setup.exe — в автовыборе отдаётся
+        // предпочтение обычному дистрибутиву.
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8_3_27_2214_updsetup.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+        };
+
+        Assert.Equal("8.3.27.2214_x64.zip",
+            PlatformDistributionPicker.PickFile(files, true, PlatformDownloadType.Auto, true)!.FileName);
+    }
+
+    [Fact]
+    public void PickFile_WindowsAuto_UpdsetupOnly_StillPicked()
+    {
+        // Если updsetup — единственный zip, он используется (не блокируем пользователя).
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8_3_27_2214_updsetup.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+        };
+
+        Assert.Equal("8_3_27_2214_updsetup.zip",
+            PlatformDistributionPicker.PickFile(files, true, PlatformDownloadType.Auto, true)!.FileName);
+    }
+
+    [Fact]
+    public void PickFile_WindowsClient_ExcludesUpdsetup()
+    {
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8_3_27_2214_updsetup.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+        };
+
+        Assert.Equal("8.3.27.2214_x64.zip",
+            PlatformDistributionPicker.PickFile(files, true, PlatformDownloadType.Client, true)!.FileName);
+    }
+
+    [Fact]
+    public void BuildOptions_Windows_UpdsetupSortedLast_NotRecommended()
+    {
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8_3_27_2214_updsetup.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+        };
+
+        var options = PlatformDistributionPicker.BuildOptions(files, isWindows: true, is64Bit: true);
+
+        Assert.Equal(2, options.Count);
+        Assert.Equal("8.3.27.2214_x64.zip", options[0].File.FileName);
+        Assert.True(options[0].IsRecommended);
+        Assert.Equal("8_3_27_2214_updsetup.zip", options[1].File.FileName);
+        Assert.False(options[1].IsRecommended);
+    }
 }

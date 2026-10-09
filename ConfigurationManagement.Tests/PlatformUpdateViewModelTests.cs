@@ -19,7 +19,8 @@ namespace ConfigurationManagement.Tests;
 /// (авторизация, исключение сервиса) без падения VM; «Скачать и установить» с
 /// fake загрузчиком/установщиком (download→install→refresh, прогресс 0..1, блокировка
 /// повторного запуска); «Только скачать» с fake-диалогом сохранения и отменой;
-/// «Выбрать файл установщика…»; CanExecute команд от IsBusy/выделения.
+/// «Удалить старые версии» с диалогом выбора версий и информационным уведомлением
+/// при пустом списке кандидатов (issue #334); CanExecute команд от IsBusy/выделения.
 /// </summary>
 public sealed class PlatformUpdateViewModelTests
 {
@@ -61,7 +62,6 @@ public sealed class PlatformUpdateViewModelTests
         Func<string, string, string?, IProgress<string>?, CancellationToken,
             Task<(bool Success, string? ErrorKey, int ExitCode)>>? install = null,
         Func<string?, string?>? saveDialog = null,
-        Func<string?, string?>? openDialog = null,
         Func<IReadOnlyList<string>>? runningProcesses = null,
         Func<bool>? isAdmin = null,
         Func<string, long?>? freeBytes = null,
@@ -75,7 +75,8 @@ public sealed class PlatformUpdateViewModelTests
             Task<(bool Success, string? ErrorKey)>>? deleteVersion = null,
         Func<string, string>? buildUninstall = null,
         Action<string>? copyCommand = null,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
     {
         return new PlatformUpdateViewModel(
             service ?? OkService(),
@@ -85,7 +86,6 @@ public sealed class PlatformUpdateViewModelTests
             install ?? ((zip, version, dir, log, ct) =>
                 Task.FromResult((Success: true, ErrorKey: (string?)null, ExitCode: 0))),
             saveDialog,
-            openDialog,
             runningProcesses ?? (() => new List<string>()),
             isAdmin ?? (() => true),
             freeBytes ?? (_ => null),
@@ -98,7 +98,8 @@ public sealed class PlatformUpdateViewModelTests
             deleteVersion,
             buildUninstall,
             copyCommand,
-            dispatchToUi);
+            dispatchToUi,
+            chooseVersionsToDelete: chooseVersionsToDelete);
     }
 
     // ---------- CheckUpdatesAsync ----------
@@ -498,50 +499,40 @@ public sealed class PlatformUpdateViewModelTests
         Assert.Single(saved);
     }
 
-    // ---------- ChooseInstallerAsync ----------
-
     [Fact]
-    public async Task ChooseInstallerAsync_ValidPath_StoresSelectedInstallerPath()
+    public async Task DownloadOnlyAsync_VersionFilesPageWithoutFiles_LogsNoFilesAndAborts()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "cm_plinst_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var path = Path.Combine(tempDir, "setup.exe");
-        File.WriteAllText(path, "test");
-
-        try
+        // issue #330 (комментарий 7OH): страница version_files получена (Ok), но файлов
+        // не распознано — операция не продолжается с пустым выбором дистрибутива,
+        // в журнал попадает понятное сообщение.
+        var release = new PlatformRelease { Version = "8.3.27.2214" };
+        var service = OkService(release);
+        service.FilesResult = new PlatformCatalogResult
         {
-            var vm = CreateVm(openDialog: _ => path);
+            Status = PortalFetchStatus.Ok,
+            Release = new PlatformRelease { Version = "8.3.27.2214" },
+        };
 
-            await vm.ChooseInstallerAsync();
-
-            Assert.Equal(path, vm.SelectedInstallerPath);
-            Assert.Contains(path, vm.LogText);
-            Assert.False(vm.IsBusy);
-        }
-        finally
-        {
-            try
+        var downloadCalls = new List<string>();
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
             {
-                Directory.Delete(tempDir, recursive: true);
-            }
-            catch
-            {
-                // временный каталог мог быть занят — очистится сам
-            }
-        }
-    }
+                downloadCalls.Add(target);
+                return Task.FromResult<string?>(target);
+            },
+            saveDialog: _ => "C:\\temp\\platform.zip");
 
-    [Fact]
-    public async Task ChooseInstallerAsync_MissingPath_WritesErrorToLog()
-    {
-        var missing = Path.Combine(Path.GetTempPath(), "cm_nonexistent_" + Guid.NewGuid().ToString("N") + ".exe");
-        var vm = CreateVm(openDialog: _ => missing);
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single();
+        await vm.DownloadOnlyAsync();
 
-        await vm.ChooseInstallerAsync();
-
-        Assert.Null(vm.SelectedInstallerPath);
-        Assert.Contains(LocalizationManager.T("PlatformUpdate.Error.NotFound"), vm.LogText);
+        Assert.Equal(1, service.LoadFilesCalls);
+        Assert.Empty(downloadCalls);
         Assert.False(vm.IsBusy);
+        var expected = string.Format(
+            LocalizationManager.T("PlatformDownload.Error.NoFiles"), "8.3.27.2214");
+        Assert.Contains(expected, vm.LogText, StringComparison.Ordinal);
     }
 
     // ---------- Preflight и уведомления (этап 0.3.9.214) ----------
@@ -737,7 +728,6 @@ public sealed class PlatformUpdateViewModelTests
         Assert.True(vm.CheckCommand.CanExecute(null));
         Assert.False(vm.DownloadAndInstallCommand.CanExecute(null)); // нет выделения
         Assert.False(vm.DownloadOnlyCommand.CanExecute(null));
-        Assert.True(vm.ChooseInstallerCommand.CanExecute(null));
         Assert.True(vm.RemoveOldVersionsCommand.CanExecute(null)); // активна с этапа 0.3.9.215
 
         vm.SelectedRow = vm.Rows.Single();
@@ -749,7 +739,6 @@ public sealed class PlatformUpdateViewModelTests
         Assert.False(vm.CheckCommand.CanExecute(null));
         Assert.False(vm.DownloadAndInstallCommand.CanExecute(null));
         Assert.False(vm.DownloadOnlyCommand.CanExecute(null));
-        Assert.False(vm.ChooseInstallerCommand.CanExecute(null));
         Assert.False(vm.RemoveOldVersionsCommand.CanExecute(null));
         vm.IsBusy = false;
 
@@ -894,6 +883,90 @@ public sealed class PlatformUpdateViewModelTests
         Assert.DoesNotContain(copied, c => c.Contains("1c-enterprise83-8.3.27.2214"));
         Assert.Contains(LocalizationManager.T("PlatformUpdate.Linux.Copied"), vm.LogText);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task RemoveOldVersions_NoCandidates_NotifiesInfo()
+    {
+        // issue #334: при отсутствии кандидатов пользователь должен УВИДЕТЬ результат —
+        // информационное уведомление, а не только строку в журнале окна.
+        var notified = new List<(string Title, string Message, NotificationKind Kind, NotificationEvent Evt)>();
+        var vm = CreateVm(
+            notify: (title, message, kind, evt) => notified.Add((title, message, kind, evt)));
+
+        await vm.RemoveOldVersionsAsync();
+
+        var notification = Assert.Single(notified);
+        Assert.Equal(LocalizationManager.T("PlatformUpdate.RemoveNothing"), notification.Message);
+        Assert.Equal(NotificationKind.Info, notification.Kind);
+        Assert.Equal(NotificationEvent.Update, notification.Evt);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.RemoveNothing"), vm.LogText);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task RemoveOldVersions_SelectionDialog_DeletesOnlyChosenVersions()
+    {
+        // issue #334: диалог со списком версий — пользователь выбирает подмножество,
+        // удаляются только отмеченные версии.
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214", Path = @"C:\1cv8\8.3.27.2214" },
+            new() { Display = "8.3.27.1688", Path = @"C:\1cv8\8.3.27.1688" },
+            new() { Display = "8.3.26.1890", Path = @"C:\1cv8\8.3.26.1890" },
+        };
+        var deleted = new List<string>();
+        var confirmCalls = 0;
+        IReadOnlyList<PlatformVersionInfo>? Choose(
+            IReadOnlyList<PlatformVersionInfo> candidates)
+            => candidates.Take(1).ToList(); // пользователь отметил только новейшую из кандидатов
+
+        var vm = CreateVm(
+            installedInfos: () => installedInfos.ToList(),
+            deleteVersion: (version, log, ct) =>
+            {
+                deleted.Add(version.Display);
+                installedInfos.RemoveAll(v => v.Display == version.Display);
+                return Task.FromResult((Success: true, ErrorKey: (string?)null));
+            },
+            confirm: (_, _) =>
+            {
+                confirmCalls++;
+                return true;
+            },
+            chooseVersionsToDelete: Choose);
+
+        await vm.RemoveOldVersionsAsync();
+
+        Assert.Equal(new[] { "8.3.27.1688" }, deleted);
+        Assert.Equal(0, confirmCalls); // общий диалог не показывается при диалоге выбора
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task RemoveOldVersions_SelectionDialogCancelled_NoDeletion()
+    {
+        var installedInfos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2214" },
+            new() { Display = "8.3.27.1688" },
+        };
+        var deleted = new List<string>();
+
+        var vm = CreateVm(
+            installedInfos: () => installedInfos.ToList(),
+            deleteVersion: (version, log, ct) =>
+            {
+                deleted.Add(version.Display);
+                return Task.FromResult((Success: true, ErrorKey: (string?)null));
+            },
+            chooseVersionsToDelete: _ => null);
+
+        await vm.RemoveOldVersionsAsync();
+
+        Assert.Empty(deleted);
+        Assert.False(vm.IsBusy);
+        Assert.Contains(LocalizationManager.T("PlatformUpdate.Error.Cancelled"), vm.LogText);
     }
 
     [Fact]

@@ -260,6 +260,42 @@ public sealed class PlatformUpdateServiceTests
         Assert.Equal("https://releases.1c.ru/version_files?nick=Platform83&ver=8.3.27.2214", requestedUrl);
     }
 
+    [Fact]
+    public async Task CatalogHtmlEntitiesInHref_LoadReleaseFiles_RequestsDecodedUrl()
+    {
+        // issue #330 (комментарий 7OH): реальный HTML каталога содержит & в href
+        // version_files-ссылок. Ранее адрес уходил на портал с параметром «amp;ver»,
+        // сервер отвечал страницей без дистрибутивов — список «Выбор файла» был пуст.
+        const string htmlWithEntities = """
+            <html><body>
+            <table id="versionsTable">
+              <tr><td><a href="/version_files?nick=Platform83&ver=8.3.27.2214">8.3.27.2214</a></td></tr>
+              <tr><td><a href="/version_files?nick=Platform83&ver=8.3.27.1688">8.3.27.1688</a></td></tr>
+            </table>
+            </body></html>
+            """;
+        string? requestedUrl = null;
+        var service = CreateService(url =>
+        {
+            requestedUrl = url;
+            return Task.FromResult<string?>(
+                url.Contains("project/", StringComparison.OrdinalIgnoreCase)
+                    ? htmlWithEntities
+                    : VersionFilesJson);
+        });
+
+        var catalog = await service.GetAvailableReleasesAsync();
+        Assert.Equal(PortalFetchStatus.Ok, catalog.Status);
+
+        var result = await service.LoadReleaseFilesAsync(catalog.Releases[0]);
+
+        Assert.Equal(PortalFetchStatus.Ok, result.Status);
+        Assert.Equal(
+            "https://releases.1c.ru/version_files?nick=Platform83&ver=8.3.27.2214",
+            requestedUrl);
+        Assert.Equal(4, catalog.Releases[0].Files.Count);
+    }
+
     // --- PickDistribution / PickForPlatform ---
 
     [Fact]

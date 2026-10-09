@@ -230,7 +230,16 @@ public partial class MainViewModel : ViewModelBase
     /// Редактирует выбранный элемент: базу — через окно подключения, группу — через окно группы.
     /// Тип элемента при редактировании изменить нельзя (база не станет группой и наоборот).
     /// </summary>
-    private void EditInfobase(object? parameter)
+    private void EditInfobase(object? parameter) => EditInfobase(parameter, InfobasePropertiesTab.Default);
+
+    /// <summary>
+    /// Issue #355: открывает окно свойств базы сразу на вкладке «Платформа».
+    /// Вызывается при двойном клике по колонкам «Конфигурация»/«№ релиза».
+    /// </summary>
+    public void OpenPropertiesOnPlatformTab(Infobase infobase) =>
+        EditInfobase(infobase, InfobasePropertiesTab.Platform);
+
+    private void EditInfobase(object? parameter, InfobasePropertiesTab initialTab)
     {
         // Если выбран узел группы — редактируем группу.
         if (SelectedGroupNode?.Group is Group group)
@@ -265,7 +274,9 @@ public partial class MainViewModel : ViewModelBase
             availableConfigurations: GetAvailableConfigurations(),
             customLaunchParameters: CustomLaunchParameters, onCustomLaunchParametersChanged: SetCustomLaunchParameters,
             availableRepositoryServers: GetAvailableRepositoryServers(),
-            availableTags: AvailableTags)
+            availableTags: AvailableTags,
+            // Issue #355: вкладка «Платформа» при открытии из конфигурационных колонок.
+            initialTab: initialTab)
         {
             Owner = Application.Current.MainWindow
         };

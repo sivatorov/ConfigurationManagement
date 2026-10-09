@@ -14,13 +14,14 @@ using Configuration_Management.ViewModels;
 namespace Configuration_Management;
 
 /// <summary>
-/// Окно «Скачивание версии платформы 1С» (issue #330): список версий каталога
-/// releases.1c.ru, выбор разрядности (32/64) и типа дистрибутива, скачивание файла
-/// в выбранную папку с прогрессом. Установка НЕ выполняется автоматически — после
-/// скачивания пользователь сам открывает папку или запускает установщик (Windows:
-/// распаковка zip и запуск setup.exe в интерактивном режиме). Авторизация портала —
-/// через учётную запись ИТС из справочника (#333). Сервисы берутся из
-/// <see cref="AppServices"/>; вся логика — в чистой <see cref="PlatformDownloadViewModel"/>.
+/// Окно «Скачивание версии платформы 1С» (issue #330): дерево версий каталога
+/// releases.1c.ru с поиском и «свернуть/развернуть все» (комментарий 7OH от
+/// 2026-10-08), выбор разрядности (32/64) и файла дистрибутива, скачивание архива
+/// в выбранную папку с прогрессом. Кнопки «Запустить установщик» нет — файл
+/// скачивается архивом, после скачивания пользователь сам открывает папку.
+/// Авторизация портала — через учётную запись ИТС из справочника (#333). Сервисы
+/// берутся из <see cref="AppServices"/>; вся логика — в чистой
+/// <see cref="PlatformDownloadViewModel"/>.
 /// </summary>
 public partial class PlatformDownloadWindow : Window
 {
@@ -36,7 +37,6 @@ public partial class PlatformDownloadWindow : Window
         var service = AppServices.GetRequiredService<IPlatformUpdateService>();
         var updates = AppServices.GetRequiredService<IOneCUpdatesService>();
         var accounts = AppServices.GetRequiredService<IItsAccountsStore>();
-        var archive = AppServices.GetRequiredService<IArchiveService>();
         var dialogs = AppServices.GetRequiredService<IDialogService>();
         var notifier = AppServices.GetRequiredService<INotificationService>();
         var logger = AppServices.GetRequiredService<IAppLogger>();
@@ -51,7 +51,6 @@ public partial class PlatformDownloadWindow : Window
             (url, targetPath, progress, ct) =>
                 updates.DownloadDistributionAsync(url, targetPath, progress, ct),
             OpenDownloadedFolder,
-            path => RunInstaller(path, archive),
             chooseDirectory: () => dialogs.OpenFolderDialog(
                 LocalizationManager.T("PlatformDownload.ChooseDirectoryTitle"), initialDirectory),
             is64Bit: Environment.Is64BitOperatingSystem,
@@ -90,10 +89,13 @@ public partial class PlatformDownloadWindow : Window
         }
     }
 
-    /// <summary>Выбор листа дерева версий передаёт релиз в ViewModel (issue #330).</summary>
+    /// <summary>Выбор листа дерева версий передаёт релиз в ViewModel (issue #330).
+    /// null (сброс выделения при перестроении дерева поиском или «Свернуть/Развернуть все»)
+    /// игнорируется — выбранные версия и файл не сбрасываются.</summary>
     private void OnVersionsTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        _viewModel.SelectedVersionNode = e.NewValue as PlatformCatalogNode;
+        if (e.NewValue is PlatformCatalogNode node)
+            _viewModel.SelectedVersionNode = node;
     }
 
     private void OnViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -156,51 +158,6 @@ public partial class PlatformDownloadWindow : Window
         }
 
         return false;
-    }
-
-    /// <summary>Запускает установщик по желанию пользователя (НЕ автоматически): zip-архив
-    /// распаковывается во временную папку, находится setup.exe и запускается интерактивно —
-    /// тихая установка не выполняется (требование issue #330).</summary>
-    private static bool RunInstaller(string downloadedPath, IArchiveService archive)
-    {
-        try
-        {
-            if (!File.Exists(downloadedPath))
-                return false;
-
-            var extension = Path.GetExtension(downloadedPath).ToLowerInvariant();
-            if (extension == ".zip")
-            {
-                var extractDir = Path.Combine(Path.GetTempPath(),
-                    "cm_platform_" + Guid.NewGuid().ToString("N"));
-                if (!archive.ExtractArchive(downloadedPath, extractDir))
-                    return false;
-
-                var setup = PlatformInstaller.FindSetupExecutable(extractDir);
-                if (string.IsNullOrEmpty(setup))
-                    return false;
-
-                // Интерактивный запуск мастера установки (без тихих ключей).
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = setup,
-                    UseShellExecute = true
-                });
-                return true;
-            }
-
-            // Прочие типы (например exe) запускаются напрямую.
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = downloadedPath,
-                UseShellExecute = true
-            });
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     /// <summary>Каталог загрузок по умолчанию: сохранённая настройка либо

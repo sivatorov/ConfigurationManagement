@@ -44,7 +44,6 @@ public sealed class PlatformDownloadViewModelTests
         IPlatformUpdateService? service = null,
         ItsAccount? account = null,
         Func<string, string, IProgress<double>?, CancellationToken, Task<string?>>? download = null,
-        Action<string>? onRunInstaller = null,
         string? directory = null,
         bool is64Bit = true,
         bool isWindows = true,
@@ -56,7 +55,6 @@ public sealed class PlatformDownloadViewModelTests
             () => account,
             download ?? ((url, target, progress, ct) => Task.FromResult<string?>(target)),
             _ => true,
-            path => { onRunInstaller?.Invoke(path); return true; },
             is64Bit: is64Bit,
             defaultDirectory: dir,
             isWindows: isWindows,
@@ -116,11 +114,11 @@ public sealed class PlatformDownloadViewModelTests
 
         await vm.LoadCatalogAsync();
 
-        // Маршалинг применён: первый вызов — заполнение каталога, второй — подгрузка
-        // файлов выбранной версии (SelectedRelease = Releases[0] запускает
-        // LoadReleaseFilesAsync → RepickFile, тоже через маршаллер; fake-сервис
-        // возвращает завершённую задачу, поэтому продолжения выполняются синхронно).
-        Assert.Equal(2, dispatched.Count);
+        // Маршалинг применён: заполнение каталога (включая дерево версий) идёт строго
+        // через маршаллер. Подгрузка файлов выбранной версии в этом тесте НЕ диспетчеризует
+        // RepickFile: у релизов fake-сервиса файлов нет, и с issue #330 (комментарий 7OH)
+        // пустой список файлов прерывает обработку с понятным сообщением в журнале.
+        Assert.Single(dispatched);
         Assert.Equal(2, vm.Releases.Count);        // действие выполнилось (список заполнен)
         Assert.Equal("8.3.27.2214", vm.SelectedRelease!.Version);
     }
@@ -293,10 +291,11 @@ public sealed class PlatformDownloadViewModelTests
         Assert.Contains("8.3.27.2214_x64.zip", vm.DownloadedPath, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ---------- Дерево версий: поиск и свернуть/развернуть все (issue #330, 7OH) ----------
+
     [Fact]
-    public async Task DownloadAsync_DoesNotRunInstallerAutomatically()
+    public async Task VersionSearchQuery_FiltersTreeBySubstring()
     {
-        var installerCalls = new List<string>();
         var service = new FakeCatalogService
         {
             AvailableResult = new PlatformCatalogResult
@@ -304,22 +303,81 @@ public sealed class PlatformDownloadViewModelTests
                 Status = PortalFetchStatus.Ok,
                 Releases = new[]
                 {
-                    Release("8.3.27.2214", File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip)),
+                    Release("8.3.27.2214"),
+                    Release("8.3.27.1688"),
+                    Release("8.3.9.1"),
+                    Release("8.5.1.42"),
                 },
             },
         };
-        var vm = CreateVm(service, account: new ItsAccount { Name = "ИТС", Login = "login" },
-            onRunInstaller: path => installerCalls.Add(path));
+        var vm = CreateVm(service);
 
         await vm.LoadCatalogAsync();
-        await vm.DownloadAsync();
+        Assert.Equal(2, vm.VersionTree.Count);   // линии 8.5 и 8.3
 
-        // Установщик не вызывается автоматически (требование issue #330).
-        Assert.Empty(installerCalls);
+        vm.VersionSearchQuery = "1688";
 
-        vm.RunInstaller();
-        Assert.Single(installerCalls);
-        Assert.Equal(vm.DownloadedPath, installerCalls[0]);
+        // Остаются только линия 8.3 → группа 8.3.27 → лист 8.3.27.1688.
+        var line = Assert.Single(vm.VersionTree);
+        Assert.Equal("8.3", line.Name);
+        var group = Assert.Single(line.Children);
+        Assert.Equal("8.3.27", group.Name);
+        Assert.Equal("8.3.27.1688", Assert.Single(group.Children).Name);
+
+        // Выбранные версия/файл при поиске не сбрасываются.
+        Assert.NotNull(vm.SelectedRelease);
+
+        vm.VersionSearchQuery = "   ";
+        Assert.Equal(2, vm.VersionTree.Count);   // пустой запрос — полное дерево
+    }
+
+    [Fact]
+    public async Task CollapseAllAndExpandAll_ToggleNodeState()
+    {
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214"), Release("8.3.9.1") },
+            },
+        };
+        var vm = CreateVm(service);
+
+        await vm.LoadCatalogAsync();
+
+        vm.CollapseAllCommand.Execute(null);
+        Assert.All(vm.VersionTree, root => Assert.False(root.IsExpanded));
+        Assert.All(vm.VersionTree.SelectMany(r => r.Children), n => Assert.False(n.IsExpanded));
+
+        vm.ExpandAllCommand.Execute(null);
+        Assert.All(vm.VersionTree, root => Assert.True(root.IsExpanded));
+        Assert.All(vm.VersionTree.SelectMany(r => r.Children), n => Assert.True(n.IsExpanded));
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_EmptyFilesAfterOk_LogsNoFilesMessage()
+    {
+        // issue #330 (комментарий 7OH): страница version_files получена, но файлов
+        // не распознано — вместо молча пустого списка «Выбор файла» в журнале
+        // появляется понятное сообщение.
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214") },
+            },
+        };
+        var vm = CreateVm(service);
+
+        await vm.LoadCatalogAsync();
+
+        var expected = string.Format(
+            LocalizationManager.T("PlatformDownload.Error.NoFiles"), "8.3.27.2214");
+        Assert.Contains(expected, vm.LogText, StringComparison.Ordinal);
+        Assert.Empty(vm.DistributionOptions);
+        Assert.Null(vm.PickedFile);
     }
 
     [Fact]

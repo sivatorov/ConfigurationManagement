@@ -9,6 +9,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Configuration_Management.Localization;
 using Configuration_Management.Models;
@@ -20,11 +21,11 @@ namespace Configuration_Management
 {
     /// <summary>
     /// Окно «Скачивание версии платформы 1С» (issue #330): дерево версий каталога
-    /// releases.1c.ru (линии 8.3/8.5 → группы сборок → полные версии), выбор варианта
+    /// releases.1c.ru (линии 8.3/8.5 → группы сборок → полные версии) с поиском и
+    /// «свернуть/развернуть все» (комментарий 7OH от 2026-10-08), выбор варианта
     /// дистрибутива для текущей ОС, скачивание файла в выбранную папку с прогрессом.
-    /// Установка НЕ выполняется автоматически — после скачивания пользователь сам
-    /// открывает папку или запускает установщик (Linux: показ готовой команды sudo /
-    /// инструкции, тихая установка не выполняется). Авторизация портала — через учётную
+    /// Кнопки «Запустить установщик» нет — файл скачивается архивом, после скачивания
+    /// пользователь сам открывает папку. Авторизация портала — через учётную
     /// запись ИТС из справочника (#333). Вся логика — в чистой
     /// <see cref="PlatformDownloadViewModel"/>; сервисы берутся из <see cref="AppServices"/>.
     /// Avalonia/Linux-версия WPF-окна <see cref="PlatformDownloadWindow"/>.
@@ -65,7 +66,6 @@ namespace Configuration_Management
                 (url, targetPath, progress, ct) =>
                     _updates.DownloadDistributionAsync(url, targetPath, progress, ct),
                 OpenDownloadedFolder,
-                RunInstaller,
                 chooseDirectory: () => _dialogs.OpenFolderDialog(
                     T("PlatformDownload.ChooseDirectoryTitle"), initialDirectory),
                 is64Bit: Environment.Is64BitOperatingSystem,
@@ -122,45 +122,6 @@ namespace Configuration_Management
                     ArgumentList = { dir },
                     UseShellExecute = false
                 });
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>Запускает установщик по желанию пользователя (НЕ автоматически):
-        /// для .deb/.rpm показывает готовую команду sudo и копирует её в буфер обмена;
-        /// для .tar.gz показывает пошаговую инструкцию. Тихая установка не выполняется.</summary>
-        private bool RunInstaller(string downloadedPath)
-        {
-            try
-            {
-                var file = _viewModel.PickedFile;
-                if (file is null || !File.Exists(downloadedPath))
-                    return false;
-
-                var type = PlatformInstallerCommands.DetectPackageType(file.FileName);
-                if (type == PackageType.TarGz)
-                {
-                    _viewModel.AppendLog(PlatformInstaller.BuildInstallInstruction(file));
-                    return true;
-                }
-
-                var command = PlatformInstaller.BuildSudoInstallCommand(file.FileName);
-                _viewModel.AppendLog(PlatformInstaller.BuildInstallInstruction(file));
-                _viewModel.AppendLog(T("PlatformDownload.Linux.CommandCopied"));
-                try
-                {
-                    if (this.Clipboard is { } cb)
-                        _ = cb.SetTextAsync(command);
-                }
-                catch
-                {
-                    // Буфер недоступен — команда остаётся в журнале окна.
-                }
-
                 return true;
             }
             catch
@@ -239,11 +200,43 @@ namespace Configuration_Management
                 node => node is PlatformCatalogNode catalogNode
                     ? catalogNode.Children
                     : Array.Empty<PlatformCatalogNode>());
+            // issue #330: состояние раскрытия в узле (IsExpanded) — им управляют команды
+            // «Развернуть/Свернуть все» и пользователь (двусторонняя привязка).
+            var itemTheme = new ControlTheme(typeof(TreeViewItem));
+            itemTheme.Setters.Add(new Setter(
+                TreeViewItem.IsExpandedProperty,
+                new Avalonia.Data.Binding(nameof(PlatformCatalogNode.IsExpanded))));
+            _versionsTree.ItemContainerTheme = itemTheme;
+            // null (сброс выделения при перестроении дерева поиском) игнорируется —
+            // выбранные версия и файл не сбрасываются.
             _versionsTree.SelectionChanged += (_, _) =>
             {
-                _viewModel.SelectedVersionNode = _versionsTree.SelectedItem as PlatformCatalogNode;
+                if (_versionsTree.SelectedItem is PlatformCatalogNode node)
+                    _viewModel.SelectedVersionNode = node;
             };
-            listBorder.Child = _versionsTree;
+
+            // issue #330 (комментарий 7OH): поиск по дереву + свернуть/развернуть все.
+            var treeHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(6, 6, 6, 0) };
+            var searchBox = new TextBox
+            {
+                MinHeight = 28,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                FontSize = 12,
+                Watermark = T("PlatformDownload.SearchVersions")
+            };
+            searchBox.TextChanged += (_, _) => _viewModel.VersionSearchQuery = searchBox.Text ?? string.Empty;
+            ToolTip.SetTip(searchBox, T("PlatformDownload.SearchVersionsTooltip"));
+            treeHeader.Children.Add(searchBox);
+            treeHeader.Children.Add(MakeButton(T("PlatformDownload.ExpandAll"), ExecuteExpandAll, secondary: true));
+            treeHeader.Children.Add(MakeButton(T("PlatformDownload.CollapseAll"), ExecuteCollapseAll, secondary: true));
+
+            var treeGrid = new Grid { RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(new GridLength(1, GridUnitType.Star)) } };
+            Grid.SetRow(treeHeader, 0);
+            treeGrid.Children.Add(treeHeader);
+            Grid.SetRow(_versionsTree, 1);
+            treeGrid.Children.Add(_versionsTree);
+
+            listBorder.Child = treeGrid;
             Grid.SetColumn(listBorder, 0);
             body.Children.Add(listBorder);
 
@@ -325,10 +318,10 @@ namespace Configuration_Management
             dirPanel.Children.Add(chooseDir);
             rightPanel.Children.Add(dirPanel);
 
-            // Действия после скачивания.
+            // Действия после скачивания: только «Открыть папку» — дистрибутив скачивается
+            // архивом, запускать установщик из окна не нужно (issue #330, комментарий 7OH).
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = false };
-            actions.Children.Add(MakeButton(T("PlatformDownload.OpenFolder"), () => _viewModel.OpenFolder(), secondary: true));
-            actions.Children.Add(MakeButton(T("PlatformDownload.RunInstaller"), () => _viewModel.RunInstaller(), primary: true));
+            actions.Children.Add(MakeButton(T("PlatformDownload.OpenFolder"), () => _viewModel.OpenFolder(), primary: true));
             _viewModel.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(PlatformDownloadViewModel.HasDownloaded))
@@ -431,6 +424,18 @@ namespace Configuration_Management
             grid.Children.Add(bottom);
 
             return grid;
+        }
+
+        private void ExecuteExpandAll()
+        {
+            if (_viewModel.ExpandAllCommand.CanExecute(null))
+                _viewModel.ExpandAllCommand.Execute(null);
+        }
+
+        private void ExecuteCollapseAll()
+        {
+            if (_viewModel.CollapseAllCommand.CanExecute(null))
+                _viewModel.CollapseAllCommand.Execute(null);
         }
 
         /// <summary>Открывает login.1c.ru в браузере (issue #323/#330/#334): пользователь выполняет

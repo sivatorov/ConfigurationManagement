@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Configuration_Management.Localization;
+using Configuration_Management.Models;
 using Configuration_Management.Services;
 using Configuration_Management.ViewModels;
 
@@ -52,10 +53,6 @@ public partial class PlatformUpdateWindow : Window
                 defaultName ?? "platform.zip",
                 "Архивы (*.zip)|*.zip|Все файлы (*.*)|*.*",
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
-            _ => dialogs.OpenFileDialog(
-                LocalizationManager.T("PlatformUpdate.ChooseInstaller"),
-                "Исполняемые файлы (*.exe)|*.exe|Пакеты Linux (*.deb;*.rpm)|*.deb;*.rpm|Все файлы (*.*)|*.*",
-                null),
             // Проверка готовности к установке (этап 0.3.9.214): процессы 1С, права,
             // свободное место, подпись; диалог подтверждения и уведомление о результате.
             loadRunningProcesses: () => running.GetRunning()
@@ -84,7 +81,9 @@ public partial class PlatformUpdateWindow : Window
             // (WPF CollectionView запрещает изменения из фонового потока NotSupportedException).
             dispatchToUi: action => Dispatcher.InvokeAsync(action),
             // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
-            chooseDistribution: ShowDistributionPicker);
+            chooseDistribution: ShowDistributionPicker,
+            // issue #334: диалог выбора удаляемых старых версий (список с флажками).
+            chooseVersionsToDelete: ShowOldVersionsPicker);
 
         DataContext = _viewModel;
         RowsGrid.ItemsSource = _viewModel.Rows;
@@ -113,17 +112,12 @@ public partial class PlatformUpdateWindow : Window
         _viewModel.SelectedRow = RowsGrid.SelectedItem as PlatformUpdateRowViewModel;
     }
 
-    /// <summary>Таймер отложенного скрытия панели статуса (анти-мигание, issue #334).</summary>
-    private DispatcherTimer? _hideStatusTimer;
-
-    /// <summary>Задержка скрытия панели статуса после завершения операции: панель не
-    /// «мелькает» при мгновенном сбое проверки обновлений (issue #334).</summary>
-    private static readonly TimeSpan StatusHideDelay = TimeSpan.FromMilliseconds(500);
-
-    /// <summary>Автопрокрутка журнала в конец и анти-мигание панели статуса:
-    /// показ при старте операции, скрытие с задержкой <see cref="StatusHideDelay"/>
-    /// после её завершения. PropertyChanged от AppendLog может прийти с ФОНОВОГО
-    /// потока (CheckUpdatesAsync использует ConfigureAwait(false)), а прямой вызов
+    /// <summary>Автопрокрутка журнала в конец и показ панели статуса (issue #334):
+    /// панель появляется при старте операции и ОСТАЁТСЯ видимой после завершения —
+    /// итог («Готово: …», ошибка, путь сохранения) не должен исчезать через полсекунды
+    /// (issue #334: после «только скачать» окно с информационными сообщениями
+    /// «пропадало»). PropertyChanged от AppendLog может прийти с ФОНОВОГО потока
+    /// (CheckUpdatesAsync использует ConfigureAwait(false)), а прямой вызов
     /// ScrollToEnd в WPF бросает InvalidOperationException «Вызывающий поток не может
     /// получить доступ к данному объекту» (issue #334). Прокрутка перекидывается в
     /// UI-поток; защита ?. покрывает закрытие окна до исполнения отложенного вызова.</summary>
@@ -138,20 +132,8 @@ public partial class PlatformUpdateWindow : Window
         if (e.PropertyName != nameof(PlatformUpdateViewModel.IsBusy))
             return;
 
-        _hideStatusTimer?.Stop();
         if (_viewModel.IsBusy)
-        {
             StatusPanel.Visibility = Visibility.Visible;
-            return;
-        }
-
-        _hideStatusTimer = new DispatcherTimer { Interval = StatusHideDelay };
-        _hideStatusTimer.Tick += (_, _) =>
-        {
-            _hideStatusTimer!.Stop();
-            StatusPanel.Visibility = Visibility.Collapsed;
-        };
-        _hideStatusTimer.Start();
     }
 
     /// <summary>Читает установленные версии платформы через Windows-сканер
@@ -200,9 +182,27 @@ public partial class PlatformUpdateWindow : Window
         win.ShowDialog();
     }
 
-    private void OnClose_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Диалог выбора удаляемых старых версий (issue #334): список версий с флажками;
+    /// возвращает выбранные пользователем версии или null при отмене. Может вызываться
+    /// из фонового потока — показ переводится в UI-поток через <see cref="Dispatcher"/>.
+    /// </summary>
+    private IReadOnlyList<PlatformVersionInfo>? ShowOldVersionsPicker(
+        IReadOnlyList<PlatformVersionInfo> candidates)
     {
-        Close();
+        IReadOnlyList<PlatformVersionInfo>? result = null;
+        void Show()
+        {
+            var picker = new PlatformOldVersionsWindow(candidates) { Owner = this };
+            if (picker.ShowDialog() == true)
+                result = picker.Result;
+        }
+
+        if (Dispatcher.CheckAccess())
+            Show();
+        else
+            Dispatcher.Invoke(Show);
+        return result;
     }
 
     /// <summary>

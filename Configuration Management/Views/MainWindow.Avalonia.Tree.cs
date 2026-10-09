@@ -452,6 +452,18 @@ namespace Configuration_Management
                         _vm?.PickPlatformVersionFor(ib);
                     };
                 }
+                else if (InfobasePropertiesTabs.IsConfigurationColumnKey(columns[i].Key))
+                {
+                    // Issue #355: двойной клик по колонкам «Конфигурация»/«№ релиза»
+                    // открывает свойства базы сразу на вкладке «Платформа», как в
+                    // WPF-версии. e.Handled подавляет обработчик запуска базы на карте.
+                    ToolTip.SetTip(cell, LocalizationManager.T("Main.ConfigurationColumnTooltip"));
+                    cell.DoubleTapped += (_, e) =>
+                    {
+                        e.Handled = true;
+                        _vm?.OpenPropertiesOnPlatformTab(ib);
+                    };
+                }
                 grid.Children.Add(cell);
                 Grid.SetColumn(cell, dataColumn);
                 dataColumn++;

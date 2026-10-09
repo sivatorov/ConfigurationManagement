@@ -951,19 +951,43 @@ public class OneCUpdatesService : IOneCUpdatesService
         @"href\s*=\s*[""'](?<url>[^""']*transfer_file[^""']*)[""']",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Регулярное выражение для якорных ссылок с атрибутом href: подпись ссылки
+    /// (текст между тегами) используется как признак кнопки скачивания — на промежуточной
+    /// странице скачивания кнопка подписана «Скачать дистрибутив»/«Скачать файл» (issue
+    /// #352, комментарий 7OH от 2026-10-08), а её href может не содержать transfer_file
+    /// и не заканчиваться расширением дистрибутива.</summary>
+    private static readonly Regex AnchorHrefRegex = new(
+        @"<a\b[^>]*?href\s*=\s*[""'](?<url>[^""']+)[""'][^>]*>(?<text>[\s\S]{0,300}?)</a>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение для адресов передачи/дополнительных файлов
+    /// (<c>transfer_file?…</c>, <c>additional_file?…</c>) в ЛЮБОМ месте ответа страницы
+    /// скачивания — не только в атрибуте href: JS-редиректы, onclick-обработчики,
+    /// встроенные JSON-конфигурации страницы (issue #352).</summary>
+    private static readonly Regex FileEndpointUrlRegex = new(
+        @"(?<url>(?:https?://[^\s""'<>]*)?(?:transfer_file|additional_file)\?[^\s""'<>]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>
     /// Собирает упорядоченный список кандидатов на следующую ссылку на пути к дистрибутиву
-    /// из ответа (JSON/HTML) (issue #352). Приоритет: <c>setup*.zip</c> → полный <c>*.zip</c> →
-    /// <c>setup*.exe</c>/<c>*.rar</c>/<c>*.7z</c> → <c>1cv8.cf</c> → ссылки на передачу файла
-    /// (<c>transfer_file</c>) → ссылки на страницы файлов релиза (<c>version_files</c>) —
-    /// для страниц каталога релизов. Поиск ведётся регулярными выражениями, устойчивыми
-    /// к неизвестной структуре ответа. Internal — для юнит-тестов.
+    /// из ответа (JSON/HTML) (issue #352). Приоритет: якорные ссылки с подписью скачивания
+    /// («Скачать дистрибутив»/«Скачать файл»/Download — кнопка последней страницы) →
+    /// <c>setup*.zip</c> → полный <c>*.zip</c> → <c>setup*.exe</c>/<c>*.rar</c>/<c>*.7z</c> →
+    /// <c>1cv8.cf</c> → ссылки на передачу файла (<c>transfer_file</c>, в том числе вне
+    /// атрибута href) → ссылки на страницы файлов релиза (<c>version_files</c>) — для страниц
+    /// каталога релизов. Поиск ведётся регулярными выражениями, устойчивыми к неизвестной
+    /// структуре ответа. Internal — для юнит-тестов.
     /// </summary>
     internal static List<string> SelectDistributionCandidates(string body)
     {
         var result = new List<string>();
         if (string.IsNullOrWhiteSpace(body))
             return result;
+
+        // Кнопка «Скачать дистрибутив»/«Скачать файл» на промежуточной странице скачивания
+        // (issue #352): подпись якоря — самый надёжный признак следующей ссылки, даже если
+        // href не содержит transfer_file и не является архивом (комментарий 7OH 2026-10-08).
+        AddDownloadAnchorCandidates(body, result);
 
         string? setupZip = null;
         string? fullZip = null;
@@ -973,7 +997,7 @@ public class OneCUpdatesService : IOneCUpdatesService
         foreach (Match m in DistributionUrlRegex.Matches(body))
         {
             var raw = m.Groups["url"].Value.Trim().Trim('"', '\'', '\\');
-            if (string.IsNullOrWhiteSpace(raw))
+            if (string.IsNullOrWhiteSpace(raw) || result.Contains(raw))
                 continue;
 
             var lower = raw.ToLowerInvariant();
@@ -1009,6 +1033,16 @@ public class OneCUpdatesService : IOneCUpdatesService
                 result.Add(raw);
         }
 
+        // Адреса transfer_file/additional_file вне атрибута href (JS-редиректы,
+        // onclick-обработчики, встроенный JSON страницы) — запасной путь, если кнопка
+        // не найдена ни по подписи, ни среди href-ссылок (issue #352, 2026-10-08).
+        foreach (Match m in FileEndpointUrlRegex.Matches(body))
+        {
+            var raw = m.Groups["url"].Value.Trim().Trim('"', '\'');
+            if (!string.IsNullOrWhiteSpace(raw) && !result.Contains(raw))
+                result.Add(raw);
+        }
+
         // Страница каталога релизов: ссылка на файлы последней (самой новой) версии —
         // первая ссылка version_files в таблице (список отсортирован от новых к старым).
         foreach (Match m in VersionFilesHrefRegex.Matches(body))
@@ -1020,6 +1054,37 @@ public class OneCUpdatesService : IOneCUpdatesService
 
         return result;
     }
+
+    /// <summary>Добавляет в <paramref name="result"/> href-адреса якорей, подпись которых
+    /// означает скачивание файла («Скачать дистрибутив», «Скачать файл», Download) — кнопка
+    /// конечного скачивания на промежуточной странице (issue #352). Пустые, «заглушечные»
+    /// («#», «javascript:») и уже добавленные адреса пропускаются; HTML-сущности в href
+    /// (например «&amp;») декодируются.</summary>
+    private static void AddDownloadAnchorCandidates(string body, List<string> result)
+    {
+        foreach (Match m in AnchorHrefRegex.Matches(body))
+        {
+            var href = WebUtility.HtmlDecode(m.Groups["url"].Value.Trim());
+            if (string.IsNullOrWhiteSpace(href) || result.Contains(href))
+                continue;
+
+            var lower = href.ToLowerInvariant();
+            if (lower.StartsWith("#") || lower.StartsWith("javascript:"))
+                continue;
+
+            var text = GetAnchorPlainText(m.Groups["text"].Value);
+            if (!text.Contains("скачать", StringComparison.OrdinalIgnoreCase) &&
+                !text.Contains("download", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            result.Add(href);
+        }
+    }
+
+    /// <summary>Снимает HTML-разметку с текста якоря (внутренние теги заменяются пробелами,
+    /// HTML-сущности декодируются) для распознавания подписи кнопки скачивания (issue #352).</summary>
+    private static string GetAnchorPlainText(string html)
+        => WebUtility.HtmlDecode(Regex.Replace(html, "<[^>]*>", " "));
 
     /// <summary>
     /// Выбирает следующую ссылку на пути к дистрибутиву: первый кандидат, чей абсолютный
@@ -1059,7 +1124,10 @@ public class OneCUpdatesService : IOneCUpdatesService
 
     /// <summary>Расширение дистрибутива в адресе файла (нижний регистр, с точкой) —
     /// если адрес оканчивается на распознанное расширение дистрибутива; иначе пустая
-    /// строка. Query/фрагмент адреса игнорируются. Internal — для юнит-тестов.</summary>
+    /// строка. Если путь адреса не имеет распознанного расширения, проверяется имя файла
+    /// в query-параметрах <c>path</c>/<c>file</c>/<c>filename</c> (issue #352: адрес
+    /// <c>transfer_file?path=…\file.cf</c> несёт расширение только в query). Фрагмент
+    /// адреса игнорируется. Internal — для юнит-тестов.</summary>
     internal static string GetDistributionExtension(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
@@ -1067,11 +1135,34 @@ public class OneCUpdatesService : IOneCUpdatesService
 
         var clean = url.Split('?', '#')[0];
         var ext = Path.GetExtension(clean);
-        return ext.ToLowerInvariant() switch
+        var known = ext.ToLowerInvariant();
+        if (known is ".zip" or ".rar" or ".7z" or ".exe" or ".arj" or ".cf" or ".cfu")
+            return known;
+
+        var query = url[(url.IndexOf('?') + 1)..];
+        var hash = query.IndexOf('#');
+        if (hash >= 0)
+            query = query[..hash];
+
+        foreach (var pair in query.Split('&'))
         {
-            ".zip" or ".rar" or ".7z" or ".exe" or ".arj" or ".cf" or ".cfu" => ext.ToLowerInvariant(),
-            _ => string.Empty,
-        };
+            var eq = pair.IndexOf('=');
+            if (eq <= 0)
+                continue;
+
+            var name = pair[..eq].ToLowerInvariant();
+            if (name is not ("path" or "file" or "filename"))
+                continue;
+
+            var value = pair[(eq + 1)..];
+            var slash = Math.Max(value.LastIndexOf('/'), value.LastIndexOf('\\'));
+            var fileName = slash >= 0 ? value[(slash + 1)..] : value;
+            var candidate = Path.GetExtension(fileName).ToLowerInvariant();
+            if (candidate is ".zip" or ".rar" or ".7z" or ".exe" or ".arj" or ".cf" or ".cfu")
+                return candidate;
+        }
+
+        return string.Empty;
     }
 
     /// <summary>Сравнивает два URI без учёта регистра (для распознавания циклических

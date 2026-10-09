@@ -82,4 +82,79 @@ public sealed class PlatformVersionTreeBuilderTests
         Assert.True(tree[0].Children[0].IsLeaf);
         Assert.Equal("8.5.42", tree[0].Children[0].Name);
     }
+
+    // ---------- Фильтр поиска по дереву (issue #330, комментарий 7OH) ----------
+
+    [Fact]
+    public void Filter_EmptyQuery_ReturnsFullTree()
+    {
+        var tree = BuildSampleTree();
+
+        // Пустой/пробельный запрос возвращает всё дерево (2 линии: 8.5 и 8.3).
+        Assert.Equal(2, PlatformVersionTreeBuilder.Filter(tree, null).Count);
+        Assert.Equal(2, PlatformVersionTreeBuilder.Filter(tree, "").Count);
+        Assert.Equal(2, PlatformVersionTreeBuilder.Filter(tree, "   ").Count);
+        Assert.Empty(PlatformVersionTreeBuilder.Filter(null, "8.3"));
+    }
+
+    [Fact]
+    public void Filter_BySubstring_KeepsOnlyPathToMatchingLeaves()
+    {
+        var tree = BuildSampleTree();
+
+        var filtered = PlatformVersionTreeBuilder.Filter(tree, "1688");
+
+        // Остаются линия 8.3 → группа 8.3.27 → лист 8.3.27.1688; линия 8.5 исчезает.
+        var line = Assert.Single(filtered);
+        Assert.Equal("8.3", line.Name);
+        var group = Assert.Single(line.Children);
+        Assert.Equal("8.3.27", group.Name);
+        Assert.Equal("8.3.27.1688", Assert.Single(group.Children).Name);
+        Assert.NotNull(Assert.Single(group.Children).Release);
+    }
+
+    [Fact]
+    public void Filter_CaseInsensitive_MatchesLeaves()
+    {
+        var tree = BuildSampleTree();
+
+        // Регистр не важен и достаточно частичного совпадения («8.5.1» находит 8.5.1.42).
+        var filtered = PlatformVersionTreeBuilder.Filter(tree, "8.5.1");
+
+        var line = Assert.Single(filtered);
+        Assert.Equal("8.5", line.Name);
+        var group = Assert.Single(line.Children);
+        Assert.Equal("8.5.1", group.Name);
+        Assert.Equal("8.5.1.42", Assert.Single(group.Children).Name);
+    }
+
+    [Fact]
+    public void Filter_NoMatches_ReturnsEmptyList()
+    {
+        var tree = BuildSampleTree();
+
+        Assert.Empty(PlatformVersionTreeBuilder.Filter(tree, "9.9.9.9"));
+    }
+
+    [Fact]
+    public void Filter_DoesNotMutateOriginalTree()
+    {
+        var tree = BuildSampleTree();
+
+        PlatformVersionTreeBuilder.Filter(tree, "1688");
+
+        // Полное дерево сохраняется: линия 8.3 по-прежнему содержит обе группы.
+        Assert.Equal(2, tree.Count);
+        var line83 = tree.Single(n => n.Name == "8.3");
+        Assert.Equal(2, line83.Children.Count);
+    }
+
+    private static IReadOnlyList<PlatformCatalogNode> BuildSampleTree()
+        => PlatformVersionTreeBuilder.BuildFromCatalog(new[]
+        {
+            new PlatformRelease { Version = "8.3.27.2214" },
+            new PlatformRelease { Version = "8.3.27.1688" },
+            new PlatformRelease { Version = "8.3.9.1" },
+            new PlatformRelease { Version = "8.5.1.42" },
+        });
 }

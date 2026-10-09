@@ -2070,15 +2070,20 @@
                                                    HorizontalAlignment="Left" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"
                                                    ToolTip="{Binding LastBackupDisplay}"/>
 
-                                        <TextBlock Grid.Column="13" Text="{Binding ConfigurationNameDisplay}" FontSize="{Binding DataContext.RowSecondaryFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        <!-- Issue #355: двойной клик по колонке «Конфигурация» открывает свойства
+                                             базы на вкладке «Платформа». Tag используется обработчиком двойного
+                                             клика (MainWindow.Events.cs) для распознавания колонки: колонки
+                                             переупорядочиваются через Grid.SetColumn, поэтому индекс не годится. -->
+                                        <TextBlock Grid.Column="13" Tag="Configuration" Text="{Binding ConfigurationNameDisplay}" FontSize="{Binding DataContext.RowSecondaryFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding ConfigurationNameDisplay}"/>
+                                                   ToolTip="{loc:Loc Main.ConfigurationColumnTooltip}"/>
 
-                                        <TextBlock Grid.Column="14" Text="{Binding ConfigurationVersionDisplay}" FontSize="{Binding DataContext.RowSecondaryFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        <!-- Issue #355: то же для колонки «№ релиза». -->
+                                        <TextBlock Grid.Column="14" Tag="ConfigurationVersion" Text="{Binding ConfigurationVersionDisplay}" FontSize="{Binding DataContext.RowSecondaryFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                                    HorizontalAlignment="Left" Margin="6,0,6,0" TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding ConfigurationVersionDisplay}"/>
+                                                   ToolTip="{loc:Loc Main.ConfigurationColumnTooltip}"/>
 
                                         <TextBlock Grid.Column="6" Text="{Binding ParsedLaunchMode}" FontSize="{Binding DataContext.RowSecondaryFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"

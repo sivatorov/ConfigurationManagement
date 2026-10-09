@@ -1292,7 +1292,15 @@ public partial class MainViewModel : ViewModelBase
         RebuildTree();
     }
 
-    private void EditInfobase(Infobase? target = null)
+    /// <summary>
+    /// Issue #355: открывает окно свойств базы сразу на вкладке «Платформа».
+    /// Вызывается при двойном клике по колонкам «Конфигурация»/«№ релиза».
+    /// </summary>
+    public void OpenPropertiesOnPlatformTab(Infobase infobase) =>
+        EditInfobase(infobase, InfobasePropertiesTab.Platform);
+
+    private void EditInfobase(Infobase? target = null,
+        InfobasePropertiesTab initialTab = InfobasePropertiesTab.Default)
     {
         var ib = target ?? SelectedInfobase;
         if (ib is null)
@@ -1310,7 +1318,9 @@ public partial class MainViewModel : ViewModelBase
                 // Существующие теги всех баз — для автодополнения при добавлении (issue #283).
                 _allInfobases.SelectMany(i => i.Tags)
                     .Where(t => !string.IsNullOrWhiteSpace(t))
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
+                    .Distinct(StringComparer.OrdinalIgnoreCase),
+                // Issue #355: вкладка «Платформа» при открытии из конфигурационных колонок.
+                initialTab);
         }
         catch (Exception ex)
         {

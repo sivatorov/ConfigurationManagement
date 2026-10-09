@@ -181,8 +181,9 @@
             </StackPanel>
         </Border>
 
-        <!-- Контент: вкладки -->
-        <TabControl Grid.Row="1" Margin="12,8,12,4" Style="{StaticResource ConnTabControl}">
+        <!-- Контент: вкладки. Имя нужно для выбора начальной вкладки при открытии
+             из конфигурационных колонок списка (issue #355). -->
+        <TabControl x:Name="SectionTabs" Grid.Row="1" Margin="12,8,12,4" Style="{StaticResource ConnTabControl}">
             <!-- База -->
             <TabItem Style="{StaticResource ConnTabItem}">
                 <TabItem.Header>

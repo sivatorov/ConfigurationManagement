@@ -32,9 +32,10 @@ public sealed class PlatformDownloadRowViewModel
 
 /// <summary>
 /// ViewModel окна «Скачивание версии платформы 1С» (issue #330): выбор версии из
-/// каталога <c>releases.1c.ru</c>, разрядности (32/64) и типа дистрибутива, скачивание
-/// файла с прогрессом в выбранную папку. Установка НЕ выполняется автоматически:
-/// после скачивания пользователь сам открывает папку или запускает установщик.
+/// дерева каталога <c>releases.1c.ru</c> (поиск и «свернуть/развернуть все» —
+/// комментарий 7OH от 2026-10-08), разрядности (32/64) и типа дистрибутива, скачивание
+/// файла с прогрессом в выбранную папку. Установщика в окне нет: файл скачивается
+/// архивом, после скачивания пользователь сам открывает папку с файлом.
 /// Авторизация портала — через учётную запись ИТС из справочника (#333, выбранная/
 /// основная), которую резолвит инжектируемый делегат. Сетевые операции выполняются
 /// через <see cref="IPlatformUpdateService"/> и делегат загрузки — класс остаётся
@@ -46,7 +47,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private readonly Func<ItsAccount?> _resolveAccount;
     private readonly Func<string, string, IProgress<double>?, CancellationToken, Task<string?>> _downloadDistribution;
     private readonly Func<string, bool> _openFolder;
-    private readonly Func<string, bool> _runInstaller;
     private readonly Func<string?>? _chooseDirectory;
     private readonly Action<string, string, NotificationKind, NotificationEvent>? _notify;
     private readonly Services.IAppLogger? _appLogger;
@@ -61,6 +61,8 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private readonly Action<Action>? _dispatchToUi;
 
     private readonly StringBuilder _log = new();
+    private IReadOnlyList<PlatformCatalogNode> _versionTreeRoots = Array.Empty<PlatformCatalogNode>();
+    private string _versionSearchQuery = string.Empty;
     private PlatformDownloadRowViewModel? _selectedRelease;
     private bool _isBusy;
     private double _progress;
@@ -86,6 +88,22 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     /// каталога Platform83 + Platform85.
     /// </summary>
     public ObservableCollection<PlatformCatalogNode> VersionTree { get; } = new();
+
+    /// <summary>Поисковый запрос для дерева версий (issue #330, комментарий 7OH): по мере
+    /// ввода дерево фильтруется — остаются версии, содержащие подстроку (без учёта
+    /// регистра), и линии/группы, в которых они есть. Пустой запрос возвращает полное
+    /// дерево. Аналог поиска в обозревателе метаданных, но без debounce: дерево в памяти
+    /// и фильтрация мгновенна.</summary>
+    public string VersionSearchQuery
+    {
+        get => _versionSearchQuery;
+        set
+        {
+            if (!SetProperty(ref _versionSearchQuery, value ?? string.Empty))
+                return;
+            ApplyVersionFilter();
+        }
+    }
 
     /// <summary>Выбранный узел дерева версий (лист). При выборе подгружает файлы релиза.</summary>
     public PlatformCatalogNode? SelectedVersionNode
@@ -128,7 +146,7 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     }
 
     /// <summary>Выбранный пользователем вариант дистрибутива (определяет
-    /// <see cref="PickedFile"/> и доступность команд «Скачать»/«Запустить установщик»).</summary>
+    /// <see cref="PickedFile"/> и доступность команды «Скачать»).</summary>
     public PlatformDistributionOption? SelectedDistribution
     {
         get => _selectedDistribution;
@@ -243,7 +261,7 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         }
     }
 
-    /// <summary>True — скачивание завершено (доступны «Открыть папку»/«Запустить установщик»).</summary>
+    /// <summary>True — скачивание завершено (доступна кнопка «Открыть папку»).</summary>
     public bool HasDownloaded => !string.IsNullOrWhiteSpace(DownloadedPath);
 
     /// <summary>Итоговое сообщение после скачивания: что скачано, куда, что делать дальше.</summary>
@@ -265,11 +283,16 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     /// <summary>Команда «Открыть папку».</summary>
     public RelayCommand OpenFolderCommand { get; }
 
-    /// <summary>Команда «Запустить установщик» (по желанию пользователя, не автоматически).</summary>
-    public RelayCommand RunInstallerCommand { get; }
-
     /// <summary>Команда «Выбрать папку…».</summary>
     public RelayCommand ChooseDirectoryCommand { get; }
+
+    /// <summary>Команда «Развернуть все» для дерева версий (issue #330, комментарий 7OH):
+    /// раскрывает все видимые узлы дерева.</summary>
+    public RelayCommand ExpandAllCommand { get; }
+
+    /// <summary>Команда «Свернуть все» для дерева версий (issue #330, комментарий 7OH):
+    /// сворачивает все видимые узлы дерева.</summary>
+    public RelayCommand CollapseAllCommand { get; }
 
     /// <param name="service">Сервис каталога версий платформы (портал releases.1c.ru).</param>
     /// <param name="resolveAccount">Резолвит учётную запись ИТС для авторизации (выбранная/основная,
@@ -278,8 +301,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     /// возвращает путь сохранённого файла или null при ошибке/отмене.</param>
     /// <param name="openFolder">Открывает папку с файлом (Windows — проводник с выделением, Linux —
     /// файловый менеджер); true — действие инициировано.</param>
-    /// <param name="runInstaller">Запускает установщик по пути скачанного файла (Windows — распаковка
-    /// zip и запуск setup.exe; Linux — показ команды/инструкции). НЕ выполняется автоматически.</param>
     /// <param name="chooseDirectory">Диалог выбора папки сохранения (null при отмене); опционально.</param>
     /// <param name="is64Bit">Целевая разрядность по умолчанию (обычно — разрядность ОС).</param>
     /// <param name="defaultDirectory">Каталог сохранения по умолчанию.</param>
@@ -291,7 +312,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         Func<ItsAccount?> resolveAccount,
         Func<string, string, IProgress<double>?, CancellationToken, Task<string?>> downloadDistribution,
         Func<string, bool> openFolder,
-        Func<string, bool> runInstaller,
         Func<string?>? chooseDirectory = null,
         bool is64Bit = true,
         string? defaultDirectory = null,
@@ -305,7 +325,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         _resolveAccount = resolveAccount ?? (() => null);
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
         _openFolder = openFolder ?? (_ => false);
-        _runInstaller = runInstaller ?? (_ => false);
         _chooseDirectory = chooseDirectory;
         _notify = notify;
         _appLogger = appLogger;
@@ -319,8 +338,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         LoadCatalogCommand = new RelayCommand(async () => await LoadCatalogAsync(), () => !IsBusy);
         DownloadCommand = new RelayCommand(async () => await DownloadAsync(), () => CanDownload());
         OpenFolderCommand = new RelayCommand(OpenFolder, () => HasDownloaded);
-        RunInstallerCommand = new RelayCommand(RunInstaller, () => HasDownloaded && PickedFile is not null);
         ChooseDirectoryCommand = new RelayCommand(ChooseDirectory, () => !IsBusy);
+        ExpandAllCommand = new RelayCommand(() => SetAllNodesExpanded(true), () => VersionTree.Count > 0);
+        CollapseAllCommand = new RelayCommand(() => SetAllNodesExpanded(false), () => VersionTree.Count > 0);
 
         RefreshAccount();
         AppendLog(string.Format(LocalizationManager.T("PlatformDownload.Status.Directory"), TargetDirectory));
@@ -335,7 +355,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     {
         DownloadCommand.RaiseCanExecuteChanged();
         OpenFolderCommand.RaiseCanExecuteChanged();
-        RunInstallerCommand.RaiseCanExecuteChanged();
         LoadCatalogCommand.RaiseCanExecuteChanged();
         ChooseDirectoryCommand.RaiseCanExecuteChanged();
     }
@@ -416,9 +435,10 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                     Releases.Add(new PlatformDownloadRowViewModel(release));
 
                 // Дерево версий «8.x \ 8.x.yy \ полная версия» (паттерн выбора платформы).
-                VersionTree.Clear();
-                foreach (var node in PlatformVersionTreeBuilder.BuildFromCatalog(result.Releases))
-                    VersionTree.Add(node);
+                // Полное дерево хранится отдельно; в VersionTree — результат фильтра поиска
+                // (пустой запрос — полное дерево, issue #330).
+                _versionTreeRoots = PlatformVersionTreeBuilder.BuildFromCatalog(result.Releases);
+                ApplyVersionFilter();
 
                 if (Releases.Count == 0)
                 {
@@ -463,6 +483,16 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 return;
             }
 
+            // issue #330 (комментарий 7OH): страница version_files получена, но файлов
+            // не распознано — молча пустой список недопустим, объясняем причину в журнале.
+            if (row.Release.Files.Count == 0)
+            {
+                AppendLog(string.Format(
+                    LocalizationManager.T("PlatformDownload.Error.NoFiles"), row.Version));
+                _appLogger?.Warn($"Скачивание платформы: страница файлов версии {row.Version} не содержит распознанных дистрибутивов");
+                return;
+            }
+
             // RepickFile меняет свойства, связанные с UI (AvailableDownloadTypes,
             // DownloadTypeOptions, PickedFile) — также строго в UI-потоке (issue #330).
             UiDispatch.Run(_dispatchToUi, RepickFile);
@@ -472,6 +502,32 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             AppendLog($"{LocalizationManager.T("PlatformUpdate.Error.NetworkError")}: {ex.Message}");
             _appLogger?.Error($"Скачивание платформы: исключение при подгрузке файлов {row.Version}: {ex.GetType().Name}: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>Перестраивает дерево версий из сохранённого полного дерева по текущему
+    /// поисковому запросу (issue #330, комментарий 7OH).</summary>
+    private void ApplyVersionFilter()
+    {
+        VersionTree.Clear();
+        foreach (var node in PlatformVersionTreeBuilder.Filter(_versionTreeRoots, VersionSearchQuery))
+            VersionTree.Add(node);
+        ExpandAllCommand.RaiseCanExecuteChanged();
+        CollapseAllCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>Устанавливает <see cref="PlatformCatalogNode.IsExpanded"/> у всех видимых
+    /// узлов дерева (команды «Развернуть все»/«Свернуть все», issue #330).</summary>
+    private void SetAllNodesExpanded(bool isExpanded)
+    {
+        foreach (var root in VersionTree)
+            SetNodeExpanded(root, isExpanded);
+    }
+
+    private static void SetNodeExpanded(PlatformCatalogNode node, bool isExpanded)
+    {
+        node.IsExpanded = isExpanded;
+        foreach (var child in node.Children)
+            SetNodeExpanded(child, isExpanded);
     }
 
     /// <summary>Пересчитывает варианты дистрибутива и выбранный файл
@@ -518,9 +574,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             ?? PlatformDistributionPicker.PickFile(files, Is64Bit, DownloadType, _isWindows);
     }
 
-    /// <summary>Скачивает выбранный дистрибутив в <see cref="TargetDirectory"/> с прогрессом.
-    /// Установка НЕ запускается автоматически — после скачивания пользователь сам открывает
-    /// папку или запускает установщик (требование issue #330, комментарий 7OH).</summary>
+    /// <summary>Скачивает выбранный дистрибутив (архив) в <see cref="TargetDirectory"/> с прогрессом.
+    /// Установщика в окне нет — после скачивания пользователь сам открывает папку с файлом
+    /// (требование issue #330, комментарий 7OH от 2026-10-08).</summary>
     public async Task DownloadAsync()
     {
         if (!CanDownload())
@@ -613,23 +669,6 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         else
         {
             AppendLog(string.Format(LocalizationManager.T("PlatformDownload.Error.OpenFolder"), DownloadedPath));
-        }
-    }
-
-    /// <summary>Запускает установщик по желанию пользователя (не автоматически):
-    /// Windows — распаковка zip и запуск setup.exe; Linux — показ команды/инструкции.</summary>
-    public void RunInstaller()
-    {
-        if (!HasDownloaded || PickedFile is null)
-            return;
-
-        if (_runInstaller(DownloadedPath))
-        {
-            AppendLog(LocalizationManager.T("PlatformDownload.Status.InstallerStarted"));
-        }
-        else
-        {
-            AppendLog(LocalizationManager.T("PlatformDownload.Error.RunInstaller"));
         }
     }
 

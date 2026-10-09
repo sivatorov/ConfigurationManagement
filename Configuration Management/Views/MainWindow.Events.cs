@@ -426,6 +426,14 @@ namespace Configuration_Management
                 }
             }
 
+            // Issue #355: двойной клик по колонкам «Конфигурация»/«№ релиза» открывает
+            // свойства базы сразу на вкладке «Платформа» (без запуска 1С).
+            if (TryOpenPropertiesFromConfigurationColumn(source, e))
+            {
+                e.Handled = true;
+                return;
+            }
+
             var treeViewItem = source is null ? null : FindAncestor<TreeViewItem>(source);
             if (treeViewItem?.DataContext is GroupNodeViewModel groupNode && groupNode.Group is not null)
             {
@@ -470,6 +478,59 @@ namespace Configuration_Management
             {
                 _viewModel.LaunchEnterpriseCommand.Execute(null);
             }
+        }
+
+        /// <summary>
+        /// Issue #355: распознаёт двойной клик по колонкам «Конфигурация»/«№ релиза»
+        /// строки базы и открывает окно свойств сразу на вкладке «Платформа».
+        /// Возвращает <c>true</c>, если клик попал в одну из конфигурационных колонок.
+        /// </summary>
+        private bool TryOpenPropertiesFromConfigurationColumn(DependencyObject? source, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (source is null)
+                return false;
+
+            // 1) Клик по ячейке с Tag="Configuration"/"ConfigurationVersion" (или по её потомку).
+            foreach (var tag in new[] { "Configuration", "ConfigurationVersion" })
+            {
+                if (FindAncestorWithTag(source, tag)?.DataContext is Infobase tagged)
+                {
+                    OpenPropertiesOnPlatformTab(tagged);
+                    return true;
+                }
+            }
+
+            // 2) Клик по пустой области колонки (issue #250-подход): колонку определяем
+            //    по позиции курсора и сравниваем с колонкой элемента-эталона с Tag.
+            //    ReorderGridColumns смещает детей через Grid.SetColumn, поэтому
+            //    фиксированные индексы не совпадают с фактическим положением на экране.
+            var rowGrid = FindAncestorByName(source, "InfobaseRowGrid");
+            if (rowGrid is System.Windows.Controls.Grid ibGrid && ibGrid.DataContext is Infobase rowIb)
+            {
+                var pos = e.GetPosition(ibGrid);
+                var col = GetColumnIndexAt(ibGrid, pos.X);
+                foreach (var tag in new[] { "Configuration", "ConfigurationVersion" })
+                {
+                    var reference = FindDescendantWithTag(ibGrid, tag);
+                    if (reference?.GetValue(System.Windows.Controls.Grid.ColumnProperty) is int c && c == col)
+                    {
+                        OpenPropertiesOnPlatformTab(rowIb);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Issue #355: открывает окно свойств базы сразу на вкладке «Платформа».
+        /// Общая точка для двойного клика по колонкам «Конфигурация»/«№ релиза».
+        /// </summary>
+        private void OpenPropertiesOnPlatformTab(Infobase infobase)
+        {
+            _viewModel.SelectedInfobase = infobase;
+            _viewModel.OpenPropertiesOnPlatformTab(infobase);
         }
 
         private static FrameworkElement? FindAncestorWithTag(DependencyObject? current, string tag)

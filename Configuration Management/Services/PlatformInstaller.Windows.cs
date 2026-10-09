@@ -136,15 +136,30 @@ public static class PlatformInstaller
         if (string.IsNullOrWhiteSpace(extractedDir) || !Directory.Exists(extractedDir))
             return null;
 
-        return FindSetupCore(extractedDir, depth: 0);
+        // 1) Точное имя setup.exe (прежнее поведение).
+        var exact = FindSetupCore(extractedDir, depth: 0, exactName: true);
+        if (exact is not null)
+            return exact;
+
+        // 2) issue #334: обновление-сборка дистрибутива (updsetup) кладёт установщик
+        //    под другим именем («updsetup.exe», «update-setup.exe», …) — ищем любой
+        //    exe с «setup» в имени.
+        return FindSetupCore(extractedDir, depth: 0, exactName: false);
     }
 
-    private static string? FindSetupCore(string directory, int depth)
+    private static string? FindSetupCore(string directory, int depth, bool exactName)
     {
         foreach (var file in Directory.EnumerateFiles(directory))
         {
-            if (string.Equals(Path.GetFileName(file), "setup.exe", StringComparison.OrdinalIgnoreCase))
+            var name = Path.GetFileName(file);
+            var isMatch = exactName
+                ? string.Equals(name, "setup.exe", StringComparison.OrdinalIgnoreCase)
+                : name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                    && name.Contains("setup", StringComparison.OrdinalIgnoreCase);
+            if (isMatch)
+            {
                 return file;
+            }
         }
 
         if (depth >= 3)
@@ -152,7 +167,7 @@ public static class PlatformInstaller
 
         foreach (var sub in Directory.EnumerateDirectories(directory))
         {
-            var found = FindSetupCore(sub, depth + 1);
+            var found = FindSetupCore(sub, depth + 1, exactName);
             if (found != null)
                 return found;
         }
@@ -517,9 +532,21 @@ public static class PlatformInstaller
             }
 
             var setupExe = FindSetupExecutable(tmpDir);
+
+            // issue #334: обновление-сборка дистрибутива (*_updsetup*.zip) содержит
+            // вложенный zip-архив с установщиком. Если setup-файл не найден — пробуем
+            // распаковать вложенные архивы (один уровень) и ищем снова.
+            if (setupExe is null)
+                setupExe = ExtractNestedArchivesAndFind(tmpDir, extractArchive, log);
+
             if (setupExe is null)
             {
-                log?.Report("setup.exe не найден в дистрибутиве.");
+                // issue #334: вместо «setup.exe не найден» без деталей — понятное
+                // сообщение с фактическим содержимым архива, чтобы было видно, что
+                // скачалось и почему установщик не запущен (локализованный текст
+                // ошибки добавляет ViewModel по ключу ErrorSetupNotFound).
+                log?.Report("setup.exe не найден в дистрибутиве. Содержимое архива: "
+                    + BuildArchiveContentsListing(tmpDir));
                 return new PlatformInstallResult(Success: false, ErrorKey: ErrorSetupNotFound, ExitCode: -1);
             }
 
@@ -561,6 +588,101 @@ public static class PlatformInstaller
         {
             TryDeleteDirectory(tmpDir);
         }
+    }
+
+    /// <summary>
+    /// Ищет установщик во вложенных zip-архивах распакованного дистрибутива
+    /// (issue #334, обновление-сборка «*_updsetup*.zip»: zip внутри zip). Каждый
+    /// найденный вложенный архив распаковывается рядом с собой (один уровень),
+    /// после чего поиск setup-файла повторяется по всему временному каталогу.
+    /// Возвращает путь к установщику или null.
+    /// </summary>
+    private static string? ExtractNestedArchivesAndFind(
+        string extractedDir, Func<string, string, bool> extractArchive, IProgress<string>? log)
+    {
+        List<string>? nested;
+        try
+        {
+            nested = Directory.EnumerateFiles(extractedDir, "*.zip", SearchOption.AllDirectories)
+                .Where(path => IsZipArchive(path))
+                .ToList();
+        }
+        catch
+        {
+            return null;
+        }
+
+        foreach (var nestedZip in nested)
+        {
+            var targetDir = nestedZip + "_extracted";
+            try
+            {
+                if (Directory.Exists(targetDir))
+                    continue;
+
+                log?.Report($"Распаковка вложенного архива {Path.GetFileName(nestedZip)}...");
+                if (!extractArchive(nestedZip, targetDir))
+                    continue;
+
+                var found = FindSetupExecutable(extractedDir);
+                if (found is not null)
+                    return found;
+            }
+            catch
+            {
+                // Битый вложенный архив — пробуем следующий.
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Собирает компактный список содержимого распакованного архива (issue #334):
+    /// до 15 верхнеуровневых файлов/каталогов с размерами файлов; при большем числе —
+    /// многоточие. Ошибки чтения игнорируются (возвращается что успели собрать).
+    /// </summary>
+    private static string BuildArchiveContentsListing(string extractedDir)
+    {
+        const int maxEntries = 15;
+        try
+        {
+            var dir = new DirectoryInfo(extractedDir);
+            var entries = dir.EnumerateFileSystemInfos()
+                .OrderBy(info => info.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var names = entries.Take(maxEntries).Select(info =>
+            {
+                if (info is FileInfo file)
+                    return $"{info.Name} ({FormatBytes(file.Length)})";
+                return info.Name + "/";
+            }).ToList();
+
+            if (entries.Count > maxEntries)
+                names.Add($"… +{entries.Count - maxEntries}");
+
+            return names.Count == 0 ? "—" : string.Join(", ", names);
+        }
+        catch
+        {
+            return "—";
+        }
+    }
+
+    /// <summary>Человекочитаемый размер файла («1,5 ГБ», «350 МБ», «10 КБ», «512 Б»).</summary>
+    private static string FormatBytes(long bytes)
+    {
+        const long kb = 1024;
+        const long mb = kb * 1024;
+        const long gb = mb * 1024;
+        if (bytes >= gb)
+            return $"{bytes / (double)gb:0.#} ГБ";
+        if (bytes >= mb)
+            return $"{bytes / (double)mb:0.#} МБ";
+        if (bytes >= kb)
+            return $"{bytes / (double)kb:0.#} КБ";
+        return $"{bytes} Б";
     }
 
     /// <summary>True — файл является zip-архивом (magic-байты «PK»). Ошибки чтения — false.</summary>

@@ -44,6 +44,16 @@ public sealed class OneCUpdatesDistributionResolutionTests
         </body></html>
         """;
 
+    /// <summary>Реалистичная страница файлов релиза: ссылка на файл ведёт на промежуточную
+    /// страницу скачивания version_file (адрес заканчивается на «.zip», как у Trade110).</summary>
+    private const string RealLikeVersionFilesHtml = """
+        <html><body>
+        <table>
+          <tr><td><a href="/version_file?nick=Trade110&ver=11.5.26.118&path=Trade\11_5_26_118\Trade_11_5_26_118_updsetup.zip">Дистрибутив Trade_11_5_26_118_updsetup.zip</a></td></tr>
+        </table>
+        </body></html>
+        """;
+
     /// <summary>Промежуточная страница скачивания файла: реальный файл отдаётся
     /// по ссылке transfer_file.</summary>
     private const string FilePageHtml = """
@@ -129,6 +139,128 @@ public sealed class OneCUpdatesDistributionResolutionTests
 
             Assert.True(saved is not null,
                 "saved is null; log=" + string.Join(" | ", logger.Messages));
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_FromVersionFilePage_ResolveByDownloadCaptionAnchor()
+    {
+        // issue #352 (комментарий 7OH от 2026-10-08): промежуточная страница скачивания
+        // (version_file?...updsetup.zip) содержит кнопку «Скачать дистрибутив», чей href
+        // НЕ содержит transfer_file и не заканчивается расширением дистрибутива. Парсер
+        // должен перейти по ней по ПОДПИСИ кнопки.
+        const string versionFilePageHtml = """
+            <html><body>
+              <h1>Trade 11.5.26.118</h1>
+              <div class="download">
+                <a href="/get_dist?rid=98765" class="btn btn-primary">Скачать дистрибутив</a>
+              </div>
+            </body></html>
+            """;
+        var requests = new List<string>();
+        var handler = new RoutingHandler(url =>
+        {
+            requests.Add(url);
+            if (url.Contains("get_dist", StringComparison.OrdinalIgnoreCase))
+                return Binary(DistributionBytes, "application/octet-stream");
+            if (url.Contains("version_files", StringComparison.OrdinalIgnoreCase))
+                return Html(RealLikeVersionFilesHtml);
+            return Html(versionFilePageHtml);
+        });
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "Trade_11.5.26.118.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/version_files?nick=Trade110&ver=11.5.26.118", targetPath);
+
+            Assert.True(saved is not null,
+                "saved is null; requests=" + string.Join(" | ", requests));
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+            // Ровно 3 запроса: список файлов, страница скачивания файла, конечный файл.
+            Assert.Equal(3, requests.Count);
+            Assert.Contains(requests, u => u.Contains("version_file?", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(requests, u => u.Contains("get_dist", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_AdditionalFilePage_ResolvesCfDistribution()
+    {
+        // issue #352 (комментарий 7OH от 2026-10-08): ссылка additional_file на файл .cf —
+        // промежуточная страница с кнопкой «Скачать файл»; итоговый файл сохраняется
+        // с расширением .cf конечного адреса.
+        const string additionalFilePageHtml = """
+            <html><body>
+              <h1>RasshirenieGISMTsRPT.cf</h1>
+              <a href="/transfer_file?nick=Trade110&path=Trade%5cExtrafiles%5cRasshirenieGISMTsRPT.cf">Скачать файл</a>
+            </body></html>
+            """;
+        var requests = new List<string>();
+        var handler = new RoutingHandler(url =>
+        {
+            requests.Add(url);
+            if (url.Contains("transfer_file", StringComparison.OrdinalIgnoreCase))
+                return Binary(DistributionBytes, "application/octet-stream");
+            return Html(additionalFilePageHtml);
+        });
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "RasshirenieGISMTsRPT.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/additional_file?nick=Trade110&path=Trade%5cExtrafiles%5cRasshirenieGISMTsRPT.cf",
+                targetPath);
+
+            Assert.True(saved is not null,
+                "saved is null; requests=" + string.Join(" | ", requests));
+            Assert.EndsWith(".cf", saved, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+            Assert.False(File.Exists(targetPath));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_CaptionAnchorWithStubHref_UsesTransferFileFromBody()
+    {
+        // Запасной путь: кнопка «Скачать дистрибутив» — заглушка («#»), реальный адрес
+        // передачи файла встречается только в onclick-обработчике (вне атрибута href).
+        const string stubPageHtml = """
+            <html><body>
+              <a href="#" onclick="window.location='/transfer_file?file=setup_1cv8.zip'">Скачать дистрибутив</a>
+            </body></html>
+            """;
+        var handler = new RoutingHandler(url =>
+            url.Contains("transfer_file", StringComparison.OrdinalIgnoreCase)
+                ? Binary(DistributionBytes, "application/zip")
+                : Html(stubPageHtml));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "setup_1cv8.zip");
+
+        try
+        {
+            var saved = await service.DownloadUpdateAsync(
+                "https://releases.1c.ru/version_file?nick=X&ver=1&path=setup_1cv8.zip", targetPath);
+
+            Assert.NotNull(saved);
             Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
         }
         finally
@@ -270,6 +402,103 @@ public sealed class OneCUpdatesDistributionResolutionTests
     }
 
     [Fact]
+    public void SelectDistributionCandidates_DownloadCaptionAnchor_WithoutKnownExtension_FoundFirst()
+    {
+        // issue #352 (2026-10-08): кнопка «Скачать дистрибутив» ведёт на адрес без
+        // transfer_file и без расширения дистрибутива — кандидат берётся по подписи.
+        const string page = """
+            <html><body>
+              <a href="/get_dist?rid=98765" class="btn">Скачать дистрибутив</a>
+              <a href="/version_files?nick=X&ver=1">Версия 1</a>
+            </body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.NotEmpty(candidates);
+        Assert.Equal("/get_dist?rid=98765", candidates[0]);
+    }
+
+    [Fact]
+    public void SelectDistributionCandidates_DownloadCaptionWithNestedTags_Recognized()
+    {
+        // Подпись кнопки может быть размечена внутренними тегами: <span>Скачать</span> дистрибутив.
+        const string page = """
+            <html><body>
+              <a href="/get_dist?rid=1"><span>Скачать</span> дистрибутив</a>
+            </body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.NotEmpty(candidates);
+        Assert.Equal("/get_dist?rid=1", candidates[0]);
+    }
+
+    [Fact]
+    public void SelectDistributionCandidates_DownloadCaptionHtmlEncodedHref_Decoded()
+    {
+        // HTML-сущности в href («&») декодируются — иначе сервер получил бы битый адрес.
+        const string page = """
+            <html><body>
+              <a href="/transfer_file?nick=X&ver=1&path=a.zip">Скачать дистрибутив</a>
+            </body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.NotEmpty(candidates);
+        Assert.Equal("/transfer_file?nick=X&ver=1&path=a.zip", candidates[0]);
+    }
+
+    [Fact]
+    public void SelectDistributionCandidates_StubAnchorHrefs_Skipped()
+    {
+        // Заглушечные адреса кнопки («#», javascript:) не должны попадать в кандидаты.
+        const string page = """
+            <html><body>
+              <a href="#" onclick="go()">Скачать дистрибутив</a>
+              <a href="javascript:void(0)">Скачать файл</a>
+            </body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.DoesNotContain(candidates, c => c.StartsWith("#", StringComparison.Ordinal));
+        Assert.DoesNotContain(candidates, c => c.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void SelectDistributionCandidates_TransferFileOutsideHref_Found()
+    {
+        // Адрес передачи файла встречается только в JS-редиректе — не в атрибуте href.
+        const string page = """
+            <html><body><script>
+              window.location.href = '/transfer_file?nick=X&path=Trade\\setup_1cv8.zip';
+            </script></body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.Contains(candidates, c => c.Contains("transfer_file", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void SelectDistributionCandidates_AdditionalFileOutsideHref_Found()
+    {
+        // additional_file-адрес вне href (JS/JSON страницы) тоже распознаётся как кандидат.
+        const string page = """
+            <html><body><script>
+              window.location.href = '/additional_file?nick=X&path=Trade\\Extrafiles\\file.cf';
+            </script></body></html>
+            """;
+
+        var candidates = OneCUpdatesService.SelectDistributionCandidates(page);
+
+        Assert.Contains(candidates, c => c.Contains("additional_file", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void SelectDistributionCandidates_EmptyBody_ReturnsEmptyList()
     {
         Assert.Empty(OneCUpdatesService.SelectDistributionCandidates(string.Empty));
@@ -302,6 +531,24 @@ public sealed class OneCUpdatesDistributionResolutionTests
             path, "https://releases.1c.ru/transfer_file?file=setup_1cv8"));
         Assert.Equal(path, OneCUpdatesService.AdjustTargetExtension(path, null));
         Assert.Equal(path, OneCUpdatesService.AdjustTargetExtension(path, string.Empty));
+    }
+
+    [Fact]
+    public void GetDistributionExtension_FileNameInQuery_Recognized()
+    {
+        // issue #352: адрес передачи файла несёт имя файла только в query
+        // (transfer_file?path=…\Trade_11_5_26_118_updsetup.zip, …\RasshirenieGISMTsRPT.cf).
+        Assert.Equal(".zip", OneCUpdatesService.GetDistributionExtension(
+            "https://releases.1c.ru/transfer_file?nick=X&path=Trade%5c11_5%5csetup_updsetup.zip"));
+        Assert.Equal(".cf", OneCUpdatesService.GetDistributionExtension(
+            "https://releases.1c.ru/transfer_file?nick=X&path=Trade%5cExtrafiles%5cRasshirenieGISMTsRPT.cf"));
+        Assert.Equal(".rar", OneCUpdatesService.GetDistributionExtension(
+            "https://releases.1c.ru/transfer_file?file=setup_1cv8.rar"));
+        // Без расширения — пусто (прежнее поведение).
+        Assert.Equal(string.Empty, OneCUpdatesService.GetDistributionExtension(
+            "https://releases.1c.ru/transfer_file?file=setup_1cv8"));
+        Assert.Equal(string.Empty, OneCUpdatesService.GetDistributionExtension(
+            "https://releases.1c.ru/transfer_file?nick=X&ver=1"));
     }
 
     [Fact]

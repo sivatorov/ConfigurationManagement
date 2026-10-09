@@ -38,6 +38,9 @@ namespace Configuration_Management
         /// В него окно «Связать с конфигурацией» пишет поля связи напрямую (issue #346).</summary>
         private readonly Infobase _editingInfobase;
 
+        /// <summary>Начальная вкладка окна (issue #355): используется в BuildRoot,
+        /// поэтому параметр конструктора запоминается в поле.</summary>
+        private readonly InfobasePropertiesTab _initialTab;
         private readonly PasswordBox _passwordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
         private readonly PasswordBox _repositoryPasswordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
         private readonly PasswordBox _configuratorPasswordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
@@ -62,8 +65,10 @@ namespace Configuration_Management
             IEnumerable<string>? installedPlatformVersions = null, string? defaultGroupPath = null,
             IEnumerable<string>? availableServers = null, IEnumerable<int>? availablePorts = null,
             IEnumerable<string>? availableConfigurations = null,
-            IEnumerable<string>? availableTags = null)
+            IEnumerable<string>? availableTags = null,
+            InfobasePropertiesTab initialTab = InfobasePropertiesTab.Default)
         {
+            _initialTab = initialTab;
             // Размеры и базовый кегль по разметке (ConnectionSettingsWindow.xaml:13).
             Title = LocalizationManager.T("ConnectionSettings.Title");
             Width = 760;
@@ -477,6 +482,9 @@ namespace Configuration_Management
             tabs.Margin = new Thickness(12, 8, 12, 4);
             Grid.SetRow(tabs, 1);
             grid.Children.Add(tabs);
+            // Issue #355: начальная вкладка окна (например, «Платформа» при открытии
+            // двойным кликом по колонкам «Конфигурация»/«№ релиза» списка баз).
+            tabs.SelectedIndex = InfobasePropertiesTabs.GetTabIndex(_initialTab);
 
             var bottom = BuildBottomBar();
             Grid.SetRow(bottom, 2);

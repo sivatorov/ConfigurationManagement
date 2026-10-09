@@ -54,7 +54,8 @@ namespace Configuration_Management
             IReadOnlyList<string>? customLaunchParameters = null,
             Action<IReadOnlyList<string>>? onCustomLaunchParametersChanged = null,
             IEnumerable<string>? availableRepositoryServers = null,
-            IEnumerable<string>? availableTags = null)
+            IEnumerable<string>? availableTags = null,
+            InfobasePropertiesTab initialTab = InfobasePropertiesTab.Default)
         {
             _customLaunchParameters = customLaunchParameters ?? Array.Empty<string>();
             _onCustomLaunchParametersChanged = onCustomLaunchParametersChanged;
@@ -125,6 +126,11 @@ namespace Configuration_Management
             // на запуск не влиял (двойной клик использует ResolveDoubleClickAction), поэтому его
             // комбобокс убран из окна свойств базы.
             InitDoubleClickActionCombo();
+
+            // Issue #355: начальная вкладка окна (например, «Платформа» при открытии
+            // двойным кликом по колонкам «Конфигурация»/«№ релиза» списка баз).
+            if (initialTab != InfobasePropertiesTab.Default)
+                SectionTabs.SelectedIndex = InfobasePropertiesTabs.GetTabIndex(initialTab);
         }
 
         /// <summary>Добавляет тег из поля ввода (кнопка «Добавить») — issue #283.</summary>

@@ -131,7 +131,7 @@ public static class OneCPlatformCatalogParser
                 // Колонка «Список версий»: остальной текст строки (версии, из которых
                 // можно обновиться напрямую до этой версии).
                 var sources = ExtractSources(row, version);
-                entries.Add((version, link.Groups["href"].Value.Trim(), sources));
+                entries.Add((version, NormalizeHref(link.Groups["href"].Value), sources));
             }
         }
 
@@ -142,7 +142,7 @@ public static class OneCPlatformCatalogParser
             {
                 var version = NormalizeVersion(link.Groups["ver"].Value);
                 if (IsValidVersionText(version))
-                    entries.Add((version, link.Groups["href"].Value.Trim(), new List<string>()));
+                    entries.Add((version, NormalizeHref(link.Groups["href"].Value), new List<string>()));
             }
         }
 
@@ -244,6 +244,27 @@ public static class OneCPlatformCatalogParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Нормализует ссылку на страницу файлов релиза: декодирование HTML-сущностей
+    /// (реальный HTML портала содержит <c>&amp;</c> в атрибутах href) и удаление
+    /// пробельных символов. БЕЗ декодирования адрес <c>/version_files?nick=…&amp;ver=…</c>
+    /// уходит на портал с параметром «amp;ver», сервер не находит версию и отвечает
+    /// страницей без дистрибутивов — список «Выбор файла» оставался пустым
+    /// (issue #330, комментарий 7OH от 2026-10-08).
+    /// </summary>
+    private static string NormalizeHref(string raw)
+    {
+        var decoded = WebUtility.HtmlDecode(raw ?? string.Empty);
+        var sb = new StringBuilder(decoded.Length);
+        foreach (var c in decoded)
+        {
+            if (!char.IsWhiteSpace(c))
+                sb.Append(c);
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>

@@ -17,9 +17,10 @@ namespace Configuration_Management.ViewModels;
 /// версий технологической платформы (колонки Версия/Размер/Статус/Совместимые базы),
 /// проверка каталога портала, загрузка дистрибутива и установка. Сетевые операции
 /// (получение каталога, подгрузка файлов, выбор дистрибутива) выполняются через
-/// <see cref="IPlatformUpdateService"/>, а загрузка файла, установка, диалоги выбора
-/// файлов и чтение установленных версий — через инжектируемые делегаты: класс
-/// остаётся чистым и покрывается тестами на fake-сервисах без сети и UI.
+/// <see cref="IPlatformUpdateService"/>, а загрузка файла, установка, диалог
+/// сохранения, выбор дистрибутива/удаляемых версий и чтение установленных версий —
+/// через инжектируемые делегаты: класс остаётся чистым и покрывается тестами на
+/// fake-сервисах без сети и UI.
 /// </summary>
 public sealed class PlatformUpdateViewModel : ViewModelBase
 {
@@ -30,7 +31,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     private readonly Func<string, string, string?, IProgress<string>?, CancellationToken,
         Task<(bool Success, string? ErrorKey, int ExitCode)>> _installFromZip;
     private readonly Func<string?, string?> _saveFileDialog;
-    private readonly Func<string?, string?> _openFileDialog;
 
     // Проверка готовности к установке (этап 0.3.9.214) — всё через делегаты,
     // чтобы класс оставался чистым и тестируемым.
@@ -50,6 +50,15 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Task<(bool Success, string? ErrorKey)>>? _deleteVersionDirectory;
     private readonly Func<string, string> _buildUninstallCommand;
     private readonly Action<string> _copyToClipboard;
+
+    /// <summary>
+    /// Диалог выбора удаляемых старых версий (issue #334): по списку кандидатов
+    /// (<see cref="OldVersionCleaner.SelectCandidates"/>) возвращает подмножество,
+    /// которое пользователь выбрал для удаления, или null (отмена). null — делегат
+    /// не задан (тесты/окружение без UI): используется общий диалог подтверждения
+    /// <c>_confirmDialog</c> на весь список.
+    /// </summary>
+    private readonly Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? _chooseVersionsToDelete;
 
     /// <summary>True — Windows-ветка удаления (инжектирован делегат удаления каталога);
     /// false — Linux-ветка (показ команды sudo с копированием в буфер).</summary>
@@ -74,7 +83,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     private IReadOnlyList<PlatformRelease> _availableReleases = new List<PlatformRelease>();
     private bool _isBusy;
     private double _progress;
-    private string? _selectedInstallerPath;
     private PlatformUpdateRowViewModel? _selectedRow;
     private bool _installHadWarnings;
 
@@ -118,14 +126,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Путь к выбранному локальному файлу установщика (команда «Выбрать файл
-    /// установщика…»); полный сценарий установки из локального файла — этап 0.3.9.214.</summary>
-    public string? SelectedInstallerPath
-    {
-        get => _selectedInstallerPath;
-        set => SetProperty(ref _selectedInstallerPath, value);
-    }
-
     /// <summary>Команда «Проверить обновления».</summary>
     public RelayCommand CheckCommand { get; }
 
@@ -134,9 +134,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
     /// <summary>Команда «Только скачать» (сохранение дистрибутива через диалог).</summary>
     public RelayCommand DownloadOnlyCommand { get; }
-
-    /// <summary>Команда «Выбрать файл установщика…».</summary>
-    public RelayCommand ChooseInstallerCommand { get; }
 
     /// <summary>Команда «Удалить старые версии…»: отбор кандидатов
     /// (<see cref="OldVersionCleaner.SelectCandidates"/>), диалог подтверждения,
@@ -154,7 +151,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     /// <c>PlatformInstaller.InstallFromZipAsync</c>); возвращает результат установки.</param>
     /// <param name="saveFileDialog">Диалог сохранения файла: имя по умолчанию → путь
     /// или null при отмене.</param>
-    /// <param name="openFileDialog">Диалог выбора файла: подсказка → путь или null при отмене.</param>
     public PlatformUpdateViewModel(
         IPlatformUpdateService service,
         IInfobaseRepository infobaseRepository,
@@ -163,7 +159,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Func<string, string, string?, IProgress<string>?, CancellationToken,
             Task<(bool Success, string? ErrorKey, int ExitCode)>> installFromZip,
         Func<string?, string?>? saveFileDialog = null,
-        Func<string?, string?>? openFileDialog = null,
         Func<IReadOnlyList<string>>? loadRunningProcesses = null,
         Func<bool>? isAdministrator = null,
         Func<string, long?>? getFreeBytes = null,
@@ -178,7 +173,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Func<string, string>? buildUninstallCommand = null,
         Action<string>? copyToClipboard = null,
         Action<Action>? dispatchToUi = null,
-        Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null)
+        Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null,
+        Func<IReadOnlyList<PlatformVersionInfo>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
@@ -188,7 +184,7 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
         _installFromZip = installFromZip ?? throw new ArgumentNullException(nameof(installFromZip));
         _saveFileDialog = saveFileDialog ?? (_ => null);
-        _openFileDialog = openFileDialog ?? (_ => null);
+        _chooseVersionsToDelete = chooseVersionsToDelete;
 
         // Проверка готовности к установке (этап 0.3.9.214): по умолчанию — «проблем нет»,
         // чтобы существующие вызовы (WPF-окно этапа 213 и тесты) продолжали работать.
@@ -215,8 +211,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             async () => await DownloadAndInstallAsync(), () => !IsBusy && SelectedRow is not null);
         DownloadOnlyCommand = new RelayCommand(
             async () => await DownloadOnlyAsync(), () => !IsBusy && SelectedRow is not null);
-        ChooseInstallerCommand = new RelayCommand(
-            async () => await ChooseInstallerAsync(), () => !IsBusy);
         RemoveOldVersionsCommand = new RelayCommand(
             async () => await RemoveOldVersionsAsync(), () => !IsBusy);
     }
@@ -539,40 +533,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         }
     }
 
-    /// <summary>«Выбрать файл установщика…»: инжектируемый диалог открытия файла; выбранный
-    /// путь сохраняется в <see cref="SelectedInstallerPath"/>. Несуществующий путь —
-    /// ошибка в журнале. Полный сценарий установки из локального файла — этап 0.3.9.214.</summary>
-    public async Task ChooseInstallerAsync()
-    {
-        if (IsBusy)
-            return;
-
-        IsBusy = true;
-        try
-        {
-            var path = _openFileDialog(null);
-            if (string.IsNullOrWhiteSpace(path))
-                return;
-
-            if (!File.Exists(path))
-            {
-                AppendLog($"{LocalizationManager.T("PlatformUpdate.Error.NotFound")}: {path}");
-                return;
-            }
-
-            SelectedInstallerPath = path;
-            AppendLog(path);
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"{LocalizationManager.T("PlatformUpdate.Error.Network")}: {ex.Message}");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
     /// <summary>Перечитывает установленные версии и перестраивает список строк по
     /// уже полученному каталогу (без повторного сетевого запроса). Вызывается после
     /// успешной установки — новая версия появляется в списке как установленная.</summary>
@@ -594,13 +554,17 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// «Удалить старые версии…» (этап 0.3.9.215): отбирает кандидатов через
+    /// «Удалить старые версии…» (этап 0.3.9.215, issue #334): отбирает кандидатов через
     /// <see cref="OldVersionCleaner.SelectCandidates"/> (новейшая, используемые базами
-    /// и запущенные исключаются), показывает диалог подтверждения со списком версий.
-    /// Windows: удаляет каталоги версий последовательно через инжектируемый делегат
+    /// и запущенные исключаются). Если кандидатов нет — показывает ИНФОРМАЦИОННОЕ
+    /// уведомление (не прячет его), а не только строку в журнале. Если кандидаты есть —
+    /// показывает диалог со списком версий, где пользователь выбирает, что удалить:
+    /// инжектируемый делегат <c>_chooseVersionsToDelete</c> (окна) либо резервный
+    /// общий диалог подтверждения на весь список. Windows: удаляет каталоги выбранных
+    /// версий последовательно через инжектируемый делегат
     /// (<c>PlatformInstaller.DeleteVersionDirectoryAsync</c>) и перестраивает список.
-    /// Linux: показывает команду удаления (<c>PlatformInstaller.BuildSudoUninstallCommand</c>)
-    /// в журнале и копирует её в буфер обмена (делегат). Результат — уведомление
+    /// Linux: показывает команды удаления (<c>PlatformInstaller.BuildSudoUninstallCommand</c>)
+    /// в журнале и копирует их в буфер обмена (делегат). Результат — уведомление
     /// (<see cref="NotificationEvent.Update"/>, ключ «Notify.PlatformUpdateRemoved»).
     /// Отмена диалога — no-op с записью в журнал.
     /// </summary>
@@ -649,25 +613,51 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.RemoveNothing"));
                 _appLogger?.Info("Обновление платформы: нет старых версий для удаления");
+                // issue #334: результат операции должен быть ВИДЕН пользователю —
+                // информационное уведомление вместо «молчаливой» строки в журнале.
+                _notify(
+                    LocalizationManager.T("PlatformUpdate.WindowTitle"),
+                    LocalizationManager.T("PlatformUpdate.RemoveNothing"),
+                    NotificationKind.Info,
+                    NotificationEvent.Update);
                 return;
             }
 
-            // Диалог подтверждения со списком кандидатов.
-            var listText = string.Join("\n", candidates.Select(c => $"• {c.Display}"));
-            var message = string.Format(
-                LocalizationManager.T("PlatformUpdate.Confirm.RemoveMessage"), listText);
-            var confirmed = _confirmDialog(LocalizationManager.T("PlatformUpdate.Confirm.RemoveTitle"), message);
-            if (!confirmed)
+            // issue #334: диалог со списком версий, где пользователь выбирает, что удалить
+            // (окна); без делегата (тесты/окружение без UI) — общий вопрос на весь список.
+            IReadOnlyList<PlatformVersionInfo> selected;
+            if (_chooseVersionsToDelete is not null)
             {
-                AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
-                _appLogger?.Info("Обновление платформы: удаление старых версий отменено пользователем");
-                return;
+                var chosen = _chooseVersionsToDelete(candidates);
+                if (chosen is null || chosen.Count == 0)
+                {
+                    AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
+                    _appLogger?.Info("Обновление платформы: удаление старых версий отменено пользователем");
+                    return;
+                }
+
+                selected = chosen;
+            }
+            else
+            {
+                var listText = string.Join("\n", candidates.Select(c => $"• {c.Display}"));
+                var message = string.Format(
+                    LocalizationManager.T("PlatformUpdate.Confirm.RemoveMessage"), listText);
+                var confirmed = _confirmDialog(LocalizationManager.T("PlatformUpdate.Confirm.RemoveTitle"), message);
+                if (!confirmed)
+                {
+                    AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
+                    _appLogger?.Info("Обновление платформы: удаление старых версий отменено пользователем");
+                    return;
+                }
+
+                selected = candidates;
             }
 
             // Linux-ветка: команды sudo в журнал + копирование в буфер (без удаления из GUI).
             if (!_useWindowsDelete)
             {
-                foreach (var candidate in candidates)
+                foreach (var candidate in selected)
                 {
                     var command = _buildUninstallCommand(OldVersionCleaner.CleanVersion(candidate.Display));
                     AppendLog(command);
@@ -676,10 +666,10 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
                 AppendLog(LocalizationManager.T("PlatformUpdate.Linux.Copied"));
                 _appLogger?.Info(
-                    $"Обновление платформы: показаны команды удаления для {candidates.Count} версий");
+                    $"Обновление платформы: показаны команды удаления для {selected.Count} версий");
                 NotifyResult(string.Format(
                     LocalizationManager.T("Notify.PlatformUpdateRemoved"),
-                    string.Join(", ", candidates.Select(c => c.Display))));
+                    string.Join(", ", selected.Select(c => c.Display))));
                 return;
             }
 
@@ -687,7 +677,7 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var removed = new List<string>();
             var failedCount = 0;
             var deleteLog = new Progress<string>(AppendLog);
-            foreach (var candidate in candidates)
+            foreach (var candidate in selected)
             {
                 AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Progress.Install"), candidate.Display));
                 _appLogger?.Info($"Обновление платформы: удаление каталога версии {candidate.Display}");
@@ -777,6 +767,16 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             AppendLog(LocalizationManager.T(result.ErrorKey));
             if (IsAuthIssue(result.Status))
                 AppendLog(LocalizationManager.T("PlatformUpdate.AuthAdvice"));
+            return false;
+        }
+
+        // issue #330 (комментарий 7OH): страница version_files получена, но файлов
+        // не распознано — операция не продолжается с «пустым» выбором дистрибутива,
+        // пользователь получает понятное сообщение.
+        if (row.Release.Files.Count == 0)
+        {
+            AppendLog(string.Format(
+                LocalizationManager.T("PlatformDownload.Error.NoFiles"), row.Version));
             return false;
         }
 
@@ -918,7 +918,6 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         CheckCommand.RaiseCanExecuteChanged();
         DownloadAndInstallCommand.RaiseCanExecuteChanged();
         DownloadOnlyCommand.RaiseCanExecuteChanged();
-        ChooseInstallerCommand.RaiseCanExecuteChanged();
         RemoveOldVersionsCommand.RaiseCanExecuteChanged();
     }
 }

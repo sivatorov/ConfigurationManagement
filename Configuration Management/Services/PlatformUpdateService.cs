@@ -198,10 +198,15 @@ public sealed class PlatformUpdateService : IPlatformUpdateService
 
         if (isWindows)
         {
-            // Windows: zip-архив с setup.exe; x64 предпочтительнее x86.
+            // Windows: zip-архив с setup.exe; x64 предпочтительнее x86. Архивы
+            // «обновление-сборка дистрибутива» (updsetup, issue #334) не содержат
+            // setup.exe — в автовыборе их пропускаем, если есть обычный дистрибутив.
             var zips = files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip).ToList();
             if (zips.Count == 0)
                 return null;
+            var installable = zips.Where(f => !PlatformDistributionPicker.IsUpdateSetupPackage(f)).ToList();
+            if (installable.Count > 0)
+                zips = installable;
             return zips.FirstOrDefault(Is64Bit) ?? zips.FirstOrDefault(Is32Bit) ?? zips[0];
         }
 

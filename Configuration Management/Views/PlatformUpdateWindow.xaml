@@ -213,25 +213,15 @@
             </Grid>
         </Border>
 
-        <!-- Нижняя панель: команды / закрыть -->
-        <Grid Grid.Row="3" Margin="0,14,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <!-- Действия при проблемах авторизации (issue #323/#330/#334): открыть
-                     login.1c.ru в браузере, справочник учётных данных ИТС. -->
-                <Button Height="36" Style="{StaticResource OutlineButtonStyle}" Click="OnOpenLoginClick">
-                    <TextBlock Text="{loc:Loc Updates.OpenLoginPage}" VerticalAlignment="Center"/>
-                </Button>
-                <Button Height="36" Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
-                        Click="OnItsAccountsClick">
-                    <TextBlock Text="{loc:Loc Updates.OpenItsAccounts}" VerticalAlignment="Center"/>
-                </Button>
-
-                <Button Height="36" Margin="8,0,0,0" Style="{StaticResource PrimaryButtonStyle}"
+        <!-- Нижняя панель (issue #334): две строки кнопок. Первая строка — «Проверить
+             обновления», «Учётки», «Открыть в браузере»; вторая — операции с версиями.
+             Кнопка «Закрыть» убрана: есть кнопка закрытия окна и ESC. Кнопка «Выбрать
+             файл установщика» удалена как лишняя (issue #334). -->
+        <StackPanel Grid.Row="3" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal">
+                <!-- Первая строка: главная команда + действия при проблемах авторизации
+                     (issue #323/#330/#334): справочник учётных данных ИТС, login.1c.ru. -->
+                <Button Height="36" Style="{StaticResource PrimaryButtonStyle}"
                         Command="{Binding CheckCommand}">
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="Refresh" Width="16" Height="16" Foreground="White"/>
@@ -241,6 +231,19 @@
                 </Button>
 
                 <Button Height="36" Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                        Click="OnItsAccountsClick">
+                    <TextBlock Text="{loc:Loc Updates.OpenItsAccounts}" VerticalAlignment="Center"/>
+                </Button>
+
+                <Button Height="36" Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                        Click="OnOpenLoginClick">
+                    <TextBlock Text="{loc:Loc Updates.OpenLoginPage}" VerticalAlignment="Center"/>
+                </Button>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <!-- Вторая строка: операции с версиями. -->
+                <Button Height="36" Style="{StaticResource OutlineButtonStyle}"
                         Command="{Binding DownloadAndInstallCommand}">
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="DownloadOutline" Width="16" Height="16"
@@ -256,16 +259,6 @@
                 </Button>
 
                 <Button Height="36" Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
-                        Command="{Binding ChooseInstallerCommand}">
-                    <StackPanel Orientation="Horizontal">
-                        <materialDesign:PackIcon Kind="FolderOpenOutline" Width="16" Height="16"
-                                                 Foreground="{DynamicResource AccentBrush}"/>
-                        <TextBlock Text="{loc:Loc PlatformUpdate.ChooseInstaller}" Margin="6,0,0,0"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-
-                <Button Height="36" Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
                         Command="{Binding RemoveOldVersionsCommand}">
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="DeleteOutline" Width="16" Height="16"
@@ -275,11 +268,6 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
-
-            <Button Grid.Column="1" Width="120" Height="36" Style="{StaticResource OutlineButtonStyle}"
-                    Click="OnClose_Click">
-                <TextBlock Text="{loc:Loc Updates.Close}" VerticalAlignment="Center"/>
-            </Button>
-        </Grid>
+        </StackPanel>
     </Grid>
 </Window>

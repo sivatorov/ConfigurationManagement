@@ -106,24 +106,67 @@
             <!-- Список версий: дерево 8.x \ 8.x.yy \ полная версия, минимум 8 строк -->
             <Border Grid.Column="0" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
                     CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
-                <TreeView x:Name="VersionsTree" ItemsSource="{Binding VersionTree}"
-                          BorderThickness="0" Background="Transparent"
-                          Padding="4" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                          SelectedItemChanged="OnVersionsTree_SelectedItemChanged">
-                    <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource ModernTreeViewItem}">
-                            <Setter Property="IsExpanded" Value="True"/>
-                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-                            <Setter Property="Padding" Value="2,1"/>
-                        </Style>
-                    </TreeView.ItemContainerStyle>
-                    <TreeView.ItemTemplate>
-                        <HierarchicalDataTemplate DataType="{x:Type svc:PlatformCatalogNode}"
-                                                  ItemsSource="{Binding Children}">
-                            <TextBlock Text="{Binding Name}" Margin="0,1" VerticalAlignment="Center"/>
-                        </HierarchicalDataTemplate>
-                    </TreeView.ItemTemplate>
-                </TreeView>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- issue #330 (комментарий 7OH): поиск по дереву + свернуть/развернуть все -->
+                    <Grid Grid.Row="0" Margin="6,6,6,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid Grid.Column="0">
+                            <TextBox MinHeight="28" VerticalContentAlignment="Center"
+                                     Padding="6,0" FontSize="12"
+                                     Text="{Binding VersionSearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="{loc:Loc PlatformDownload.SearchVersionsTooltip}"/>
+                            <!-- Подложка-подсказка: видна, пока запрос пуст (поверх TextBox) -->
+                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12" FontStyle="Italic"
+                                       IsHitTestVisible="False" Text="{loc:Loc PlatformDownload.SearchVersions}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding VersionSearchQuery}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                        <Button Grid.Column="1" Margin="6,0,0,0" Content="{loc:Loc PlatformDownload.ExpandAll}"
+                                Command="{Binding ExpandAllCommand}" Style="{StaticResource OutlineButtonStyle}"/>
+                        <Button Grid.Column="2" Margin="6,0,0,0" Content="{loc:Loc PlatformDownload.CollapseAll}"
+                                Command="{Binding CollapseAllCommand}" Style="{StaticResource OutlineButtonStyle}"/>
+                    </Grid>
+
+                    <TreeView x:Name="VersionsTree" Grid.Row="1" ItemsSource="{Binding VersionTree}"
+                              BorderThickness="0" Background="Transparent"
+                              Padding="4" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              SelectedItemChanged="OnVersionsTree_SelectedItemChanged">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem" BasedOn="{StaticResource ModernTreeViewItem}">
+                                <!-- issue #330: состояние раскрытия в узле (IsExpanded) — им управляют
+                                     команды «Развернуть/Свернуть все» и пользователь -->
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                <Setter Property="Padding" Value="2,1"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate DataType="{x:Type svc:PlatformCatalogNode}"
+                                                      ItemsSource="{Binding Children}">
+                                <TextBlock Text="{Binding Name}" Margin="0,1" VerticalAlignment="Center"/>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </Grid>
             </Border>
 
             <!-- Параметры справа: разрядность, файл, учётная запись, папка, действия, прогресс -->
@@ -208,13 +251,13 @@
                                 Command="{Binding ChooseDirectoryCommand}" Style="{StaticResource OutlineButtonStyle}"/>
                     </Grid>
 
-                    <!-- Действия после скачивания -->
+                    <!-- Действия после скачивания: только «Открыть папку» — дистрибутив
+                         скачивается архивом, запускать установщик из окна не нужно
+                         (issue #330, комментарий 7OH от 2026-10-08). -->
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <Button Content="{loc:Loc PlatformDownload.OpenFolder}"
-                                Command="{Binding OpenFolderCommand}" Style="{StaticResource OutlineButtonStyle}"
-                                Margin="0,0,8,0"/>
-                        <Button Content="{loc:Loc PlatformDownload.RunInstaller}"
-                                Command="{Binding RunInstallerCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                                Command="{Binding OpenFolderCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                MinWidth="130"/>
                     </StackPanel>
 
                     <!-- Прогресс -->

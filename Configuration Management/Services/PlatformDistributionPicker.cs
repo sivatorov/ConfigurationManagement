@@ -174,6 +174,19 @@ public static class PlatformDistributionPicker
         return name.Contains("thin", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// True — файл «обновление-сборка дистрибутива» (issue #334): имя содержит
+    /// «updsetup»/«update-setup». Такой архив предназначен для сборки обновлений,
+    /// а не для установки платформы — при автовыборе он ставится в конец списка
+    /// и не рекомендуется, но остаётся доступным пользователю вручную.
+    /// </summary>
+    public static bool IsUpdateSetupPackage(PlatformReleaseFile file)
+    {
+        var name = file?.FileName ?? string.Empty;
+        return name.Contains("updsetup", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("update-setup", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Отображаемое имя типа дистрибутива (ключ локализации).</summary>
     public static string TypeLocalizationKey(PlatformDownloadType type) => type switch
     {
@@ -235,11 +248,13 @@ public static class PlatformDistributionPicker
         return options;
     }
 
-    /// <summary>Приоритет типа при сортировке вариантов (меньше — выше).</summary>
+    /// <summary>Приоритет типа при сортировке вариантов (меньше — выше). Файлы
+    /// «обновление-сборка дистрибутива» (updsetup, issue #334) уходят в конец списка —
+    /// они не подходят для установки платформы напрямую.</summary>
     private static int TypeRank(PlatformReleaseFile file, bool isWindows)
     {
         if (isWindows)
-            return IsThinClient(file) ? 1 : 0;
+            return IsUpdateSetupPackage(file) ? 2 : (IsThinClient(file) ? 1 : 0);
         return file.Kind switch
         {
             PlatformDistributionKind.LinuxDeb => 0,
@@ -255,7 +270,8 @@ public static class PlatformDistributionPicker
         return type switch
         {
             PlatformDownloadType.Client =>
-                files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip && !IsThinClient(f)).ToList(),
+                files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip
+                    && !IsThinClient(f) && !IsUpdateSetupPackage(f)).ToList(),
             PlatformDownloadType.ThinClient =>
                 files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip && IsThinClient(f)).ToList(),
             PlatformDownloadType.Package =>
@@ -275,7 +291,11 @@ public static class PlatformDistributionPicker
             var zips = files.Where(f => f.Kind == PlatformDistributionKind.WindowsSetupZip).ToList();
             if (zips.Count == 0)
                 return zips;
-            var full = zips.Where(f => !IsThinClient(f)).ToList();
+            // issue #334: архивы «обновление-сборка дистрибутива» (updsetup) не
+            // рекомендуются — полный клиент без них предпочтительнее.
+            var full = zips.Where(f => !IsThinClient(f) && !IsUpdateSetupPackage(f)).ToList();
+            if (full.Count == 0)
+                full = zips.Where(f => !IsThinClient(f)).ToList();
             return full.Count > 0 ? full : zips;
         }
 
