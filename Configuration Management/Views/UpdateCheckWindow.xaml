@@ -144,6 +144,14 @@
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
+                            <!-- issue #352.4: ограничение обновлений той же линией версии
+                                 (3.1.2.345 → можно 3.1.3.456, нельзя 3.2.3.456); при смене
+                                 галочки цепочки пересобираются из кэшированного каталога. -->
+                            <CheckBox x:Name="NoBumpCheckBox" Margin="0,6,0,0" HorizontalAlignment="Left"
+                                      Content="{loc:Loc Updates.NoBump}"
+                                      ToolTip="{loc:Loc Updates.NoBump.Hint}"
+                                      IsChecked="{Binding NoVersionBump, Mode=OneWay}"
+                                      Checked="OnNoVersionBumpChanged" Unchecked="OnNoVersionBumpChanged"/>
                         </StackPanel>
 
                         <StackPanel Grid.Column="2">
@@ -233,11 +241,20 @@
                             <TextBlock x:Name="ChainFolderText" Grid.Column="1" FontSize="12"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextSecondaryBrush}"/>
-                            <Button x:Name="ChainOpenFolderButton" Grid.Column="2" MinWidth="110" Height="28"
-                                    Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
-                                    Click="OnOpenChainFolderClick">
-                                <TextBlock Text="{loc:Loc Updates.Chain.OpenFolder}" VerticalAlignment="Center"/>
-                            </Button>
+                            <!-- issue #352.2: кнопки «Выбрать…» и «Открыть» в одной панели;
+                                 выбор папки сохраняет её в настройках без диалога при скачивании. -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <Button x:Name="ChainChooseFolderButton" MinWidth="96" Height="28"
+                                        Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                                        Click="OnChooseChainFolderClick">
+                                    <TextBlock Text="{loc:Loc Updates.Chain.ChooseFolderButton}" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button x:Name="ChainOpenFolderButton" MinWidth="96" Height="28"
+                                        Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                                        Click="OnOpenChainFolderClick">
+                                    <TextBlock Text="{loc:Loc Updates.Chain.OpenFolder}" VerticalAlignment="Center"/>
+                                </Button>
+                            </StackPanel>
                         </Grid>
 
                         <DataGrid x:Name="ChainGrid" AutoGenerateColumns="False" IsReadOnly="True"

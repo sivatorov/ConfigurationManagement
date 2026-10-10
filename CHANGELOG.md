@@ -9,6 +9,47 @@
 > `0.3.x.y`) к сводным выпускам по основным версиям, чтобы отделить значимые
 > возможности от точечных исправлений и регрессий предыдущих сборок.
 
+## [0.3.12.1] — 2026-10-10
+
+### Исправлено (issue #352)
+
+- **Окно проверки обновлений, кнопка «Скачать»** — для URL каталога проекта
+  (`releases.1c.ru/project/<ник>` без nick/ver, ссылка из лога 7OH) теперь запрашивается
+  полная таблица каталога ([`OneCUpdatesService.BuildAllUpdatesCatalogUrl`](Configuration%20Management/Services/OneCUpdatesService.cs))
+  и из неё извлекается страница файлов последней версии (новые
+  [`ExtractNickFromProjectUrl`](Configuration%20Management/Services/OneCUpdatesService.cs) /
+  [`FindLatestVersionFilesUrl`](Configuration%20Management/Services/OneCUpdatesService.cs)):
+  появляется диалог выбора «Дистрибутив обновления» / «Полный дистрибутив»; скачивание
+  больше не падает на `additional_file?…RasshirenieGISMTsRPT.cf`.
+- **Панель папки цепочки** — добавлена кнопка «Выбрать…» рядом с «Открыть» (WPF и Avalonia,
+  общий выбор через сохранённую папку); «Скачать цепочку» не переспрашивает папку, если
+  сохранённая существует ([`UpdateChainDownloadPlanner.GetChainInitialFolder`](Configuration%20Management/Services/UpdateChainDownloadPlanner.cs));
+  расчёт высоты окна при появлении таблицы цепочки ([`EnsureWindowHeightForChain`](Configuration%20Management/Views/UpdateCheckWindow.xaml.cs),
+  цель 800 вместо 760) учитывает панель папки — кнопка «Открыть» больше не обрезается
+  снизу и кликабельна (Windows и Linux).
+- **Диалог «Попробовать ещё раз?»** — по истечении 60-секундного отсчёта автоматически
+  срабатывает «Да» ([`ChainRetryWindow`](Configuration%20Management/Views/ChainRetryWindow.xaml.cs)
+  и Avalonia-версия; ранее — автоматический «Нет»): докачка недостающих файлов цепочки
+  начинается без участия пользователя; кнопка «Нет» явно закрывает диалог с результатом
+  «отмена» ([`DialogResult`](Configuration%20Management/Views/ChainRetryWindow.xaml.cs) = false).
+
+### Добавлено (issue #352)
+
+- **Галочка «Не повышать»** под «Последней версией» в окне проверки обновлений
+  (Windows/WPF и Linux/Avalonia): ограничивает целевую версию первыми двумя числами
+  (3.1.2.345 → можно 3.1.3.456, нельзя 3.2.3.456) — [`UpdateChainBuilder.SelectCappedTarget`](Configuration%20Management/Services/UpdateChainBuilder.cs)
+  + свойство [`UpdateCheckRowViewModel.NoVersionBump`](Configuration%20Management/ViewModels/UpdateCheckRowViewModel.cs);
+  каталог версий кэшируется после проверки, при переключении галочки цепочки и «Последняя
+  версия» пересобираются из кэша без повторного запроса сети; при скачивании по кнопке
+  «Скачать» также берётся ограниченная последняя версия. Ключи локализации
+  `Updates.NoBump`/`Updates.NoBump.Hint`/`Updates.Chain.ChooseFolderButton` (ru/en).
+
+### Тесты
+
+Полный набор `dotnet test` зелёный (**2259**); кросс-сборка Linux (`dotnet build -p:BuildLinux=true`)
+без ошибок. Новые: [`UpdateChainVersionCapTests`](ConfigurationManagement.Tests/UpdateChainVersionCapTests.cs) (+11),
+[`OneCUpdatesUrlTests`](ConfigurationManagement.Tests/OneCUpdatesUrlTests.cs) (+7: резолв nick/ver из каталога проекта).
+
 ## [0.3.12.0] — 2026-10-10
 
 ### Исправлено

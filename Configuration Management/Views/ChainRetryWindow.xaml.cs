@@ -10,8 +10,9 @@ namespace Configuration_Management;
 /// <summary>
 /// Диалог «Попробовать ещё раз?» после загрузки цепочки обновлений с ошибками
 /// (issue #352.3): кнопка «Да» с обратным отсчётом 60 с; по нуле — автоматический
-/// «Нет». «Да» вызывает повторную загрузку цепочки (планировщик пропустит уже
-/// скачанные файлы и покажет корректный «Скачивается X из Y»).
+/// «Да» (issue #352.3, комментарий 7OH от 2026-10-10: повтор должен начаться сам,
+/// пользователь мог отойти). «Да» вызывает повторную загрузку цепочки (планировщик
+/// пропустит уже скачанные файлы и покажет корректный «Скачивается X из Y»).
 /// </summary>
 public partial class ChainRetryWindow : Window
 {
@@ -62,9 +63,11 @@ public partial class ChainRetryWindow : Window
         UpdateYesButtonText();
         if (ChainRetryCountdown.IsFinished(_secondsLeft))
         {
-            // Время вышло — автоматический «Нет».
+            // Время вышло — автоматический «Да» (issue #352.3): повтор начинается
+            // без участия пользователя; окно закрывается результатом true.
             _timer.Stop();
-            Close();
+            RetryRequested = true;
+            DialogResult = true;
         }
     }
 
@@ -82,6 +85,7 @@ public partial class ChainRetryWindow : Window
     {
         _timer.Stop();
         RetryRequested = false;
+        DialogResult = false; // явный результат вместо зависимости от IsCancel (issue #352.3)
     }
 }
 #endif

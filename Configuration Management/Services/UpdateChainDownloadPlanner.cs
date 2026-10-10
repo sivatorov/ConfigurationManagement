@@ -37,4 +37,12 @@ public static class UpdateChainDownloadPlanner
 
         return pending;
     }
+
+    /// <summary>Начальная папка диалога выбора каталога цепочки (issue #352.2):
+    /// сохранённая в настройках, если существует, иначе профиль пользователя. Общая
+    /// для WPF- и Avalonia-окон проверки обновлений. Internal — для юнит-тестов.</summary>
+    internal static string GetChainInitialFolder(string? settingsFolder)
+        => !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
+            ? settingsFolder
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 }

@@ -41,6 +41,17 @@ public class UpdateCheckRowViewModel : ViewModelBase
         set => SetProperty(ref _latestVersion, value ?? string.Empty);
     }
 
+    private bool _noVersionBump;
+
+    /// <summary>Ограничение «Не повышать» (issue #352.4): целевая версия — максимум среди
+    /// релизов каталога с теми же первыми двумя числами версии (3.1.2.345 → 3.1.3.456,
+    /// но не 3.2.3.456). Сессионное состояние строки; в настройках не сохраняется.</summary>
+    public bool NoVersionBump
+    {
+        get => _noVersionBump;
+        set => SetProperty(ref _noVersionBump, value);
+    }
+
     private ConfigUpdateStatus _status;
 
     /// <summary>Итоговый статус проверки.</summary>

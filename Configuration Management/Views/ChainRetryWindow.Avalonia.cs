@@ -14,7 +14,9 @@ namespace Configuration_Management;
 /// <summary>
 /// Диалог «Попробовать ещё раз?» после загрузки цепочки обновлений с ошибками
 /// (issue #352.3): кнопка «Да» с обратным отсчётом 60 с; по нуле — автоматический
-/// «Нет». Avalonia/Linux-версия окна <see cref="ChainRetryWindow"/> (строится кодом).
+/// «Да» (issue #352.3, комментарий 7OH от 2026-10-10: повтор должен начаться сам,
+/// пользователь мог отойти). Avalonia/Linux-версия окна <see cref="ChainRetryWindow"/>
+/// (строится кодом).
 /// </summary>
 public sealed class ChainRetryWindow : ModalWindowBase
 {
@@ -82,8 +84,10 @@ public sealed class ChainRetryWindow : ModalWindowBase
             UpdateYesButtonText();
             if (ChainRetryCountdown.IsFinished(_secondsLeft))
             {
-                // Время вышло — автоматический «Нет».
+                // Время вышло — автоматический «Да» (issue #352.3): повтор начинается
+                // без участия пользователя.
                 _timer.Stop();
+                _retryRequested = true;
                 Close();
             }
         };

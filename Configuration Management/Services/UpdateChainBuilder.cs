@@ -89,6 +89,46 @@ public static class UpdateChainBuilder
     }
 
     /// <summary>
+    /// Целевая версия с учётом ограничения «Не повышать» (issue #352.4): максимум среди
+    /// релизов каталога с теми же первыми двумя числами версии (major.minor), что у
+    /// текущей. Пример: текущая 3.1.2.345 → может быть выбрана 3.1.3.456, но НЕ 3.2.3.456.
+    /// Null — текущая версия пустая/непарсимая (галочка не влияет) либо в каталоге нет
+    /// ни одной версии той же линии (цепочка не строится). Internal — для юнит-тестов.
+    /// </summary>
+    internal static string? SelectCappedTarget(
+        string currentVersion, IReadOnlyList<PlatformRelease> releases)
+    {
+        if (string.IsNullOrWhiteSpace(currentVersion))
+            return null;
+
+        var parts = currentVersion.Trim().Split('.');
+        if (parts.Length < 2
+            || !int.TryParse(parts[0], out var major)
+            || !int.TryParse(parts[1], out var minor))
+            return null;
+
+        string? best = null;
+        foreach (var release in releases ?? Array.Empty<PlatformRelease>())
+        {
+            var version = release?.Version;
+            if (string.IsNullOrWhiteSpace(version))
+                continue;
+
+            var versionParts = version.Trim().Split('.');
+            if (versionParts.Length < 2
+                || !int.TryParse(versionParts[0], out var versionMajor)
+                || !int.TryParse(versionParts[1], out var versionMinor)
+                || versionMajor != major || versionMinor != minor)
+                continue;
+
+            if (best is null || OneCPlatformCatalogParser.CompareVersions(version, best) > 0)
+                best = version.Trim();
+        }
+
+        return best;
+    }
+
+    /// <summary>
     /// True — версию <paramref name="currentVersion"/> нет в каталоге: она не совпадает
     /// ни с одной версией релизов и не упомянута в «Списках версий» ни одного релиза
     /// (issue #352: признак отозванного релиза). Пустая текущая версия — не «отсутствует».

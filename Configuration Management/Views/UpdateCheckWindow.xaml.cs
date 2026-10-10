@@ -35,6 +35,14 @@ public partial class UpdateCheckWindow : Window
     /// <summary>Активна ли ссылка каталога релизов (валидный http/https-адрес, issue #323).</summary>
     private bool _urlLinkEnabled;
 
+    /// <summary>Кэш последнего каталога версий (issue #352.4): переключение галочки
+    /// «Не повышать» пересобирает цепочки из него, не дёргая сеть.</summary>
+    private IReadOnlyList<PlatformRelease>? _catalogReleases;
+
+    /// <summary>Глобальная последняя версия из проверки (без ограничения «Не повышать»);
+    /// используется при снятии галочки (issue #352.4).</summary>
+    private string _latestVersionFromCheck = string.Empty;
+
     /// <param name="infobase">Информационная база, для которой выполняется проверка обновлений.</param>
     public UpdateCheckWindow(Infobase infobase)
     {
@@ -357,8 +365,10 @@ public partial class UpdateCheckWindow : Window
             IReadOnlyList<UpdateFileChoice> choices = Array.Empty<UpdateFileChoice>();
             try
             {
+                // issue #352.4: при «Не повышать» скачивается ограниченная последняя версия.
+                var downloadUrl = ResolveDownloadUrl(row);
                 choices = await Task.Run(() =>
-                    _updates.GetReleaseFileChoicesAsync(row.Url, CancellationToken.None));
+                    _updates.GetReleaseFileChoicesAsync(downloadUrl, CancellationToken.None));
             }
             catch (Exception ex)
             {
@@ -471,6 +481,10 @@ public partial class UpdateCheckWindow : Window
             return;
         }
 
+        // Глобальная последняя версия запоминается до наложения ограничения
+        // «Не повышать» — она возвращается при снятии галочки (issue #352.4).
+        _latestVersionFromCheck = _row.LatestVersion;
+
         try
         {
             // issue #352: каталог запрашивается с allUpdates=true — без параметра портал
@@ -479,7 +493,21 @@ public partial class UpdateCheckWindow : Window
             var catalog = await Task.Run(() => _updates.GetUpdateCatalogAsync(catalogUrl, token), token);
             if (catalog.Status == PortalFetchStatus.Ok)
             {
-                var set = UpdateChainBuilder.Build(_row.CurrentVersion, _row.LatestVersion, catalog.Releases);
+                // Кэш каталога (issue #352.4): переключение галочки «Не повышать»
+                // пересобирает цепочки из него без повторного запроса.
+                _catalogReleases = catalog.Releases;
+
+                var target = _row.NoVersionBump
+                    ? UpdateChainBuilder.SelectCappedTarget(_row.CurrentVersion, catalog.Releases)
+                        ?? _row.LatestVersion
+                    : _row.LatestVersion;
+                if (!string.Equals(target, _row.LatestVersion, StringComparison.Ordinal))
+                {
+                    _row.LatestVersion = target;
+                    LatestVersionText.Text = target;
+                }
+
+                var set = UpdateChainBuilder.Build(_row.CurrentVersion, target, catalog.Releases);
                 _row.SetChains(set);
             }
             else
@@ -521,15 +549,103 @@ public partial class UpdateCheckWindow : Window
     }
 
     /// <summary>Поднимает высоту окна при появлении таблицы вариантов цепочки (issue #352):
-    /// 2–3 строки таблицы должны быть видны без прокрутки. Ограничение — рабочая область
-    /// экрана (окно не должно становиться выше неё).</summary>
+    /// 2–3 строки таблицы должны быть видны без прокрутки. Цель 800 (было 760): в 0.3.12.1
+    /// под таблицей добавлена панель папки цепочки с кнопками «Выбрать…»/«Открыть»
+    /// (issue #352.2) — без запаса кнопка «Открыть» оказывалась обрезана снизу.
+    /// Ограничение — рабочая область экрана (окно не должно становиться выше неё).</summary>
     private void EnsureWindowHeightForChain()
     {
         var target = Math.Min(
-            760d,
+            800d,
             Math.Max(SystemParameters.WorkArea.Height - 40d, MinHeight));
         if (Height < target)
             Height = target;
+    }
+
+    /// <summary>Кнопка «Выбрать…» рядом с папкой цепочки (issue #352.2): выбор каталога
+    /// сохраняется в настройках, без диалога при нажатии «Скачать цепочку».</summary>
+    private void OnChooseChainFolderClick(object sender, RoutedEventArgs e)
+    {
+        ChooseChainFolder();
+    }
+
+    /// <summary>Общий выбор папки цепочки (issue #352.2): диалог выбора каталога →
+    /// сохранение в настройки → обновление строки пути. Null — пользователь отменил.</summary>
+    private string? ChooseChainFolder()
+    {
+        var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
+        var folder = _dialogs.OpenFolderDialog(
+            LocalizationManager.T("Updates.Chain.ChooseFolder"),
+            UpdateChainDownloadPlanner.GetChainInitialFolder(settingsFolder));
+        if (string.IsNullOrWhiteSpace(folder))
+            return null;
+
+        SaveChainFolder(folder);
+        UpdateChainFolderDisplay();
+        return folder;
+    }
+
+    /// <summary>Переключение галочки «Не повышать» (issue #352.4): цепочки и «Последняя
+    /// версия» пересчитываются из кэшированного каталога (без повторного запроса сети).</summary>
+    private void OnNoVersionBumpChanged(object sender, RoutedEventArgs e)
+    {
+        ApplyNoVersionBump(NoBumpCheckBox.IsChecked == true);
+    }
+
+    /// <summary>Применяет ограничение «Не повышать» (issue #352.4): при включении целевой
+    /// версией становится максимум той же линии (3.1.x), при выключении — глобальная
+    /// последняя из проверки; цепочки пересобираются из кэшированного каталога.</summary>
+    private void ApplyNoVersionBump(bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(_row.CurrentVersion))
+            return;
+
+        var releases = _catalogReleases;
+        if (releases is null || releases.Count == 0)
+        {
+            // Каталог ещё не получен (проверка не выполнялась/не удалась) — повторный
+            // запрос как при обычной проверке (issue #352.4).
+            _ = RunCheckAsync();
+            return;
+        }
+
+        var target = enabled
+            ? UpdateChainBuilder.SelectCappedTarget(_row.CurrentVersion, releases)
+            : _latestVersionFromCheck;
+        if (string.IsNullOrWhiteSpace(target))
+            return;
+
+        _row.LatestVersion = target;
+        LatestVersionText.Text = target;
+        var set = UpdateChainBuilder.Build(_row.CurrentVersion, target, releases);
+        _row.SetChains(set);
+        UpdateChainDisplay();
+    }
+
+    /// <summary>Адрес для кнопки «Скачать» (issue #352.4): при включённой галочке «Не
+    /// повышать» и известной ограниченной последней версии строится прямая ссылка
+    /// version_files?nick&ver этой версии — качается 3.1.x-максимум, а не глобальная
+    /// последняя (единообразно с цепочками).</summary>
+    private string ResolveDownloadUrl(UpdateCheckRowViewModel row)
+    {
+        var url = row.Url;
+        if (!row.NoVersionBump || _catalogReleases is null || _catalogReleases.Count == 0
+            || string.IsNullOrWhiteSpace(row.CurrentVersion))
+            return url;
+
+        var capped = UpdateChainBuilder.SelectCappedTarget(row.CurrentVersion, _catalogReleases);
+        if (string.IsNullOrWhiteSpace(capped)
+            || string.Equals(capped, row.LatestVersion, StringComparison.OrdinalIgnoreCase))
+            return url;
+
+        var nick = OneCUpdatesService.ExtractNickAndVersion(url).Nick;
+        if (string.IsNullOrWhiteSpace(nick))
+            nick = OneCUpdatesService.ExtractNickFromProjectUrl(url);
+        if (string.IsNullOrWhiteSpace(nick))
+            return url;
+
+        return OneCUpdatesService.ToAbsoluteVersionFilesUrl(
+            $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(capped)}", url);
     }
 
     /// <summary>Кнопка «Скачать цепочку» (issue #352).</summary>
@@ -552,19 +668,15 @@ public partial class UpdateCheckWindow : Window
         if (variant is null || variant.Steps.Count == 0)
             return;
 
-        var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
-        var initialFolder = !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
-            ? settingsFolder
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var folder = _dialogs.OpenFolderDialog(
-            LocalizationManager.T("Updates.Chain.ChooseFolder"),
-            initialFolder);
-        if (string.IsNullOrWhiteSpace(folder))
-            return;
-
-        // issue #352.2: выбранная папка запоминается — следующий диалог и кнопка «Открыть».
-        SaveChainFolder(folder);
-        UpdateChainFolderDisplay();
+        // issue #352.2: сохранённая папка используется без повторного вопроса;
+        // диалог показывается только если папка не выбрана либо не существует.
+        var folder = _repository.LoadSettings().UpdateChainFolder;
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            folder = ChooseChainFolder();
+            if (string.IsNullOrWhiteSpace(folder))
+                return;
+        }
 
         _row.IsChainDownloading = true;
         _row.ChainProgress = 0;

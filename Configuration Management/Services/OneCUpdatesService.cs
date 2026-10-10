@@ -957,7 +957,9 @@ public class OneCUpdatesService : IOneCUpdatesService
     /// Из ссылки <c>additional_file?nick=…&ver=…</c> (или <c>version_file?…</c>) извлекаются
     /// nick/ver, строится адрес страницы файлов версии и с неё собираются кандидаты:
     /// подписи «Дистрибутив обновления» (приоритет) и «Полный дистрибутив»; каждый кандидат
-    /// резолвится до конечного адреса. Без nick/ver (страница каталога) — пустой список.
+    /// резолвится до конечного адреса. Для адреса каталога проекта (<c>/project/<ник></c>
+    /// без ver, issue #352.1 регрессия) последняя версия резолвится по полной таблице каталога
+    /// (<see cref="BuildAllUpdatesCatalogUrl"/> + <see cref="FindLatestVersionFilesUrl"/>).
     /// </summary>
     public async Task<IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
         string url, CancellationToken ct = default)
@@ -969,14 +971,47 @@ public class OneCUpdatesService : IOneCUpdatesService
         try
         {
             var (nick, ver) = ExtractNickAndVersion(url);
-            if (string.IsNullOrWhiteSpace(nick) || string.IsNullOrWhiteSpace(ver))
+            if (string.IsNullOrWhiteSpace(nick))
+                nick = ExtractNickFromProjectUrl(url);
+
+            if (string.IsNullOrWhiteSpace(nick))
             {
                 _logger.Info($"[Updates] Файлы релиза не запрошены: в ссылке нет nick/ver ({url}).");
                 return result;
             }
 
-            var versionFilesUrl = ToAbsoluteVersionFilesUrl(
-                $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(ver)}", url);
+            string versionFilesUrl;
+            if (string.IsNullOrWhiteSpace(ver))
+            {
+                // Каталог проекта (/project/<nick> без ver): резолвим страницу файлов
+                // последней версии по полной таблице каталога (issue #352.1).
+                var catalogUrl = BuildAllUpdatesCatalogUrl(url);
+                if (string.IsNullOrWhiteSpace(catalogUrl))
+                {
+                    _logger.Info($"[Updates] Файлы релиза не запрошены: в ссылке нет ver ({url}).");
+                    return result;
+                }
+
+                var catalogBody = await GetPageTextAsync(catalogUrl, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(catalogBody))
+                {
+                    _logger.Warn($"[Updates] Каталог проекта недоступен: {catalogUrl}");
+                    return result;
+                }
+
+                versionFilesUrl = FindLatestVersionFilesUrl(catalogBody, catalogUrl) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(versionFilesUrl))
+                {
+                    _logger.Warn($"[Updates] В каталоге проекта не найдена ссылка version_files: {catalogUrl}");
+                    return result;
+                }
+            }
+            else
+            {
+                versionFilesUrl = ToAbsoluteVersionFilesUrl(
+                    $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(ver)}", url);
+            }
+
             var body = await GetPageTextAsync(versionFilesUrl, ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(body))
             {
@@ -1016,6 +1051,61 @@ public class OneCUpdatesService : IOneCUpdatesService
         var nick = Uri.UnescapeDataString(ExtractQueryValue(url, "nick") ?? string.Empty).Trim();
         var ver = Uri.UnescapeDataString(ExtractQueryValue(url, "ver") ?? string.Empty).Trim();
         return (nick, ver);
+    }
+
+    /// <summary>Извлекает nick конфигурации из адреса каталога проекта
+    /// <c>https://releases.1c.ru/project/<ник></c> (issue #352.1: у такого адреса
+    /// нет query с nick). Возвращает один сегмент пути после <c>/project/</c> (query и
+    /// остаток пути отбрасываются); пустая строка — адрес не является адресом проекта.
+    /// Internal — для юнит-тестов.</summary>
+    internal static string ExtractNickFromProjectUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+
+        var withoutQuery = url;
+        var question = withoutQuery.IndexOf('?', StringComparison.Ordinal);
+        if (question >= 0)
+            withoutQuery = withoutQuery[..question];
+
+        const string marker = "/project/";
+        var idx = withoutQuery.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+            return string.Empty;
+
+        var nick = withoutQuery[(idx + marker.Length)..].Trim().TrimEnd('/');
+        var slash = nick.IndexOf('/', StringComparison.Ordinal);
+        if (slash >= 0)
+            nick = nick[..slash];
+
+        return Uri.UnescapeDataString(nick).Trim();
+    }
+
+    /// <summary>Извлекает из HTML каталога релизов адрес страницы файлов ПОСЛЕДНЕЙ версии
+    /// (<c>version_files?nick=…&ver=…</c>) — issue #352.1: таблица каталога отсортирована
+    /// от новых версий к старым, поэтому берётся первая ссылка с непустыми nick/ver.
+    /// Относительные ссылки дополняются хостом портала. Без сети (чистая функция);
+    /// internal — для юнит-тестов. Null — подходящей ссылки в HTML нет.</summary>
+    internal static string? FindLatestVersionFilesUrl(string? html, string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return null;
+
+        foreach (Match m in VersionFilesHrefRegex.Matches(html))
+        {
+            var href = WebUtility.HtmlDecode(m.Groups["url"].Value.Trim());
+            if (string.IsNullOrWhiteSpace(href) || href.StartsWith("#", StringComparison.Ordinal)
+                || href.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var (nick, ver) = ExtractNickAndVersion(href);
+            if (string.IsNullOrWhiteSpace(nick) || string.IsNullOrWhiteSpace(ver))
+                continue;
+
+            return ToAbsoluteVersionFilesUrl(href, baseUrl);
+        }
+
+        return null;
     }
 
     /// <summary>Значение параметра query (без декодирования) или null.</summary>

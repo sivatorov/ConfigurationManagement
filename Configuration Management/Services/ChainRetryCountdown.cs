@@ -15,7 +15,8 @@ public static class ChainRetryCountdown
     public static string ButtonText(string baseText, int secondsLeft)
         => secondsLeft > 0 ? $"{baseText} ({secondsLeft})" : baseText;
 
-    /// <summary>True — отсчёт завершён (пора автоматически отвечать «Нет»).</summary>
+    /// <summary>True — отсчёт завершён (пора автоматически отвечать «Да» —
+    /// повтор начинается без участия пользователя, issue #352.3).</summary>
     public static bool IsFinished(int secondsLeft) => secondsLeft <= 0;
 
     /// <summary>Текст вопроса диалога: «Цепочка скачалась с ошибками: N из M»
