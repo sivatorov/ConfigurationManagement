@@ -55,6 +55,9 @@ public partial class UpdateCheckWindow : Window
                 UpdateProgressDisplay();
         };
 
+        // Папка цепочки (issue #352.2): строка с путём и кнопкой «Открыть» над таблицей.
+        UpdateChainFolderDisplay();
+
         Loaded += async (_, _) => await RunCheckAsync();
     }
 
@@ -332,20 +335,14 @@ public partial class UpdateCheckWindow : Window
         await RunCheckAsync();
     }
 
-    /// <summary>Загружает дистрибутив обновления по ссылке каталога релизов (кнопка «Скачать»).</summary>
+    /// <summary>Загружает дистрибутив обновления по ссылке каталога релизов (кнопка «Скачать»).
+    /// С 0.3.11 (issue #352.1): сначала запрашиваются варианты файлов релиза со страницы
+    /// файлов версии («Дистрибутив обновления» / «Полный дистрибутив»). Один вариант —
+    /// скачивается сразу; несколько — диалог выбора; ничего — прежний путь через
+    /// DownloadUpdateAsync (fallback).</summary>
     private async void OnDownloadRow(UpdateCheckRowViewModel row)
     {
         if (!row.CanDownload || string.IsNullOrWhiteSpace(row.Url))
-            return;
-
-        var fileName = BuildDownloadFileName(row);
-        var targetPath = _dialogs.SaveFileDialog(
-            LocalizationManager.T("Updates.Download"),
-            fileName,
-            "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Все файлы (*.*)|*.*",
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-
-        if (string.IsNullOrWhiteSpace(targetPath))
             return;
 
         row.IsDownloading = true;
@@ -355,21 +352,37 @@ public partial class UpdateCheckWindow : Window
 
         try
         {
-            var progress = new Progress<double>(v => row.Progress = Math.Clamp(v, 0, 1));
-            var savedPath = await Task.Run(() =>
-                _updates.DownloadUpdateAsync(row.Url, targetPath, progress, CancellationToken.None));
-
-            if (string.IsNullOrWhiteSpace(savedPath))
+            // issue #352.1: страница файлов версии → варианты «Дистрибутив обновления»/
+            // «Полный дистрибутив». Имя сохранения — с расширением выбранного файла.
+            IReadOnlyList<UpdateFileChoice> choices = Array.Empty<UpdateFileChoice>();
+            try
             {
-                _dialogs.ShowWarning(LocalizationManager.T("Updates.NetworkError"),
-                    LocalizationManager.T("Updates.CheckTitle"));
+                choices = await Task.Run(() =>
+                    _updates.GetReleaseFileChoicesAsync(row.Url, CancellationToken.None));
             }
-            else
+            catch (Exception ex)
             {
-                row.Progress = 1;
-                UpdateProgressDisplay();
-                _dialogs.ShowInfo(string.Format(LocalizationManager.T("Updates.Loaded"), savedPath),
-                    LocalizationManager.T("Updates.CheckTitle"));
+                _logger.Warn($"Не удалось получить варианты файлов релиза: {ex.Message}");
+            }
+
+            var choice = choices.Count switch
+            {
+                1 => choices[0],
+                > 1 => ShowFileChoiceDialog(choices),
+                _ => null,
+            };
+
+            if (choice is not null)
+            {
+                await DownloadUpdateChoiceAsync(row, choice);
+            }
+            else if (choices.Count == 0)
+            {
+                // Fallback — прежний путь: страница скачивания по цепочке, имя «.zip».
+                var targetPath = AskSavePath(BuildDownloadFileName(row, null));
+                if (string.IsNullOrWhiteSpace(targetPath))
+                    return;
+                await DownloadUpdateFileAsync(row, row.Url, targetPath);
             }
         }
         catch (Exception ex)
@@ -382,6 +395,62 @@ public partial class UpdateCheckWindow : Window
         {
             row.IsDownloading = false;
             UpdateProgressDisplay();
+        }
+    }
+
+    /// <summary>Диалог выбора файла релиза (2+ варианта); null — пользователь отменил.</summary>
+    private UpdateFileChoice? ShowFileChoiceDialog(IReadOnlyList<UpdateFileChoice> choices)
+    {
+        try
+        {
+            return UpdateFileChoiceWindow.Pick(choices,
+                string.Format(LocalizationManager.T("Updates.FileChoice.Heading"), _row.Name));
+        }
+        catch (Exception ex)
+        {
+            // Диалог не должен ронять скачивание — берём первый (приоритетный) вариант.
+            _logger.Warn("Не удалось показать выбор файла релиза: " + ex.Message);
+            return choices[0];
+        }
+    }
+
+    /// <summary>Скачивает выбранный вариант файла релиза (issue #352.1).</summary>
+    private async Task DownloadUpdateChoiceAsync(UpdateCheckRowViewModel row, UpdateFileChoice choice)
+    {
+        var targetPath = AskSavePath(BuildDownloadFileName(row, choice));
+        if (string.IsNullOrWhiteSpace(targetPath))
+            return;
+        await DownloadUpdateFileAsync(row, choice.Url, targetPath);
+    }
+
+    /// <summary>Диалог сохранения с фильтром известных расширений дистрибутивов.</summary>
+    private string? AskSavePath(string fileName)
+    {
+        return _dialogs.SaveFileDialog(
+            LocalizationManager.T("Updates.Download"),
+            fileName,
+            "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Файлы 1С (*.cf;*.cfu)|*.cf;*.cfu|Все файлы (*.*)|*.*",
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+    }
+
+    /// <summary>Общая загрузка файла обновления с прогрессом и отчётом о результате.</summary>
+    private async Task DownloadUpdateFileAsync(UpdateCheckRowViewModel row, string url, string targetPath)
+    {
+        var progress = new Progress<double>(v => row.Progress = Math.Clamp(v, 0, 1));
+        var savedPath = await Task.Run(() =>
+            _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+
+        if (string.IsNullOrWhiteSpace(savedPath))
+        {
+            _dialogs.ShowWarning(LocalizationManager.T("Updates.NetworkError"),
+                LocalizationManager.T("Updates.CheckTitle"));
+        }
+        else
+        {
+            row.Progress = 1;
+            UpdateProgressDisplay();
+            _dialogs.ShowInfo(string.Format(LocalizationManager.T("Updates.Loaded"), savedPath),
+                LocalizationManager.T("Updates.CheckTitle"));
         }
     }
 
@@ -483,11 +552,19 @@ public partial class UpdateCheckWindow : Window
         if (variant is null || variant.Steps.Count == 0)
             return;
 
+        var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
+        var initialFolder = !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
+            ? settingsFolder
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var folder = _dialogs.OpenFolderDialog(
             LocalizationManager.T("Updates.Chain.ChooseFolder"),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            initialFolder);
         if (string.IsNullOrWhiteSpace(folder))
             return;
+
+        // issue #352.2: выбранная папка запоминается — следующий диалог и кнопка «Открыть».
+        SaveChainFolder(folder);
+        UpdateChainFolderDisplay();
 
         _row.IsChainDownloading = true;
         _row.ChainProgress = 0;
@@ -554,9 +631,16 @@ public partial class UpdateCheckWindow : Window
 
             if (failed > 0)
             {
-                _dialogs.ShowWarning(string.Format(
-                    LocalizationManager.T("Updates.Chain.LoadedFailed"), failed),
-                    LocalizationManager.T("Updates.CheckTitle"));
+                // issue #352.3: вместо предупреждения — диалог «Попробовать ещё раз?»
+                // с обратным отсчётом; «Да» повторяет загрузку (планировщик сам пропустит
+                // скачанное и покажет корректный «Скачивается X из Y»).
+                var message = string.Format(
+                    LocalizationManager.T("Updates.Chain.LoadedFailedDetailed"), failed, total);
+                if (ChainRetryWindow.Ask(this, message))
+                {
+                    await DownloadChainAsync();
+                    return;
+                }
             }
             else if (skipped > 0)
             {
@@ -584,11 +668,71 @@ public partial class UpdateCheckWindow : Window
         }
     }
 
-    private static string BuildDownloadFileName(UpdateCheckRowViewModel row)
+    /// <summary>Имя сохранения: «<Имя>_<версия><расширение>»; расширение берётся из
+    /// выбранного файла релиза (issue #352.1: .cf вместо фиксированного .zip).</summary>
+    private static string BuildDownloadFileName(UpdateCheckRowViewModel row, UpdateFileChoice? choice)
     {
         var baseName = SanitizeFileName(row.Name);
         var latest = string.IsNullOrWhiteSpace(row.LatestVersion) ? "update" : row.LatestVersion;
-        return $"{baseName}_{latest}.zip";
+        var extension = choice is not null && !string.IsNullOrWhiteSpace(choice.FileName)
+            ? Path.GetExtension(choice.FileName)
+            : string.Empty;
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = ".zip";
+        return $"{baseName}_{latest}{extension}";
+    }
+
+    // ===================== Папка цепочки обновлений (issue #352.2) =====================
+
+    /// <summary>Сохраняет папку цепочки в настройки (пустая папка не пишется).</summary>
+    private void SaveChainFolder(string folder)
+    {
+        try
+        {
+            var settings = _repository.LoadSettings();
+            settings.UpdateChainFolder = folder;
+            _repository.SaveSettings(settings);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn("Не удалось сохранить папку цепочки обновлений: " + ex.Message);
+        }
+    }
+
+    /// <summary>Обновляет строку «Папка: …» над таблицей цепочки: путь либо подсказка
+    /// «выберите папку при скачивании» (issue #352.2).</summary>
+    private void UpdateChainFolderDisplay()
+    {
+        var folder = _repository.LoadSettings().UpdateChainFolder;
+        var hasFolder = !string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder);
+        ChainFolderText.Text = hasFolder
+            ? folder
+            : LocalizationManager.T("Updates.Chain.FolderHint");
+        ChainOpenFolderButton.IsEnabled = hasFolder;
+    }
+
+    /// <summary>Кнопка «Открыть»: показывает сохранённую папку цепочки в проводнике.</summary>
+    private void OnOpenChainFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var folder = _repository.LoadSettings().UpdateChainFolder;
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return;
+
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{folder}\"",
+                UseShellExecute = true,
+            };
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn("Не удалось открыть папку цепочки обновлений: " + ex.Message);
+        }
     }
 
     private static string SanitizeFileName(string name)

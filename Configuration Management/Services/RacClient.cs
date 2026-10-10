@@ -330,31 +330,65 @@ public sealed class RacClient : IRacClient
         }
 
         var jobs = RacOutputParser.ToJobs(output);
+        // Защита от новых форм справки (issue #324, 0.3.11): непустой stdout с 0 записей,
+        // выглядящий как текст справки, — это НЕуспех: формат не должен оставаться
+        // закэшированным (иначе WARN «вывод rac не распознан» повторяется на каждом опросе).
+        if (jobs.Count == 0 && LooksLikeUsageHelp(output))
+        {
+            _logger.Warn(
+                "RAC: job list — rac вернул справку об использовании вместо данных " +
+                $"(exit=0, stdout={output.Length} симв., 0 записей); кэш формата сброшен.");
+            _jobListFormats.Remove(formatKey);
+            RacJobListFormatStore.Save(_jobListFormats);
+        }
         EnsureParsedOrThrow(output, jobs.Count, "job list", _logger);
         return jobs;
     }
 
+    /// <summary>Число первых строк вывода rac, сканируемых на признаки справки (issue
+    /// #324, 0.3.11: у 8.5.4.1878 перед «Использование:» стоит многострочный баннер
+    /// «1C:Enterprise 8.5 Remote Administrative Client Utility …», поэтому проверка
+    /// только первой строки не распознавала справку — формат ошибочно кэшировался).</summary>
+    internal const int UsageHelpScanLines = 15;
+
     /// <summary>
     /// Признак того, что rac вместо данных вернул СПРАВКУ об использовании команды
     /// (issue #324, комментарий 7OH от 2026-10-09: «job list <uuid>» на 8.5.4.1878
-    /// завершается с кодом 0, но stdout — текст «Использование: rac [режим] [команда] …»,
-    /// 0 записей). Проверяется ПЕРВАЯ непустая строка вывода: у справки rac она всегда
-    /// начинается с «Использование:» (русская локаль) или «Usage:» (английская).
-    /// Data-вывод (таблица/блоки «ключ : значение») такими префиксами не начинается.
+    /// завершается с кодом 0, но stdout — текст «1C:Enterprise 8.5 Remote Administrative
+    /// Client Utility …» + «Использование: rac [режим] [команда] …», 0 записей).
+    /// <para>
+    /// С 0.3.11 сканируются ПЕРВЫЕ <see cref="UsageHelpScanLines"/> строк вывода (не
+    /// только первая): справка распознаётся по префиксу строки «Использование:»
+    /// (русская локаль) / «Usage:» (английская) или по подстроке «rac [» (шаблон
+    /// команды в справке) в пределах окна строк. Data-вывод (таблица/блоки
+    /// «ключ : значение») такими признаками в первых строках не обладает.
     /// Internal — для юнит-тестов без запуска процесса rac.
+    /// </para>
     /// </summary>
     internal static bool LooksLikeUsageHelp(string? output)
     {
         if (string.IsNullOrWhiteSpace(output))
             return false;
 
+        var scanned = 0;
         foreach (var rawLine in output.Split('\n'))
         {
+            if (scanned >= UsageHelpScanLines)
+                break;
+
             var line = rawLine.TrimEnd('\r').Trim();
             if (line.Length == 0)
                 continue;
-            return line.StartsWith("Использование:", StringComparison.OrdinalIgnoreCase) ||
-                   line.StartsWith("Usage:", StringComparison.OrdinalIgnoreCase);
+            scanned++;
+
+            if (line.StartsWith("Использование:", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Usage:", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Шаблон команды в справке: «rac [режим] [команда] …» — встречается
+            // и в русской, и в английской локали; в data-выводе «rac [» не бывает.
+            if (line.Contains("rac [", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;

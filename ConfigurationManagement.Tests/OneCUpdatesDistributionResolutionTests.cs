@@ -613,6 +613,183 @@ public sealed class OneCUpdatesDistributionResolutionTests
         Assert.Empty(OneCUpdatesService.SelectDistributionCandidates("   "));
     }
 
+    // ======================= issue #334.2: скачивание дистрибутива по version_file?… =======================
+
+    [Fact]
+    public void IsPageEndpointUrl_VersionFileAndVersionFiles_ArePages()
+    {
+        Assert.True(OneCUpdatesService.IsPageEndpointUrl(
+            "https://releases.1c.ru/version_file?nick=Trade110&ver=8.3.27.2325&path=Trade%5csetuptc64_8_3_27_2325.rar"));
+        Assert.True(OneCUpdatesService.IsPageEndpointUrl(
+            "https://releases.1c.ru/version_files?nick=Trade110&ver=8.3.27.2325"));
+    }
+
+    [Fact]
+    public void IsPageEndpointUrl_FileEndpointsAndDirectLinks_AreNotPages()
+    {
+        Assert.False(OneCUpdatesService.IsPageEndpointUrl(
+            "https://releases.1c.ru/transfer_file?file=setuptc64_8_3_27_2325.rar"));
+        Assert.False(OneCUpdatesService.IsPageEndpointUrl(
+            "https://releases.1c.ru/additional_file?nick=Trade110&path=a.cf"));
+        Assert.False(OneCUpdatesService.IsPageEndpointUrl("https://releases.1c.ru/files/setuptc64.rar"));
+        Assert.False(OneCUpdatesService.IsPageEndpointUrl(null));
+        Assert.False(OneCUpdatesService.IsPageEndpointUrl(string.Empty));
+    }
+
+    [Fact]
+    public async Task DownloadDistributionAsync_VersionFilePageChain_SavesRarUnderFinalUrl()
+    {
+        // issue #334.2: ссылка version_file?… (страница-посредник .rar для 8.3.27.2325) —
+        // резолвится по кнопке «Скачать дистрибутив» → transfer_file, и файл сохраняется
+        // под именем .rar, а не HTML-страница.
+        const string versionFilePageHtml = """
+            <html><body>
+              <h1>setuptc64_8_3_27_2325.rar</h1>
+              <a href="/transfer_file?file=setuptc64_8_3_27_2325.rar" class="btn">Скачать дистрибутив</a>
+            </body></html>
+            """;
+        var requests = new List<string>();
+        var handler = new RoutingHandler(url =>
+        {
+            requests.Add(url);
+            if (url.Contains("transfer_file", StringComparison.OrdinalIgnoreCase))
+                return Binary(DistributionBytes, "application/octet-stream");
+            return Html(versionFilePageHtml);
+        });
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "8.3.27.2325_setuptc64.rar");
+
+        try
+        {
+            var saved = await service.DownloadDistributionAsync(
+                "https://releases.1c.ru/version_file?nick=Platform83&ver=8.3.27.2325&path=Trade%5csetuptc64_8_3_27_2325.rar",
+                targetPath);
+
+            Assert.True(saved is not null,
+                "saved is null; requests=" + string.Join(" | ", requests));
+            Assert.EndsWith(".rar", saved, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
+            Assert.Contains(requests, u => u.Contains("transfer_file", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadDistributionAsync_VersionFilePageWithoutDownloadLink_ReturnsNullWithoutSaving()
+    {
+        // Страница-посредник без ссылки на файл: ни резолвинг, ни однопоточный путь
+        // не должны сохранять HTML под именем дистрибутива (issue #334.2).
+        var handler = new RoutingHandler(_ => Html(
+            """<html><body><h1>Файл временно недоступен</h1></body></html>"""));
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "8.3.27.2325_setuptc64.rar");
+
+        try
+        {
+            var saved = await service.DownloadDistributionAsync(
+                "https://releases.1c.ru/version_file?nick=Platform83&ver=8.3.27.2325&path=Trade%5csetuptc64_8_3_27_2325.rar",
+                targetPath);
+
+            Assert.Null(saved);
+            Assert.False(File.Exists(targetPath));
+            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadDistributionAsync_ParallelResultThatIsHtml_IsRejected()
+    {
+        // Защита (issue #334.2): многопоточная загрузка «файла», фактически являющегося
+        // HTML-документом (сервер отдал страницу с content-type application/octet-stream
+        // и поддержкой Range), не принимается — файл удаляется, результат null.
+        var htmlBytes = System.Text.Encoding.UTF8.GetBytes(
+            "<!doctype html><html><body>redirect page</body></html>" + new string('x', 3 * 1024 * 1024));
+        var handler = new RangeAwareBinaryHandler(htmlBytes, "application/octet-stream");
+        var service = CreateService(handler);
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        var targetPath = Path.Combine(dir, "big.rar");
+
+        try
+        {
+            var saved = await service.DownloadDistributionAsync(
+                "https://releases.1c.ru/transfer_file?file=big.rar", targetPath);
+
+            Assert.Null(saved);
+            Assert.False(File.Exists(targetPath));
+            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    [Fact]
+    public void LooksLikeHtmlFile_DetectsHtmlAndBinary()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cm_drt_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var htmlPath = Path.Combine(dir, "page.rar");
+            File.WriteAllText(htmlPath, "<!doctype html><html><body>x</body></html>");
+            Assert.True(OneCUpdatesService.LooksLikeHtmlFile(htmlPath));
+
+            var binPath = Path.Combine(dir, "bin.rar");
+            File.WriteAllBytes(binPath, DistributionBytes);
+            Assert.False(OneCUpdatesService.LooksLikeHtmlFile(binPath));
+        }
+        finally
+        {
+            TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>Обработчик бинарного ответа с поддержкой HTTP Range (206): многопоточная
+    /// загрузка проходит, но содержимое — HTML-документ (issue #334.2).</summary>
+    private sealed class RangeAwareBinaryHandler(byte[] bytes, string mediaType) : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri?.ToString() ?? string.Empty;
+            Requests.Add(url);
+
+            var range = request.Headers.Range?.Ranges.FirstOrDefault();
+            if (range is not null)
+            {
+                var start = range.From ?? 0;
+                var end = Math.Min(range.To ?? bytes.Length - 1, bytes.Length - 1);
+                var slice = new byte[end - start + 1];
+                Array.Copy(bytes, start, slice, 0, slice.Length);
+                var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
+                {
+                    Content = new ByteArrayContent(slice),
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+                response.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end, bytes.Length);
+                response.RequestMessage = request;
+                return Task.FromResult(response);
+            }
+
+            var full = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+            full.Content.Headers.ContentType = new MediaTypeHeaderValue("text/html");
+            full.RequestMessage = request;
+            return Task.FromResult(full);
+        }
+    }
+
     // ======================= Расширение итогового файла =======================
 
     [Fact]

@@ -306,4 +306,117 @@ public sealed class PlatformDistributionPickerTests
 
         Assert.StartsWith("Тонкий клиент (7z)", option.DisplayName);
     }
+
+    // ---------- issue #330 (0.3.11): уникальные подписи — имя файла в DisplayName ----------
+
+    [Fact]
+    public void DisplayName_WindowsVariant_ContainsFileName()
+    {
+        // У файлов релиза размер неизвестен (0), подписи типа/разрядности одинаковые —
+        // без имени файла строки списка выбора неотличимы (issue #330).
+        var option = new PlatformDistributionOption(
+            File("setuptc64_8_3_27_2325.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+
+        Assert.Contains("setuptc64_8_3_27_2325.rar", option.DisplayName);
+        Assert.StartsWith("Полный клиент (rar) · x64 · setuptc64_8_3_27_2325.rar", option.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_TwoFullClientsOfDifferentVersions_AreDistinct()
+    {
+        var first = new PlatformDistributionOption(
+            File("setup64_8_3_26_2014.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+        var second = new PlatformDistributionOption(
+            File("setup64_8_3_27_2325.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+
+        Assert.NotEqual(first.DisplayName, second.DisplayName);
+        Assert.Contains("setup64_8_3_26_2014.rar", first.DisplayName);
+        Assert.Contains("setup64_8_3_27_2325.rar", second.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_ThinFullUpdsetup_AreDistinctAndContainFileNames()
+    {
+        var full = new PlatformDistributionOption(
+            File("setup64_8_3_27_2325.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+        var thin = new PlatformDistributionOption(
+            File("setuptc64_8_3_27_2325.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+        var updsetup = new PlatformDistributionOption(
+            File("8_3_27_2325_updsetup.rar", "x64", PlatformDistributionKind.WindowsSetupZip));
+
+        Assert.Contains("setup64_8_3_27_2325.rar", full.DisplayName);
+        Assert.Contains("setuptc64_8_3_27_2325.rar", thin.DisplayName);
+        Assert.Contains("8_3_27_2325_updsetup.rar", updsetup.DisplayName);
+        Assert.NotEqual(full.DisplayName, thin.DisplayName);
+        Assert.NotEqual(full.DisplayName, updsetup.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_SingleLinuxPackage_MayOmitFileName()
+    {
+        // Единственный Linux-пакет допустимо показывать без имени файла.
+        var option = new PlatformDistributionOption(
+            File("deb64_8.3.27.2325.tar.gz", "x64", PlatformDistributionKind.LinuxDeb));
+
+        Assert.DoesNotContain("deb64_8.3.27.2325.tar.gz", option.DisplayName);
+        Assert.StartsWith("Пакет deb", option.DisplayName);
+    }
+
+    [Fact]
+    public void DisplayName_TwoLinuxPackagesOfSameKind_IncludeFileNames()
+    {
+        // Как BuildOptions: при нескольких файлах одного типа имя файла включается в подпись.
+        var deb1 = new PlatformDistributionOption(
+            File("deb64_8.3.27.2325.tar.gz", "x64", PlatformDistributionKind.LinuxDeb), includeFileName: true);
+        var deb2 = new PlatformDistributionOption(
+            File("deb_8.3.27.2325.tar.gz", "x86", PlatformDistributionKind.LinuxDeb), includeFileName: true);
+
+        // Оба варианта одного типа — подписи обязаны содержать имя файла (issue #330).
+        Assert.Contains("deb64_8.3.27.2325.tar.gz", deb1.DisplayName);
+        Assert.Contains("deb_8.3.27.2325.tar.gz", deb2.DisplayName);
+        Assert.NotEqual(deb1.DisplayName, deb2.DisplayName);
+    }
+
+    [Fact]
+    public void BuildOptions_LinuxMultiplePackagesOfSameKind_DisplayNamesContainFileNames()
+    {
+        var files = new List<PlatformReleaseFile>
+        {
+            File("deb64_8.3.27.2325.tar.gz", "x64", PlatformDistributionKind.LinuxDeb),
+            File("deb_8.3.27.2325.tar.gz", "x86", PlatformDistributionKind.LinuxDeb),
+        };
+
+        var options = PlatformDistributionPicker.BuildOptions(files, isWindows: false, is64Bit: true);
+
+        Assert.All(options, o => Assert.Contains(o.File.FileName, o.DisplayName));
+        var names = options.Select(o => o.DisplayName).ToList();
+        Assert.Equal(names.Count, names.Distinct().Count());
+    }
+
+    [Fact]
+    public void BuildOptions_Windows_DisplayNamesAreUniqueAndContainFileNames()
+    {
+        var options = PlatformDistributionPicker.BuildOptions(WindowsFiles(), isWindows: true, is64Bit: true);
+
+        Assert.Equal(3, options.Count);
+        var names = options.Select(o => o.DisplayName).ToList();
+        Assert.Equal(names.Count, names.Distinct().Count());
+        Assert.All(options, o => Assert.Contains(o.File.FileName, o.DisplayName));
+    }
+
+    [Fact]
+    public void BuildOptions_SortingUnchanged_Regression()
+    {
+        // Регресс: добавление имени файла в подпись не меняет сортировку вариантов.
+        var options = PlatformDistributionPicker.BuildOptions(WindowsFiles(), isWindows: true, is64Bit: true);
+
+        Assert.Equal(
+            new[] { "8.3.27.2214_x64.zip", "8.3.27.2214_x86.zip", "8.3.27.2214_thin_1c_x64.zip" },
+            options.Select(o => o.File.FileName).ToArray());
+
+        var linux = PlatformDistributionPicker.BuildOptions(LinuxFiles(), isWindows: false, is64Bit: true);
+        Assert.Equal(
+            new[] { "deb64_8.3.27.2214.tar.gz", "8.3.27.2214_x86_64.rpm", "8.3.27.2214.tar.gz" },
+            linux.Select(o => o.File.FileName).ToArray());
+    }
 }

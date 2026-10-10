@@ -806,7 +806,28 @@ public class OneCUpdatesService : IOneCUpdatesService
                 LogFreeSpaceWarning(dir, expectedSizeBytes: 0);
             }
 
-            _logger.Info($"[Platform] Загрузка дистрибутива: {url} -> {targetPath}");
+            // issue #334.2: ссылка с новой разметки портала — эндпоинт `version_file?…`
+            // (единственное число): это HTML-страница-посредник, а не сам дистрибутив.
+            // Многопоточная загрузка «как файла» сохраняла страницу/срывалась. Сначала
+            // резолвим конечный адрес (страница → кнопка «Скачать дистрибутив» →
+            // transfer_file), и только затем качаем.
+            var effectiveUrl = url;
+            if (IsPageEndpointUrl(url))
+            {
+                var resolved = await ResolveDistributionUrlAsync(url, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolved) &&
+                    !string.Equals(resolved, url, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Info($"[Platform] Промежуточная страница разрешилась в файл: {url} -> {resolved}");
+                    effectiveUrl = resolved;
+                }
+                else
+                {
+                    _logger.Warn($"[Platform] Страница-посредник не разрешилась в файл: {url}");
+                }
+            }
+
+            _logger.Info($"[Platform] Загрузка дистрибутива: {effectiveUrl} -> {targetPath}");
 
             // 1) Многопоточная загрузка: отдельный HttpClient с авторизацией портала
             //    (Basic Auth + общий CookieContainer) и AllowAutoRedirect=true для CDN;
@@ -814,17 +835,31 @@ public class OneCUpdatesService : IOneCUpdatesService
             using (var parallelClient = CreateParallelClient())
             {
                 var parallelResult = await ParallelDownloader.TryDownloadAsync(
-                        parallelClient, url, targetPath,
+                        parallelClient, effectiveUrl, targetPath,
                         percent => progress?.Report(Math.Clamp(percent / 100.0, 0.0, 1.0)),
                         expectedSize: 0, ct)
                     .ConfigureAwait(false);
 
                 if (parallelResult is not null)
                 {
-                    _logger.Info($"[Platform] Дистрибутив загружен многопоточно: {targetPath}");
-                    // Метка докачки для разового временного файла не нужна — очищаем.
-                    TryDelete(targetPath + ".etag");
-                    return parallelResult;
+                    // Защита (issue #334.2): многопоточный «файл», оказавшийся HTML-документом
+                    // (ссылка вела на страницу, а сервер не поддержал Range/резолвинг не сработал),
+                    // не принимается — файл удаляется, выполняется однопоточный резолвинг.
+                    if (LooksLikeHtmlFile(parallelResult))
+                    {
+                        _logger.Warn(
+                            $"[Platform] Многопоточная загрузка сохранила HTML-страницу вместо дистрибутива: " +
+                            $"{effectiveUrl} ({parallelResult}) — файл удалён, повтор однопоточным резолвингом.");
+                        TryDelete(parallelResult);
+                        TryDelete(parallelResult + ".etag");
+                    }
+                    else
+                    {
+                        _logger.Info($"[Platform] Дистрибутив загружен многопоточно: {targetPath}");
+                        // Метка докачки для разового временного файла не нужна — очищаем.
+                        TryDelete(targetPath + ".etag");
+                        return parallelResult;
+                    }
                 }
             }
 
@@ -832,7 +867,7 @@ public class OneCUpdatesService : IOneCUpdatesService
             //    (SendWithAuthAsync + ReadAsStream) — тот же прогресс и удаление файла
             //    при ошибке/отмене.
             _logger.Info("[Platform] Многопоточная загрузка недоступна (мал файл/нет Range/сбой) — однопоточная.");
-            return await DownloadUpdateAsync(url, targetPath, progress, ct).ConfigureAwait(false);
+            return await DownloadUpdateAsync(effectiveUrl, targetPath, progress, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -843,6 +878,293 @@ public class OneCUpdatesService : IOneCUpdatesService
         {
             TryDelete(targetPath);
             return null;
+        }
+    }
+
+    /// <summary>True, если адрес — промежуточная HTML-страница портала, а не конечный
+    /// файл дистрибутива (issue #334.2): <c>version_file?…</c> (страница скачивания
+    /// одного файла с новой разметки) и <c>version_files?…</c> (список файлов релиза).
+    /// Файловые эндпоинты (<c>transfer_file?…</c>/<c>additional_file?…</c>, см.
+    /// <see cref="IsFileEndpointUrl"/>) и прямые ссылки на архивы страницами не являются.
+    /// Internal — для юнит-тестов.</summary>
+    internal static bool IsPageEndpointUrl(string? url)
+        => !string.IsNullOrWhiteSpace(url) &&
+           (url.Contains("version_file?", StringComparison.OrdinalIgnoreCase) ||
+            url.Contains("version_files?", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Резолвит конечный URL дистрибутива по цепочке промежуточных страниц (issue #334.2):
+    /// переиспользует логику <see cref="DownloadUpdateAsync"/> до шага сохранения. Бинарный
+    /// ответ (или файловый эндпоинт, отдавший сам файл) даёт финальный адрес; HTML-страница
+    /// ведёт к следующей ссылке; страница входа/цикл/предел переходов — null. Ошибки сети
+    /// не бросают исключение — возвращается null.
+    /// </summary>
+    internal async Task<string?> ResolveDistributionUrlAsync(string url, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        var currentUrl = url;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var depth = 0; depth < MaxDistributionResolutionDepth; depth++)
+        {
+            if (!visited.Add(currentUrl.TrimEnd('/')))
+            {
+                _logger.Warn($"[Platform] Циклические переходы при резолвинге дистрибутива: {currentUrl}");
+                return null;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, currentUrl);
+            using var response = await SendWithAuthAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+            var isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+                         || contentType.Contains("application/xhtml", StringComparison.OrdinalIgnoreCase);
+            var isVersionFiles = currentUrl.Contains("version_files", StringComparison.OrdinalIgnoreCase);
+
+            if (!isHtml && !isVersionFiles)
+                return response.RequestMessage?.RequestUri?.ToString() ?? currentUrl;
+
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (LooksLikeLoginForm(body))
+            {
+                _logger.Warn($"[Platform] Страница входа portal.1c.ru вместо дистрибутива: {currentUrl}");
+                return null;
+            }
+
+            var next = SelectNextDistributionUrl(body, currentUrl, visited);
+            if (string.IsNullOrWhiteSpace(next))
+            {
+                // Файловый эндпоинт отдал сам файл, пометив его HTML-типом контента.
+                return IsFileEndpointUrl(currentUrl) && !LooksLikeHtmlDocument(body)
+                    ? currentUrl
+                    : null;
+            }
+
+            currentUrl = ResolveUrl(currentUrl, next);
+        }
+
+        _logger.Warn($"[Platform] Превышен предел переходов ({MaxDistributionResolutionDepth}) при резолвинге дистрибутива: {url}");
+        return null;
+    }
+
+    /// <summary>
+    /// Получает варианты файлов релиза для одиночного скачивания (issue #352.1).
+    /// Из ссылки <c>additional_file?nick=…&ver=…</c> (или <c>version_file?…</c>) извлекаются
+    /// nick/ver, строится адрес страницы файлов версии и с неё собираются кандидаты:
+    /// подписи «Дистрибутив обновления» (приоритет) и «Полный дистрибутив»; каждый кандидат
+    /// резолвится до конечного адреса. Без nick/ver (страница каталога) — пустой список.
+    /// </summary>
+    public async Task<IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
+        string url, CancellationToken ct = default)
+    {
+        var result = new List<UpdateFileChoice>();
+        if (string.IsNullOrWhiteSpace(url))
+            return result;
+
+        try
+        {
+            var (nick, ver) = ExtractNickAndVersion(url);
+            if (string.IsNullOrWhiteSpace(nick) || string.IsNullOrWhiteSpace(ver))
+            {
+                _logger.Info($"[Updates] Файлы релиза не запрошены: в ссылке нет nick/ver ({url}).");
+                return result;
+            }
+
+            var versionFilesUrl = ToAbsoluteVersionFilesUrl(
+                $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(ver)}", url);
+            var body = await GetPageTextAsync(versionFilesUrl, ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                _logger.Warn($"[Updates] Страница файлов версии недоступна: {versionFilesUrl}");
+                return result;
+            }
+
+            var candidates = ParseReleaseFileLinks(body, versionFilesUrl);
+            foreach (var (captionKey, pageUrl, fileName) in candidates)
+            {
+                var resolved = await ResolveDistributionUrlAsync(pageUrl, ct).ConfigureAwait(false);
+                var finalUrl = string.IsNullOrWhiteSpace(resolved) ? pageUrl : resolved;
+                var name = ExtractFileNameFromUrl(finalUrl);
+                if (string.IsNullOrEmpty(name))
+                    name = fileName;
+                if (string.IsNullOrEmpty(name))
+                    name = ExtractFileNameFromUrl(pageUrl);
+                result.Add(new UpdateFileChoice(captionKey, finalUrl, name));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"[Updates] Ошибка получения вариантов файлов релиза: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        return result;
+    }
+
+    /// <summary>Извлекает параметры nick и ver из query-части ссылки портала
+    /// (additional_file/version_file/version_files). Internal — для юнит-тестов.</summary>
+    internal static (string Nick, string Ver) ExtractNickAndVersion(string url)
+    {
+        var nick = Uri.UnescapeDataString(ExtractQueryValue(url, "nick") ?? string.Empty).Trim();
+        var ver = Uri.UnescapeDataString(ExtractQueryValue(url, "ver") ?? string.Empty).Trim();
+        return (nick, ver);
+    }
+
+    /// <summary>Значение параметра query (без декодирования) или null.</summary>
+    private static string? ExtractQueryValue(string url, string name)
+    {
+        var question = url.IndexOf('?', StringComparison.Ordinal);
+        if (question < 0 || question >= url.Length - 1)
+            return null;
+
+        var query = url[(question + 1)..];
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=', StringComparison.Ordinal);
+            var key = eq < 0 ? pair : pair[..eq];
+            if (string.Equals(key.Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return eq < 0 ? string.Empty : pair[(eq + 1)..];
+        }
+
+        return null;
+    }
+
+    /// <summary>Регулярное выражение для ссылок страницы файлов версии
+    /// (<c>version_file?…</c> и файловые эндпоинты) с подписью якоря (issue #352.1).</summary>
+    private static readonly Regex ReleaseFileLinkRegex = new(
+        @"<a\b[^>]*?href\s*=\s*[""'](?<url>[^""']*(?:version_file|transfer_file|additional_file)\?[^""']*)[""'][^>]*>(?<text>[\s\S]{0,300}?)</a>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Разбирает страницу файлов версии на кандидаты (issue #352.1): ссылки
+    /// <c>version_file?…</c> с подписями «Дистрибутив обновления» (приоритет) /
+    /// «Полный дистрибутив»; классификация по подписи, при её отсутствии — по имени
+    /// файла (updsetup = обновление). Относительные ссылки дополняются хостом.
+    /// Internal — для юнит-тестов.
+    /// </summary>
+    internal static List<(string CaptionKey, string Url, string FileName)> ParseReleaseFileLinks(
+        string body, string baseUrl)
+    {
+        var result = new List<(string, string, string)>();
+        if (string.IsNullOrWhiteSpace(body))
+            return result;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in ReleaseFileLinkRegex.Matches(body))
+        {
+            var href = WebUtility.HtmlDecode(m.Groups["url"].Value.Trim());
+            if (string.IsNullOrWhiteSpace(href) || href.StartsWith("#", StringComparison.Ordinal)
+                || href.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var absolute = ToAbsoluteVersionFilesUrl(href, baseUrl);
+            if (!seen.Add(absolute))
+                continue;
+
+            var caption = GetAnchorPlainText(m.Groups["text"].Value);
+            var fileName = ExtractFileNameFromUrl(absolute);
+            var captionKey = ClassifyReleaseFile(caption, fileName);
+            if (captionKey is null)
+                continue; // Ссылка не похожа на дистрибутив (служебные файлы и пр.).
+
+            result.Add((captionKey, absolute, fileName));
+        }
+
+        // Приоритет: сначала «Дистрибутив обновления» (это .cf-обновление).
+        result.Sort((a, b) => string.Equals(a.Item1, UpdateFileChoice.UpdateDistributionCaptionKey, StringComparison.Ordinal)
+            ? -1
+            : string.Equals(b.Item1, UpdateFileChoice.UpdateDistributionCaptionKey, StringComparison.Ordinal) ? 1 : 0);
+        return result;
+    }
+
+    /// <summary>Классифицирует файл релиза по подписи/имени (issue #352.1): null — не
+    /// дистрибутив (служебные файлы, отчёты и пр.); иначе ключ подписи варианта.</summary>
+    private static string? ClassifyReleaseFile(string caption, string fileName)
+    {
+        var cap = caption ?? string.Empty;
+        var name = fileName ?? string.Empty;
+        var isUpdate = cap.Contains("дистрибутив обновления", StringComparison.OrdinalIgnoreCase)
+            || cap.Contains("update distribution", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("updsetup", StringComparison.OrdinalIgnoreCase);
+        var isFull = cap.Contains("полный дистрибутив", StringComparison.OrdinalIgnoreCase)
+            || cap.Contains("full distribution", StringComparison.OrdinalIgnoreCase);
+
+        if (isUpdate)
+            return UpdateFileChoice.UpdateDistributionCaptionKey;
+        if (isFull)
+            return UpdateFileChoice.FullDistributionCaptionKey;
+
+        // Без узнаваемой подписи берём только файлы дистрибутивов по расширению:
+        // «Полный дистрибутив» может быть подписан иначе, но расширение характерное.
+        var ext = Path.GetExtension(name).ToLowerInvariant();
+        return ext is ".cf" or ".cfu" or ".zip" or ".rar" or ".7z" or ".arj"
+            ? UpdateFileChoice.FullDistributionCaptionKey
+            : null;
+    }
+
+    /// <summary>Извлекает имя файла из адреса: последний сегмент пути либо значение
+    /// параметра path/file в query (разделители «/» и «\» декодированные).
+    /// Internal — для юнит-тестов.</summary>
+    internal static string ExtractFileNameFromUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+
+        var decoded = Uri.UnescapeDataString(url);
+
+        // Параметр path/file в query (transfer_file?path=Trade\…\file.rar).
+        var pathValue = ExtractQueryValue(decoded, "path") ?? ExtractQueryValue(decoded, "file");
+        if (!string.IsNullOrWhiteSpace(pathValue))
+        {
+            var decodedPath = Uri.UnescapeDataString(pathValue);
+            var name = TakeLastSegment(decodedPath);
+            if (name.Contains('.', StringComparison.Ordinal))
+                return name;
+        }
+
+        // Последний сегмент адреса до query.
+        var withoutQuery = decoded;
+        var question = withoutQuery.IndexOf('?', StringComparison.Ordinal);
+        if (question >= 0)
+            withoutQuery = withoutQuery[..question];
+        var candidate = TakeLastSegment(withoutQuery);
+        return candidate.Contains('.', StringComparison.Ordinal) ? candidate : string.Empty;
+    }
+
+    /// <summary>Последний сегмент пути (разделители «/» и «\»).</summary>
+    private static string TakeLastSegment(string path)
+    {
+        var slash = path.LastIndexOfAny(['/', '\\']);
+        return slash >= 0 && slash < path.Length - 1 ? path[(slash + 1)..] : path;
+    }
+
+    /// <summary>True, если начало существующего файла выглядит HTML-документом
+    /// (<c><!doctype</c>/<c><html</c>/<c><?xml</c>): защищает от приёма
+    /// HTML-страницы-посредника как скачанного дистрибутива (issue #334.2).
+    /// Internal — для юнит-тестов.</summary>
+    internal static bool LooksLikeHtmlFile(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var buffer = new byte[4096];
+            var read = stream.Read(buffer, 0, buffer.Length);
+            var text = Encoding.UTF8.GetString(buffer, 0, read).TrimStart();
+            return text.StartsWith("<!doctype", StringComparison.OrdinalIgnoreCase) ||
+                   text.StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
+                   text.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 

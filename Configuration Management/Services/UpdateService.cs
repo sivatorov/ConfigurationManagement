@@ -626,12 +626,28 @@ public sealed class UpdateService
     /// Скачивает exe по прямой ссылке релиза и поднимает события прогресса/завершения
     /// для строки состояния главного окна. Возвращает путь к файлу или null при неудаче.
     /// Имя временного файла и проверка размера привязаны к версии релиза (issue #302).
+    /// <para>
+    /// С 0.3.11 скачанный файл дополнительно проходит проверку сигнатуры (issue #358):
+    /// «MZ» (PE) — штатный путь; ZIP — из архива извлекается
+    /// <c>ConfigurationManagement.exe</c> и устанавливается он; HTML/иное — файл
+    /// удаляется и загрузка считается неудачной (вместо установки битого файла).
+    /// Проверка выполняется здесь, в единой точке, поэтому защищены и автообновление
+    /// (<see cref="DownloadAndInstallAutoAsync"/>), и диалог
+    /// <see cref="UpdateAvailableWindow"/> (перед ApplyRestartNow/ApplyAfterClose).
+    /// </para>
     /// </summary>
     internal async Task<string?> DownloadNewExeCoreAsync(ReleaseInfo release)
     {
         try
         {
-            return await DownloadAsync(release.DownloadUrl!, release.TagName, release.AssetSize);
+            var downloaded = await DownloadAsync(release.DownloadUrl!, release.TagName, release.AssetSize);
+            if (downloaded is null)
+                return null;
+
+            // Защита от «не того» файла (issue #358): PE — как есть, ZIP — распаковать exe,
+            // иное (HTML и пр.) — удалить и вернуть null (ошибка скачивания).
+            var dir = Path.Combine(Path.GetTempPath(), UpdateTempDir);
+            return UpdatePayload.EnsureExecutablePayload(downloaded, dir);
         }
         finally
         {

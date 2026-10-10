@@ -669,6 +669,13 @@ public class AppSettings
     /// </summary>
     public string ItsAccountId { get; set; } = "";
 
+    /// <summary>
+    /// Папка последнего сохранения цепочки обновлений (issue #352.2): запоминается после
+    /// успешного выбора каталога в окне «Проверка обновлений» и предлагается следующим
+    /// диалогом (и видна над таблицей цепочки). Пусто — папка ещё не выбиралась.
+    /// </summary>
+    public string UpdateChainFolder { get; set; } = "";
+
     /// <summary>Горячая клавиша «Выполнить сценарий резервирования» для выбранной ИБ (по умолчанию Ctrl+Shift+F5).</summary>
     public string HotkeyRunBackup { get; set; } = "Ctrl+Shift+F5";
 

@@ -223,6 +223,14 @@ namespace Configuration_Management
         private bool _keyboardFocusWasInTreeBeforeMenuOpen;
 
         /// <summary>
+        /// Детерминированный признак «меню закрыто КЛИКОМ ПО ПУНКТУ» (issue #356, 0.3.11):
+        /// фиксируется В МОМЕНТ клика по попапу (<see cref="OnTreeMenuPopupPointerPressed"/>,
+        /// Source внутри MenuItem), сбрасывается при открытии меню. Приближение
+        /// overMenuItemApprox (по устаревшей позиции курсора) нестабильно «через раз».
+        /// </summary>
+        private bool _treeMenuClosedByItemClick;
+
+        /// <summary>
         /// Подписывает обработку клика, закрывшего контекстное меню строки (issue #340).
         /// Туннельная фаза ОКНА срабатывает раньше обработчиков контрола LeveledTreeView.
         /// Выбор применяет ШТАТНАЯ логика контрола (OnRowPointerPressed) — по живому
@@ -275,6 +283,9 @@ namespace Configuration_Management
                 // до открытия и подписка на левый клик по попапу меню (надёжный сигнал
                 // «меню закрыто кликом»).
                 _treeMenuOpenClickTick = 0;
+                // issue #356 (0.3.11): сброс детерминированного признака «закрыто кликом
+                // по пункту» на каждое открытие меню.
+                _treeMenuClosedByItemClick = false;
                 _keyboardFocusWasInTreeBeforeMenuOpen = _tree?.IsKeyboardFocusWithin == true;
                 menu.PointerPressed += OnTreeMenuPopupPointerPressed;
                 MenuCloseTrace.Log($"MenuOpenedFocus: wasInTree={_keyboardFocusWasInTreeBeforeMenuOpen}, " +
@@ -416,9 +427,10 @@ namespace Configuration_Management
                 // возвращаем выбор по ТЕКУЩЕЙ базе модели (идемпотентно, без переноса
                 // выбора и без вмешательства в мультивыделение).
                 else if (_vm?.SelectedInfobase is { } currentSelected &&
-                         BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+                         BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuCloseEx(
                              isTreeLikeMenuClosed: true,
-                             overMenuItem: overMenuItemApprox,
+                             closedByItemClick: _treeMenuClosedByItemClick,
+                             overMenuItemHeuristic: overMenuItemApprox,
                              focusStillWithinWindow: IsKeyboardFocusWithin,
                              modalDialogOpen: HasOpenModalDialog(),
                              hasCurrentSelection: true))
@@ -429,6 +441,12 @@ namespace Configuration_Management
                     var stablePinned = currentSelected.IsPinned;
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                         EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem"));
+                    // issue #356 (0.3.11): контрольный второй проход (Background) —
+                    // контейнеры после Recycling могут переработаться ПОСЛЕ первого
+                    // прохода; EnsureSelectionStable идемпотентен.
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem"),
+                        DispatcherPriority.Background);
                 }
 
                 // Возврат клавиатурного фокуса дереву после закрытия меню (issue #340,
@@ -449,8 +467,12 @@ namespace Configuration_Management
                     reason: restoreReason,
                     clickDuringOpen: clickDuringMenuOpen,
                     overTreeRow: overTreeRow,
-                    overMenuItem: overMenuItemApprox,
-                    focusRestore: focusRestore));
+                    overMenuItem: overMenuItemApprox || _treeMenuClosedByItemClick,
+                    focusRestore: focusRestore,
+                    closedByItemClick: _treeMenuClosedByItemClick));
+
+                // issue #356 (0.3.11): признак отработан — сброс до следующего открытия меню.
+                _treeMenuClosedByItemClick = false;
             }
         }
 
@@ -463,9 +485,15 @@ namespace Configuration_Management
         private void OnTreeMenuPopupPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             _treeMenuOpenClickTick = Environment.TickCount;
+            // issue #356 (0.3.11): детерминированная фиксация «клик пришёл по ПУНКТУ
+            // меню» — в момент клика, когда попап ещё открыт.
+            var overMenuItemNow = e.Source is Visual sourceVisual &&
+                sourceVisual.GetSelfAndVisualAncestors().OfType<Avalonia.Controls.MenuItem>().Any();
+            if (overMenuItemNow)
+                _treeMenuClosedByItemClick = true;
             var pos = e.GetPosition(_tree);
             MenuCloseTrace.Log($"MenuClickDuringOpen: tick={_treeMenuOpenClickTick}, " +
-                               $"x={pos.X:0.#}, y={pos.Y:0.#}, source=popup");
+                               $"x={pos.X:0.#}, y={pos.Y:0.#}, source=popup, overMenuItem={overMenuItemNow}");
         }
 
         private void OnTreeMenuCloseClickDedup_PointerPressed(object? sender, PointerPressedEventArgs e)

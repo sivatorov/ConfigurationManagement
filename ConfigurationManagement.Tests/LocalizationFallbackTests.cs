@@ -28,6 +28,10 @@ public sealed class LocalizationFallbackTests
         ["ConnectionReplace.Scopes.All"] = "Все базы",
         ["ConnectionReplace.Modes.Substring"] = "Подстрока",
         ["ConnectionReplace.Fields.Server.Key"] = "Сервер",
+        // issue #357 (0.3.11): ключи, отсутствовавшие во встроенных JSON 0.3.10.3.
+        ["ConnectionReplace.FieldLabel"] = "Поле",
+        ["ConnectionReplace.ScopeLabel"] = "Область",
+        ["ConnectionReplace.ModeLabel"] = "Режим",
     };
 
     /// <summary>Встроенный английский словарь (фрагмент).</summary>
@@ -90,5 +94,21 @@ public sealed class LocalizationFallbackTests
             StaleExternalRu, BuiltInEn, BuiltInRu, key!);
 
         Assert.Equal(key, result);
+    }
+
+    [Theory]
+    [InlineData("ConnectionReplace.FieldLabel", "Поле")]
+    [InlineData("ConnectionReplace.ScopeLabel", "Область")]
+    [InlineData("ConnectionReplace.ModeLabel", "Режим")]
+    public void TranslateFromDictionaries_LabelsMissingInReleasedBuild_FallBackToBuiltIn(string key, string expected)
+    {
+        // Суть issue #357 (0.3.11): ключи FieldLabel/ScopeLabel/ModeLabel отсутствовали
+        // во встроенных JSON сборки 0.3.10.3 — при внешнем устаревшем ru.json окно
+        // показывало ключи вместо «Поле/Область/Режим». Фолбэк на встроенный словарь
+        // обязан вернуть текст.
+        var result = LocalizationManager.TranslateFromDictionaries(
+            StaleExternalRu, BuiltInEn, BuiltInRu, key);
+
+        Assert.Equal(expected, result);
     }
 }

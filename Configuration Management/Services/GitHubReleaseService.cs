@@ -254,57 +254,107 @@ public class GitHubReleaseService
     }
 
     /// <summary>
-    /// Ищет в assets выпуска asset, подходящий для текущей платформы
-    /// (см. <see cref="IsPlatformAsset"/>), и возвращает пару «ссылка + точный
-    /// размер файла в байтах» (поле <c>size</c> ассета из GitHub API). Размер
-    /// используется загрузчиком для строгой проверки скачанного файла (issue #302).
+    /// Ищет в assets выпуска asset, подходящий для текущей платформы, и возвращает
+    /// пару «ссылка + точный размер файла в байтах» (поле <c>size</c> ассета из GitHub
+    /// API). Размер используется загрузчиком для строгой проверки скачанного файла
+    /// (issue #302).
+    /// <para>
+    /// Поиск двухпроходный (issue #358): сначала ищется ассет с ТОЧНЫМ именем
+    /// <see cref="AssetName"/> (bare-exe «ConfigurationManagement.exe» для Windows) —
+    /// он имеет жёсткий приоритет; лишь если его нет, принимаются прочие ассеты по
+    /// признакам <see cref="IsPlatformAsset"/> (но не ZIP-архивы: они не могут быть
+    /// поданы загрузчику напрямую и разрывали бы автообновление).
+    /// </para>
     /// </summary>
-    private static (string Url, long Size) FindAsset(JsonElement root)
+    internal static (string Url, long Size) FindAsset(JsonElement root)
     {
         if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
             return (string.Empty, 0);
 
+        // Проход 1: точное совпадение имени (bare-exe / bare-бинарь) — высший приоритет.
         foreach (var asset in assets.EnumerateArray())
         {
             if (asset.ValueKind != JsonValueKind.Object)
                 continue;
 
             var name = GetString(asset, "name");
-            if (string.IsNullOrEmpty(name))
+            if (string.IsNullOrEmpty(name) || !IsExactAssetName(name))
                 continue;
 
-            if (!IsPlatformAsset(name))
+            if (TryGetAssetDownload(asset, out var result))
+                return result;
+        }
+
+        // Проход 2: прочие ассеты по признакам платформы (ZIP-архивы исключены —
+        // issue #358: zip с exe внутри не должен попадать в автообновление).
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (asset.ValueKind != JsonValueKind.Object)
                 continue;
 
-            var url = GetString(asset, "browser_download_url");
-            if (string.IsNullOrEmpty(url))
+            var name = GetString(asset, "name");
+            if (string.IsNullOrEmpty(name) || !IsPlatformAsset(name))
                 continue;
 
-            // Размер ассета GitHub отдаёт целым числом байт; отсутствует/не число — 0.
-            var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.ValueKind == JsonValueKind.Number
-                && sizeEl.TryGetInt64(out var parsed)
-                ? parsed
-                : 0;
-            return (url, size);
+            if (TryGetAssetDownload(asset, out var result))
+                return result;
         }
 
         return (string.Empty, 0);
     }
 
+    /// <summary>Проверяет, совпадает ли имя ассета с точным именем сборки текущей платформы.</summary>
+    private static bool IsExactAssetName(string name) =>
+        string.Equals(name.Trim(), AssetName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Извлекает из ассета ссылку на скачивание и размер. Возвращает false, если ссылки нет.
+    /// </summary>
+    private static bool TryGetAssetDownload(JsonElement asset, out (string Url, long Size) result)
+    {
+        result = default;
+        var url = GetString(asset, "browser_download_url");
+        if (string.IsNullOrEmpty(url))
+            return false;
+
+        // Размер ассета GitHub отдаёт целым числом байт; отсутствует/не число — 0.
+        var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.ValueKind == JsonValueKind.Number
+            && sizeEl.TryGetInt64(out var parsed)
+            ? parsed
+            : 0;
+        result = (url, size);
+        return true;
+    }
+
 #if WINDOWS
-    private static bool IsPlatformAsset(string name)
+    /// <summary>
+    /// Признак Windows-ассета. ZIP-архивы (в том числе «…win-x64.zip» с exe внутри)
+    /// всегда false: загрузчик автообновления устанавливает скачанный файл напрямую
+    /// (см. UpdatePayload), поэтому подсовывать ему архив нельзя (issue #358).
+    /// Точное имя «ConfigurationManagement.exe» обрабатывается отдельным проходом
+    /// <see cref="FindAsset"/> (высший приоритет).
+    /// </summary>
+    internal static bool IsPlatformAsset(string name)
     {
         var lower = name.ToLowerInvariant();
+        if (lower.EndsWith(".zip", StringComparison.Ordinal))
+            return false;
         return lower.EndsWith(".exe", StringComparison.Ordinal)
             || lower.Contains("win-x64", StringComparison.Ordinal)
             || lower.Contains("configurationmanagement.exe", StringComparison.Ordinal);
     }
 #else
-    private static bool IsPlatformAsset(string name)
+    /// <summary>
+    /// Признак Linux-ассета. ZIP-архивы исключены: загрузчик ставит скачанный файл
+    /// напрямую (issue #358). Linux-сборка — single-file исполняемый файл
+    /// «ConfigurationManagement» без расширения (build-linux-single-file.sh),
+    /// либо AppImage/архив с признаком linux-x64.
+    /// </summary>
+    internal static bool IsPlatformAsset(string name)
     {
         var lower = name.ToLowerInvariant();
-        // Linux-сборка — single-file исполняемый файл «ConfigurationManagement» без
-        // расширения (build-linux-single-file.sh), либо AppImage/архив с признаком linux-x64.
+        if (lower.EndsWith(".zip", StringComparison.Ordinal))
+            return false;
         return string.Equals(name.Trim(), "ConfigurationManagement", StringComparison.OrdinalIgnoreCase)
             || lower.Contains("linux-x64", StringComparison.Ordinal)
             || lower.EndsWith(".appimage", StringComparison.Ordinal)

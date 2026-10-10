@@ -786,6 +786,15 @@ namespace Configuration_Management
         /// </summary>
         private bool _keyboardFocusWasInTreeBeforeMenuOpen;
 
+        /// <summary>
+        /// Детерминированный признак «меню закрыто КЛИКОМ ПО ПУНКТУ» (issue #356, 0.3.11):
+        /// фиксируется В МОМЕНТ клика по попапу (<see cref="OnTreeMenuPopupMouseLeftButtonDown"/>,
+        /// OriginalSource — внутри MenuItem), сбрасывается при открытии меню. Старый признак
+        /// через Mouse.DirectlyOver в MenuClosed нестабилен — попап к этому моменту уже
+        /// закрыт, hit-test проходит «через раз».
+        /// </summary>
+        private bool _menuClosedByItemClick;
+
         private void OnContextMenuOpened(object sender, RoutedEventArgs e)
         {
             if (sender is ContextMenu menu)
@@ -802,6 +811,9 @@ namespace Configuration_Management
                 {
                     _treeMenuOpenedTick = Environment.TickCount;
                     _treeMenuOpenClickTick = 0;
+                    // issue #356 (0.3.11): сброс детерминированного признака «закрыто
+                    // кликом по пункту» на каждое открытие меню.
+                    _menuClosedByItemClick = false;
                     _keyboardFocusWasInTreeBeforeMenuOpen = IsFocusInsideMainTree();
                     menu.PreviewMouseLeftButtonDown += OnTreeMenuPopupMouseLeftButtonDown;
                     MenuCloseTrace.Log($"MenuOpenedFocus: wasInTree={_keyboardFocusWasInTreeBeforeMenuOpen}, " +
@@ -820,9 +832,14 @@ namespace Configuration_Management
         private void OnTreeMenuPopupMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _treeMenuOpenClickTick = Environment.TickCount;
+            // issue #356 (0.3.11): детерминированная фиксация «клик пришёл по ПУНКТУ
+            // меню» — в момент клика, когда попап ещё открыт и hit-test стабилен.
+            var overMenuItemNow = FindAncestor<MenuItem>(e.OriginalSource as DependencyObject) is not null;
+            if (overMenuItemNow)
+                _menuClosedByItemClick = true;
             var pos = e.GetPosition(MainTree);
             MenuCloseTrace.Log($"MenuClickDuringOpen: tick={_treeMenuOpenClickTick}, " +
-                               $"x={pos.X:0.#}, y={pos.Y:0.#}, source=popup");
+                               $"x={pos.X:0.#}, y={pos.Y:0.#}, source=popup, overMenuItem={overMenuItemNow}");
         }
 
         private void OnContextMenuClosed(object sender, RoutedEventArgs e)
@@ -862,8 +879,13 @@ namespace Configuration_Management
                     var cursorRow = hitOver is null ? null : FindAncestor<TreeViewItem>(hitOver);
                     overTreeRow = cursorRow is not null
                         && cursorRow.DataContext is Infobase or PinnedInfobaseItem or GroupNodeViewModel;
-                    overMenuItem = Mouse.DirectlyOver is { } directlyOver
-                        && FindAncestor<MenuItem>(directlyOver as DependencyObject) is not null;
+                    // issue #356 (0.3.11): признак «меню закрыто выбором пункта» —
+                    // детерминированный _menuClosedByItemClick (записан в момент клика
+                    // по попапу) ИЛИ прежняя эвристика Mouse.DirectlyOver (запасной путь:
+                    // hit-test в MenuClosed нестабилен, попап уже закрыт).
+                    overMenuItem = _menuClosedByItemClick ||
+                        (Mouse.DirectlyOver is { } directlyOver &&
+                         FindAncestor<MenuItem>(directlyOver as DependencyObject) is not null);
                     if (cursorRow?.DataContext is Infobase or PinnedInfobaseItem)
                     {
                         cursorInfobase = UnwrapInfobase(cursorRow.DataContext);
@@ -871,6 +893,7 @@ namespace Configuration_Management
                     }
                     MenuCloseTrace.Log($"MenuClosedCursor: x={cursorPos.X:0.#}, y={cursorPos.Y:0.#}, " +
                                        $"overTreeRow={overTreeRow}, overMenuItem={overMenuItem}, " +
+                                       $"closedByItemClick={_menuClosedByItemClick}, " +
                                        $"keyboardFocusWithin={IsKeyboardFocusWithin}");
                 }
 
@@ -980,9 +1003,10 @@ namespace Configuration_Management
                     // возвращаем выбор по ТЕКУЩЕЙ базе модели (идемпотентно, без переноса
                     // выбора и без вмешательства в мультивыделение).
                     else if (_viewModel?.SelectedInfobase is { } currentSelected &&
-                             BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuItemClick(
+                             BatchSelectionHelper.ShouldRestoreCurrentSelectionAfterMenuCloseEx(
                                  isTreeLikeMenuClosed: true,
-                                 overMenuItem: overMenuItem,
+                                 closedByItemClick: _menuClosedByItemClick,
+                                 overMenuItemHeuristic: overMenuItem,
                                  focusStillWithinWindow: IsKeyboardFocusWithin,
                                  modalDialogOpen: HasOpenModalDialog(),
                                  hasCurrentSelection: true))
@@ -993,6 +1017,13 @@ namespace Configuration_Management
                         var stablePinned = currentSelected.IsPinned;
                         Dispatcher.BeginInvoke(
                             System.Windows.Threading.DispatcherPriority.Input,
+                            new Action(() => EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem")));
+                        // issue #356 (0.3.11): контрольный второй проход на Background —
+                        // контейнеры после Recycling могут переработаться ПОСЛЕ первого
+                        // прохода; EnsureSelectionStable идемпотентен, доводит выбор до
+                        // сходимости и мультивыделение не трогает.
+                        Dispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Background,
                             new Action(() => EnsureSelectionStable(stableTarget, stablePinned, reason: "menuItem")));
                     }
 
@@ -1019,8 +1050,12 @@ namespace Configuration_Management
                         clickDuringOpen: clickDuringMenuOpen,
                         overTreeRow: overTreeRow,
                         overMenuItem: overMenuItem,
-                        focusRestore: focusRestore));
+                        focusRestore: focusRestore,
+                        closedByItemClick: _menuClosedByItemClick));
                 }
+
+                // issue #356 (0.3.11): признак отработан — сброс до следующего открытия меню.
+                _menuClosedByItemClick = false;
             }
         }
 

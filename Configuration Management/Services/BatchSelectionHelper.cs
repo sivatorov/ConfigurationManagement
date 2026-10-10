@@ -537,13 +537,20 @@ public static class BatchSelectionHelper
         bool clickDuringOpen,
         bool overTreeRow,
         bool overMenuItem,
-        bool focusRestore)
+        bool focusRestore,
+        bool? closedByItemClick = null)
     {
-        return $"MenuCloseDecision: restore={(restore ? "true" : "false")}, reason={reason}, " +
-               $"clickDuringOpen={(clickDuringOpen ? "true" : "false")}, " +
-               $"overTreeRow={(overTreeRow ? "true" : "false")}, " +
-               $"overMenuItem={(overMenuItem ? "true" : "false")}, " +
-               $"focusRestore={(focusRestore ? "true" : "false")}";
+        var line = $"MenuCloseDecision: restore={(restore ? "true" : "false")}, reason={reason}, " +
+                   $"clickDuringOpen={(clickDuringOpen ? "true" : "false")}, " +
+                   $"overTreeRow={(overTreeRow ? "true" : "false")}, " +
+                   $"overMenuItem={(overMenuItem ? "true" : "false")}, " +
+                   $"focusRestore={(focusRestore ? "true" : "false")}";
+        // issue #356 (0.3.11): детерминированный признак «меню закрыто кликом по пункту»
+        // (фиксируется в момент клика по попапу). Поле необязательное — старые парсеры
+        // строк без него продолжают работать.
+        if (closedByItemClick.HasValue)
+            line += $", closedByItemClick={(closedByItemClick.Value ? "true" : "false")}";
+        return line;
     }
 
     /// <summary>
@@ -634,6 +641,27 @@ public static class BatchSelectionHelper
         bool hasCurrentSelection)
         => isTreeLikeMenuClosed && overMenuItem && focusStillWithinWindow
            && !modalDialogOpen && hasCurrentSelection;
+
+    /// <summary>
+    /// Расширенный предикат восстановления ТЕКУЩЕЙ строки (issue #356, 0.3.11):
+    /// принимает детерминированный сигнал <paramref name="closedByItemClick"/> —
+    /// «клик по пункту попапа зафиксирован обработчиком клика по меню» (записывается
+    /// В МОМЕНТ клика, в отличие от нестабильного hit-test Mouse.DirectlyOver в
+    /// MenuClosed, когда попап уже закрыт). Детерминированный сигнал приоритетнее
+    /// эвристики: закрыто пунктом = <paramref name="closedByItemClick"/> ИЛИ
+    /// <paramref name="overMenuItemHeuristic"/> (запасной путь для закрытия мышью).
+    /// Остальная логика идентична
+    /// <see cref="ShouldRestoreCurrentSelectionAfterMenuItemClick"/>.
+    /// </summary>
+    public static bool ShouldRestoreCurrentSelectionAfterMenuCloseEx(
+        bool isTreeLikeMenuClosed,
+        bool closedByItemClick,
+        bool overMenuItemHeuristic,
+        bool focusStillWithinWindow,
+        bool modalDialogOpen,
+        bool hasCurrentSelection)
+        => isTreeLikeMenuClosed && (closedByItemClick || overMenuItemHeuristic)
+           && focusStillWithinWindow && !modalDialogOpen && hasCurrentSelection;
 
     /// <summary>
     /// Нужно ли продолжить восстановление выбора цели стабилизации (issue #340, 0.3.9.322).

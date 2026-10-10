@@ -56,6 +56,19 @@ public interface IOneCUpdatesService
         string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Получает варианты файлов релиза для одиночного скачивания (issue #352.1):
+    /// по ссылке релиза/<c>additional_file?…</c> строит адрес страницы файлов версии
+    /// (<c>version_files?nick=…&ver=…</c>) и собирает файловые кандидаты с подписями
+    /// «Дистрибутив обновления» (приоритет, .cf) и «Полный дистрибутив», резолвя каждую
+    /// до конечного адреса. Ошибки/отсутствие кандидатов — пустой список (вызывающий
+    /// код переходит на прежний путь <see cref="DownloadUpdateAsync"/>).
+    /// </summary>
+    /// <param name="url">Ссылка релиза или файла (additional_file/version_file).</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
+        string url, CancellationToken ct = default);
+
+    /// <summary>
     /// Выполняет авторизованный GET (Basic Auth + cookie-сессия портала) по указанному
     /// адресу и возвращает тело ответа как строку. Ошибки сети/HTTP не бросают исключение:
     /// при неуспехе возвращается null.

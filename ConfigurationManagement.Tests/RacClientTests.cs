@@ -529,6 +529,66 @@ public sealed class RacClientTests
             "guid\tguid\tИспользование: rac — так называется задание\n"));
     }
 
+    // ---------- LooksLikeUsageHelp (issue #324, 0.3.11: справка 8.5.4.1878 с баннером) ----------
+
+    [Fact]
+    public void LooksLikeUsageHelp_RussianHelpWithBanner_8_5_4_1878_IsDetected()
+    {
+        // Реальная структура вывода rac 8.5.4.1878 (issue #324, 0.3.11): сначала
+        // многострочный баннер, «Использование:» — дальше первой строки.
+        const string output =
+            "1C:Enterprise 8.5 Remote Administrative Client Utility © 1C-Soft LLC 1996-2026\n" +
+            "Утилита административной консоли 1С:Предприятия\n" +
+            "\n" +
+            "Использование: rac [режим] [команда] [параметры]\n" +
+            "Пример: rac localhost:1540 cluster list\n";
+        Assert.True(RacClient.LooksLikeUsageHelp(output));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_EnglishHelpWithBanner_IsDetected()
+    {
+        const string output =
+            "1C:Enterprise 8.5 Remote Administrative Client Utility © 1C-Soft LLC 1996-2026\n" +
+            "\n" +
+            "Usage: rac [mode] [command] [options]\n" +
+            "Example: rac localhost:1540 cluster list\n";
+        Assert.True(RacClient.LooksLikeUsageHelp(output));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_CommandTemplateMarkerWithoutUsagePrefix_IsDetected()
+    {
+        // Шаблон команды «rac [режим]» в первых строках — признак справки, даже если
+        // строка не начинается с «Использование:»/«Usage:».
+        Assert.True(RacClient.LooksLikeUsageHelp(
+            "Утилита 1С:Предприятия\n rac [режим] [команда]\n"));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_BannerBeyondScanWindow_IsNotHelp()
+    {
+        // «Использование:» за пределами окна 15 строк — data-вывод с поздним
+        // упоминанием (в имени задания) справкой не считается.
+        var lines = new System.Collections.Generic.List<string> { "job-id : 1" };
+        for (var i = 0; i < RacClient.UsageHelpScanLines; i++)
+            lines.Add("name : «Использование режима» — имя задания");
+        lines.Add("name : Использование: rac — так называется задание");
+        Assert.False(RacClient.LooksLikeUsageHelp(string.Join("\n", lines)));
+    }
+
+    [Fact]
+    public void LooksLikeUsageHelp_RealJobDataOutput_IsNotHelp()
+    {
+        // Реальный data-вывод «job list» (блоки «ключ : значение») — не справка.
+        const string output =
+            "job                                 : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "name                                : \"Обновление информационной базы\"\n" +
+            "start                               : 2026-10-07T10:00:00\n" +
+            "state                               : StartInfobase\n";
+        Assert.False(RacClient.LooksLikeUsageHelp(output));
+    }
+
     // ---------- ClusterUpdateArgs (issue #324, C3: rac «cluster update») ----------
 
     [Fact]

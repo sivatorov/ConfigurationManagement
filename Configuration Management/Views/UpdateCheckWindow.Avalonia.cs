@@ -62,6 +62,12 @@ namespace Configuration_Management
         private readonly StackPanel _chainSection = new() { IsVisible = false };
         private readonly TextBlock _chainHintText = new();
         private readonly TextBlock _chainStatusValue = new();
+
+        // Папка сохранения цепочки (issue #352.2): «Папка: <путь>» + кнопка «Открыть».
+        private readonly TextBlock _chainFolderValue = new();
+        private readonly Button _chainOpenFolderButton = new();
+        private readonly StackPanel _chainFolderPanel = new() { IsVisible = false };
+
         private readonly StackPanel _chainRowsPanel = new();
         private readonly StackPanel _chainProgressPanel = new() { IsVisible = false };
         private readonly ProgressBar _chainProgressBar = new() { Minimum = 0, Maximum = 1 };
@@ -107,6 +113,8 @@ namespace Configuration_Management
             _urlText.PointerReleased += OnUrlTextPointerReleased;
 
             Content = BuildRoot();
+            // Папка цепочки (issue #352.2): строка с путём и кнопкой «Открыть».
+            RefreshChainFolderDisplay();
             Opened += async (_, _) => await RunCheckAsync();
         }
 
@@ -407,20 +415,12 @@ namespace Configuration_Management
             await RunCheckAsync();
         }
 
-        /// <summary>Загружает дистрибутив обновления по ссылке каталога релизов (кнопка «Скачать»).</summary>
+        /// <summary>Загружает дистрибутив обновления по ссылке каталога релизов (кнопка «Скачать»).
+        /// С 0.3.11 (issue #352.1): варианты файлов релиза («Дистрибутив обновления» /
+        /// «Полный дистрибутив»), 1 вариант — сразу, 2+ — диалог выбора, 0 — прежний путь.</summary>
         private async void OnDownloadRow(UpdateCheckRowViewModel row)
         {
             if (!row.CanDownload || string.IsNullOrWhiteSpace(row.Url))
-                return;
-
-            var fileName = BuildDownloadFileName(row);
-            var targetPath = _dialogs.SaveFileDialog(
-                T("Updates.Download"),
-                fileName,
-                "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Все файлы (*.*)|*.*",
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-
-            if (string.IsNullOrWhiteSpace(targetPath))
                 return;
 
             row.IsDownloading = true;
@@ -430,20 +430,35 @@ namespace Configuration_Management
 
             try
             {
-                var progress = new Progress<double>(v =>
-                    Dispatcher.UIThread.Post(() => row.Progress = Math.Clamp(v, 0, 1)));
-                var savedPath = await Task.Run(() =>
-                    _updates.DownloadUpdateAsync(row.Url, targetPath, progress, CancellationToken.None));
-
-                if (string.IsNullOrWhiteSpace(savedPath))
+                IReadOnlyList<UpdateFileChoice> choices = Array.Empty<UpdateFileChoice>();
+                try
                 {
-                    _dialogs.ShowWarning(T("Updates.NetworkError"), T("Updates.CheckTitle"));
+                    choices = await Task.Run(() =>
+                        _updates.GetReleaseFileChoicesAsync(row.Url, CancellationToken.None));
                 }
-                else
+                catch (Exception ex)
                 {
-                    row.Progress = 1;
-                    UpdateProgressDisplay();
-                    _dialogs.ShowInfo(string.Format(T("Updates.Loaded"), savedPath), T("Updates.CheckTitle"));
+                    _logger.Warn($"Не удалось получить варианты файлов релиза: {ex.Message}");
+                }
+
+                var choice = choices.Count switch
+                {
+                    1 => choices[0],
+                    > 1 => ShowFileChoiceDialog(choices),
+                    _ => null,
+                };
+
+                if (choice is not null)
+                {
+                    await DownloadUpdateChoiceAsync(row, choice);
+                }
+                else if (choices.Count == 0)
+                {
+                    // Fallback — прежний путь: страница скачивания по цепочке, имя «.zip».
+                    var targetPath = AskSavePath(BuildDownloadFileName(row, null));
+                    if (string.IsNullOrWhiteSpace(targetPath))
+                        return;
+                    await DownloadUpdateFileAsync(row, row.Url, targetPath);
                 }
             }
             catch (Exception ex)
@@ -458,11 +473,73 @@ namespace Configuration_Management
             }
         }
 
-        private static string BuildDownloadFileName(UpdateCheckRowViewModel row)
+        /// <summary>Диалог выбора файла релиза (2+ варианта); null — пользователь отменил.</summary>
+        private UpdateFileChoice? ShowFileChoiceDialog(IReadOnlyList<UpdateFileChoice> choices)
+        {
+            try
+            {
+                return UpdateFileChoiceWindow.Pick(choices,
+                    string.Format(T("Updates.FileChoice.Heading"), _row.Name), this);
+            }
+            catch (Exception ex)
+            {
+                // Диалог не должен ронять скачивание — берём первый (приоритетный) вариант.
+                _logger.Warn("Не удалось показать выбор файла релиза: " + ex.Message);
+                return choices[0];
+            }
+        }
+
+        /// <summary>Скачивает выбранный вариант файла релиза (issue #352.1).</summary>
+        private async Task DownloadUpdateChoiceAsync(UpdateCheckRowViewModel row, UpdateFileChoice choice)
+        {
+            var targetPath = AskSavePath(BuildDownloadFileName(row, choice));
+            if (string.IsNullOrWhiteSpace(targetPath))
+                return;
+            await DownloadUpdateFileAsync(row, choice.Url, targetPath);
+        }
+
+        /// <summary>Диалог сохранения с фильтром известных расширений дистрибутивов.</summary>
+        private string? AskSavePath(string fileName)
+        {
+            return _dialogs.SaveFileDialog(
+                T("Updates.Download"),
+                fileName,
+                "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Файлы 1С (*.cf;*.cfu)|*.cf;*.cfu|Все файлы (*.*)|*.*",
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        }
+
+        /// <summary>Общая загрузка файла обновления с прогрессом и отчётом о результате.</summary>
+        private async Task DownloadUpdateFileAsync(UpdateCheckRowViewModel row, string url, string targetPath)
+        {
+            var progress = new Progress<double>(v =>
+                Dispatcher.UIThread.Post(() => row.Progress = Math.Clamp(v, 0, 1)));
+            var savedPath = await Task.Run(() =>
+                _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+
+            if (string.IsNullOrWhiteSpace(savedPath))
+            {
+                _dialogs.ShowWarning(T("Updates.NetworkError"), T("Updates.CheckTitle"));
+            }
+            else
+            {
+                row.Progress = 1;
+                UpdateProgressDisplay();
+                _dialogs.ShowInfo(string.Format(T("Updates.Loaded"), savedPath), T("Updates.CheckTitle"));
+            }
+        }
+
+        /// <summary>Имя сохранения: «<Имя>_<версия><расширение>»; расширение берётся из
+        /// выбранного файла релиза (issue #352.1: .cf вместо фиксированного .zip).</summary>
+        private static string BuildDownloadFileName(UpdateCheckRowViewModel row, UpdateFileChoice? choice)
         {
             var baseName = SanitizeFileName(row.Name);
             var latest = string.IsNullOrWhiteSpace(row.LatestVersion) ? "update" : row.LatestVersion;
-            return $"{baseName}_{latest}.zip";
+            var extension = choice is not null && !string.IsNullOrWhiteSpace(choice.FileName)
+                ? Path.GetExtension(choice.FileName)
+                : string.Empty;
+            if (string.IsNullOrWhiteSpace(extension))
+                extension = ".zip";
+            return $"{baseName}_{latest}{extension}";
         }
 
         private static string SanitizeFileName(string name)
@@ -626,6 +703,57 @@ namespace Configuration_Management
             return grid;
         }
 
+        // ===================== Папка цепочки обновлений (issue #352.2) =====================
+
+        /// <summary>Сохраняет папку цепочки в настройки (пустая папка не пишется).</summary>
+        private void SaveChainFolder(string folder)
+        {
+            try
+            {
+                var settings = _repository.LoadSettings();
+                settings.UpdateChainFolder = folder;
+                _repository.SaveSettings(settings);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("Не удалось сохранить папку цепочки обновлений: " + ex.Message);
+            }
+        }
+
+        /// <summary>Обновляет строку «Папка: …» над таблицей цепочки: путь либо подсказка
+        /// «выберите папку при скачивании» (issue #352.2).</summary>
+        private void RefreshChainFolderDisplay()
+        {
+            var folder = _repository.LoadSettings().UpdateChainFolder;
+            var hasFolder = !string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder);
+            _chainFolderValue.Text = hasFolder ? folder : T("Updates.Chain.FolderHint");
+            _chainOpenFolderButton.IsEnabled = hasFolder;
+        }
+
+        /// <summary>Кнопка «Открыть»: показывает сохранённую папку цепочки в файловом менеджере.</summary>
+        private void OnOpenChainFolderClick()
+        {
+            try
+            {
+                var folder = _repository.LoadSettings().UpdateChainFolder;
+                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                    return;
+
+                using var process = new System.Diagnostics.Process();
+                process.StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "xdg-open",
+                    UseShellExecute = false,
+                    ArgumentList = { folder },
+                };
+                process.Start();
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("Не удалось открыть папку цепочки обновлений: " + ex.Message);
+            }
+        }
+
         /// <summary>Обновляет панель прогресса цепочки: какой файл скачивается и сколько осталось.</summary>
         private void UpdateChainProgressDisplay()
         {
@@ -658,11 +786,19 @@ namespace Configuration_Management
             if (variant is null || variant.Steps.Count == 0)
                 return;
 
+            var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
+            var initialFolder = !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
+                ? settingsFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var folder = _dialogs.OpenFolderDialog(
                 T("Updates.Chain.ChooseFolder"),
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+                initialFolder);
             if (string.IsNullOrWhiteSpace(folder))
                 return;
+
+            // issue #352.2: выбранная папка запоминается — следующий диалог и кнопка «Открыть».
+            SaveChainFolder(folder);
+            RefreshChainFolderDisplay();
 
             _row.IsChainDownloading = true;
             _row.ChainProgress = 0;
@@ -729,8 +865,15 @@ namespace Configuration_Management
 
                 if (failed > 0)
                 {
-                    _dialogs.ShowWarning(string.Format(T("Updates.Chain.LoadedFailed"), failed),
-                        T("Updates.CheckTitle"));
+                    // issue #352.3: вместо предупреждения — диалог «Попробовать ещё раз?»
+                    // с обратным отсчётом; «Да» повторяет загрузку (планировщик сам пропустит
+                    // скачанное и покажет корректный «Скачивается X из Y»).
+                    var message = string.Format(T("Updates.Chain.LoadedFailedDetailed"), failed, total);
+                    if (ChainRetryWindow.Ask(this, message))
+                    {
+                        await DownloadChainAsync();
+                        return;
+                    }
                 }
                 else if (skipped > 0)
                 {
@@ -919,6 +1062,42 @@ namespace Configuration_Management
             _chainStatusValue.TextWrapping = TextWrapping.Wrap;
             Themes.ThemeBrushes.Bind(_chainStatusValue, TextBlock.ForegroundProperty, "TextSecondaryBrush");
             _chainSection.Children.Add(_chainStatusValue);
+
+            // Строка «Папка: <путь>» + кнопка «Открыть» (issue #352.2).
+            var folderLabel = new TextBlock
+            {
+                Text = T("Updates.Chain.Folder"),
+                FontSize = 12,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            Themes.ThemeBrushes.Bind(folderLabel, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+
+            _chainFolderValue.FontSize = 12;
+            _chainFolderValue.VerticalAlignment = VerticalAlignment.Center;
+            _chainFolderValue.TextTrimming = TextTrimming.CharacterEllipsis;
+            Themes.ThemeBrushes.Bind(_chainFolderValue, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+
+            _chainOpenFolderButton.Content = T("Updates.Chain.OpenFolder");
+            _chainOpenFolderButton.MinWidth = 110;
+            _chainOpenFolderButton.Height = 28;
+            _chainOpenFolderButton.Margin = new Thickness(8, 0, 0, 0);
+            _chainOpenFolderButton.Styled(ControlThemes.SecondaryButton);
+            _chainOpenFolderButton.Click += (_, _) => OnOpenChainFolderClick();
+
+            var folderGrid = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+            folderGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            folderGrid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1, GridUnitType.Star)));
+            folderGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            Grid.SetColumn(folderLabel, 0);
+            Grid.SetColumn(_chainFolderValue, 1);
+            Grid.SetColumn(_chainOpenFolderButton, 2);
+            folderGrid.Children.Add(folderLabel);
+            folderGrid.Children.Add(_chainFolderValue);
+            folderGrid.Children.Add(_chainOpenFolderButton);
+            _chainFolderPanel.Children.Add(folderGrid);
+            _chainSection.Children.Add(_chainFolderPanel);
 
             _chainSection.Children.Add(_chainRowsPanel);
 

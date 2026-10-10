@@ -643,6 +643,11 @@ public sealed class PlatformUpdateServiceTests
             string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 
+        public Task<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
+            string url, CancellationToken ct = default)
+            => Task.FromResult<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>>(
+                System.Array.Empty<UpdateFileChoice>());
+
         public Task<string?> GetPageTextAsync(string url, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 

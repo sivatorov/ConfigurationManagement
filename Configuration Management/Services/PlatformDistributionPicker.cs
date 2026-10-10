@@ -37,10 +37,15 @@ public sealed class PlatformDistributionOption
 {
     /// <param name="file">Файл дистрибутива релиза.</param>
     /// <param name="isRecommended">True — рекомендуемый вариант для текущей ОС.</param>
-    public PlatformDistributionOption(PlatformReleaseFile file, bool isRecommended = false)
+    /// <param name="includeFileName">Включать ли имя файла в подпись (issue #330: у файлов
+    /// релиза размер неизвестен, имена разные, а подписи типа/разрядности одинаковые —
+    /// «все строки одинаковые»). По умолчанию (null) имя включается для Windows-вариантов
+    /// (WindowsSetupZip) и не включается для единственных Linux-пакетов.</param>
+    public PlatformDistributionOption(PlatformReleaseFile file, bool isRecommended = false, bool? includeFileName = null)
     {
         File = file ?? throw new ArgumentNullException(nameof(file));
         IsRecommended = isRecommended;
+        IncludeFileName = includeFileName ?? (File.Kind == PlatformDistributionKind.WindowsSetupZip);
     }
 
     /// <summary>Файл дистрибутива.</summary>
@@ -48,6 +53,9 @@ public sealed class PlatformDistributionOption
 
     /// <summary>True — рекомендуемый вариант для текущей ОС/разрядности.</summary>
     public bool IsRecommended { get; }
+
+    /// <summary>True — имя файла включается в <see cref="DisplayName"/> (issue #330).</summary>
+    public bool IncludeFileName { get; }
 
     /// <summary>Тип дистрибутива по расширению.</summary>
     public PlatformDistributionKind Kind => File.Kind;
@@ -59,10 +67,13 @@ public sealed class PlatformDistributionOption
     public long SizeBytes => File.SizeBytes;
 
     /// <summary>
-    /// Человекочитаемое представление варианта: «Полный клиент (zip) · x64 · 1,2 ГБ»
-    /// (Windows) или «Пакет deb · amd64 · …» (Linux). Расширение в скобках — фактическое
-    /// расширение файла (issue #330: дистрибутивы платформы отдаются и архивами
-    /// <c>.rar</c>/<c>.7z</c> — вводить пользователя в заблуждение подписью «(zip)» нельзя).
+    /// Человекочитаемое представление варианта: «Полный клиент (rar) · x64 ·
+    /// setuptc64_8_3_27_2325.rar · 1,2 ГБ» (Windows) или «Пакет deb · amd64 · …» (Linux).
+    /// Расширение в скобках — фактическое расширение файла (issue #330: дистрибутивы
+    /// платформы отдаются и архивами <c>.rar</c>/<c>.7z</c> — вводить пользователя в
+    /// заблуждение подписью «(zip)» нельзя). Имя файла включается, когда вариантов
+    /// с одинаковым типом может быть несколько (см. <see cref="IncludeFileName"/>):
+    /// подписи строк списка выбора обязаны быть уникальными и различимыми (issue #330).
     /// </summary>
     public string DisplayName
     {
@@ -79,8 +90,12 @@ public sealed class PlatformDistributionOption
                     _ => File.FileName,
                 };
             var arch = string.IsNullOrWhiteSpace(Architecture) ? string.Empty : " · " + Architecture;
+            // Для неизвестных типов type уже и есть имя файла — повторять его нельзя.
+            var name = IncludeFileName && !string.Equals(type, File.FileName, StringComparison.Ordinal)
+                ? " · " + File.FileName
+                : string.Empty;
             var size = SizeBytes > 0 ? " · " + FormatSize(SizeBytes) : string.Empty;
-            return type + arch + size;
+            return type + arch + name + size;
         }
     }
 
@@ -254,11 +269,21 @@ public static class PlatformDistributionPicker
 
         var recommended = PickFile(files, is64Bit, PlatformDownloadType.Auto, isWindows);
         var recommendedUrl = recommended?.Url ?? string.Empty;
+
+        // Имя файла включается в подпись всегда для Windows-вариантов и для прочих
+        // типов, когда файлов этого типа больше одного — иначе строки списка выбора
+        // неотличимы (issue #330). Единственный Linux-пакет допустимо показывать без имени.
+        var kindCounts = relevant.GroupBy(f => f.Kind)
+            .ToDictionary(g => g.Key, g => g.Count());
+
         foreach (var file in relevant)
         {
             var isRec = !string.IsNullOrWhiteSpace(recommendedUrl) &&
                         string.Equals(file.Url, recommendedUrl, StringComparison.OrdinalIgnoreCase);
-            options.Add(new PlatformDistributionOption(file, isRec));
+            bool? includeName = file.Kind == PlatformDistributionKind.WindowsSetupZip
+                ? null // Windows: имя файла — обязательная часть подписи (умолчание конструктора).
+                : kindCounts.TryGetValue(file.Kind, out var count) && count > 1;
+            options.Add(new PlatformDistributionOption(file, isRec, includeName));
         }
 
         return options;

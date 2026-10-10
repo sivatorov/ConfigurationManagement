@@ -217,6 +217,29 @@
                                    TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="{Binding ChainStatusText}"/>
 
+                        <!-- Папка сохранения цепочки (issue #352.2): путь запоминается в
+                             настройках, кнопка «Открыть» показывает папку в проводнике.
+                             Текст и видимость строки обновляет UpdateChainFolderDisplay. -->
+                        <Grid x:Name="ChainFolderPanel" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.Chain.Folder}"/>
+                            <TextBlock x:Name="ChainFolderText" Grid.Column="1" FontSize="12"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <Button x:Name="ChainOpenFolderButton" Grid.Column="2" MinWidth="110" Height="28"
+                                    Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                                    Click="OnOpenChainFolderClick">
+                                <TextBlock Text="{loc:Loc Updates.Chain.OpenFolder}" VerticalAlignment="Center"/>
+                            </Button>
+                        </Grid>
+
                         <DataGrid x:Name="ChainGrid" AutoGenerateColumns="False" IsReadOnly="True"
                                   HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                                   CanUserSortColumns="False" RowHeaderWidth="0" SelectionMode="Single"
