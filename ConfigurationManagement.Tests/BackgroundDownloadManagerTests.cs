@@ -209,4 +209,65 @@ public sealed class BackgroundDownloadManagerTests
         Assert.Throws<ArgumentException>(() => manager.Start("", "Файл"));
         Assert.Throws<ArgumentException>(() => manager.Start("  ", "Файл"));
     }
+
+    [Fact]
+    public void ReportProgress_AfterCompleteOrCancel_IsIgnored()
+    {
+        // Гарантия для гонки «окно закрыто → Complete/Cancel → поздний ReportProgress»
+        // (issue #352, 0.3.12.3, одиночное скачивание): поздние отчёты прогресса не
+        // «оживляют» запись и не меняют её состояние/прогресс.
+        var manager = new BackgroundDownloadManager();
+        var changes = 0;
+        manager.Changed += () => changes++;
+
+        var completed = manager.Start("update:База:file.cf", "file.cf");
+        manager.ReportProgress("update:База:file.cf", 0.5);
+        manager.Complete("update:База:file.cf");
+        var changesAfterComplete = changes;
+
+        var cancelled = manager.Start("update:База:other.cfu", "other.cfu");
+        manager.Cancel("update:База:other.cfu");
+        var changesAfterCancel = changes;
+
+        // Поздние отчёты после завершения и после отмены.
+        manager.ReportProgress("update:База:file.cf", 0.9);
+        manager.ReportProgress("update:База:other.cfu", 0.7);
+
+        Assert.Equal(BackgroundDownloadState.Completed, completed.State);
+        Assert.Equal(1.0, completed.Progress);
+        Assert.Equal(BackgroundDownloadState.Cancelled, cancelled.State);
+        Assert.Equal(0.0, cancelled.Progress);
+        // Поздние отчёты не поднимали событий Changed (последний Changed был от Cancel).
+        Assert.Equal(changesAfterCancel, changes);
+        Assert.True(changesAfterComplete < changesAfterCancel); // завершение + отмена дали события
+        Assert.Equal(0, manager.ActiveCount);
+    }
+
+    [Fact]
+    public async Task Cancel_SingleUpdateEntry_PropagatesToToken()
+    {
+        // Симуляция маршрутизации одиночного скачивания файла обновления конфигурации
+        // (issue #352, 0.3.12.3): запись с id-форматом "update:<база>:<файл>" создаётся
+        // до скачивания, отмена из индикатора главного окна сигнализирует в токен,
+        // по которому Task.Run-загрузка обязана прерваться с OperationCanceledException,
+        // состояние записи — Cancelled (аналог Download_ContinuesAfterWindowClose_Simulation).
+        var manager = new BackgroundDownloadManager();
+
+        var entry = manager.Start("update:База:file.cf", "file.cf");
+        Assert.True(entry.IsActive);
+
+        var downloadTask = Task.Run(async () =>
+        {
+            // Загрузка «висит» до отмены, как сетевой запрос на скачании.
+            await Task.Delay(Timeout.Infinite, entry.Cancellation.Token);
+            return "done";
+        });
+
+        Assert.True(manager.Cancel("update:База:file.cf"));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => downloadTask);
+        Assert.Equal(BackgroundDownloadState.Cancelled, entry.State);
+        Assert.False(entry.IsActive);
+        Assert.Equal(0, manager.ActiveCount);
+    }
 }

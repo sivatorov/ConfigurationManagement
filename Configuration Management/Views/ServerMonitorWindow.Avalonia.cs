@@ -31,6 +31,10 @@ namespace Configuration_Management
     /// </summary>
     public sealed class ServerMonitorWindow : ModalWindowBase
     {
+        // Окно большое и изменяемого размера — показываем кнопку «Развернуть»
+        // в собственном chrome (issue #324; на Windows системная кнопка уже есть).
+        protected override bool SupportsMaximizeButton => true;
+
         private readonly ServerMonitorViewModel _vm;
         private readonly ComboBox _clusterCombo;
         private TextBlock? _jobsEmptyHint;
@@ -122,13 +126,15 @@ namespace Configuration_Management
                     _vm.AutoRefreshIntervalSeconds = seconds;
             };
 
+            // Автообновление и интервал (issue #324) перенесены в панель кластера,
+            // чтобы строка подключения не выходила за ширину окна.
             var buttons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Spacing = 8,
                 Margin = new Thickness(0, 10, 0, 0),
-                Children = { connectButton, refreshButton, autoRefreshCheck, intervalLabel, intervalBox, diagnosticsButton, closeButton }
+                Children = { connectButton, refreshButton, diagnosticsButton, closeButton }
             };
 
             // ---- Выбор кластера + статус. ----
@@ -156,6 +162,10 @@ namespace Configuration_Management
                 {
                     new TextBlock { Text = LocalizationManager.T("ServerMonitor.Cluster"), VerticalAlignment = VerticalAlignment.Center },
                     _clusterCombo,
+                    // Автообновление + интервал (issue #324): рядом с выбором кластера.
+                    autoRefreshCheck,
+                    intervalLabel,
+                    intervalBox,
                     status
                 }
             };

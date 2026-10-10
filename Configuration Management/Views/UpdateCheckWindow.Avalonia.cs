@@ -541,23 +541,66 @@ namespace Configuration_Management
                 UpdateChainDownloadPlanner.GetChainInitialFolder(settingsFolder));
         }
 
-        /// <summary>Общая загрузка файла обновления с прогрессом и отчётом о результате.</summary>
+        /// <summary>
+        /// Общая загрузка файла обновления с прогрессом и отчётом о результате.
+        /// Загрузка регистрируется в менеджере фоновых загрузок (issue #352, 0.3.12.3):
+        /// продолжается после закрытия окна, видна в индикаторе главного окна и
+        /// отменяется из него — как и загрузка цепочки (<see cref="DownloadChainAsync"/>).
+        /// </summary>
         private async Task DownloadUpdateFileAsync(UpdateCheckRowViewModel row, string url, string targetPath)
         {
-            var progress = new Progress<double>(v =>
-                Dispatcher.UIThread.Post(() => row.Progress = Math.Clamp(v, 0, 1)));
-            var savedPath = await Task.Run(() =>
-                _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+            var fileName = Path.GetFileName(targetPath);
 
-            if (string.IsNullOrWhiteSpace(savedPath))
+            // issue #352 (0.3.12.3): запись в менеджере заводится ДО скачивания,
+            // реальный токен отмены вместо CancellationToken.None.
+            var downloadId = $"update:{row.Name}:{fileName}";
+            var entry = Services.BackgroundDownloadManager.Default.Start(downloadId, fileName);
+
+            var progress = new Progress<double>(v => Dispatcher.UIThread.Post(() =>
             {
-                _dialogs.ShowWarning(T("Updates.NetworkError"), T("Updates.CheckTitle"));
+                row.Progress = Math.Clamp(v, 0, 1);
+                Services.BackgroundDownloadManager.Default.ReportProgress(downloadId, row.Progress);
+            }));
+
+            try
+            {
+                var savedPath = await Task.Run(() =>
+                    _updates.DownloadUpdateAsync(url, targetPath, progress, entry.Cancellation.Token));
+
+                if (string.IsNullOrWhiteSpace(savedPath))
+                {
+                    if (entry.Cancellation.Token.IsCancellationRequested)
+                    {
+                        // Отмена из индикатора главного окна: состояние Cancelled
+                        // уже выставлено менеджером (Cancel); здесь только журнал.
+                        _logger.Info($"Скачивание «{fileName}» отменено пользователем.");
+                    }
+                    else
+                    {
+                        Services.BackgroundDownloadManager.Default.Fail(downloadId, "Updates.NetworkError");
+                        _dialogs.ShowWarning(T("Updates.NetworkError"), T("Updates.CheckTitle"));
+                    }
+                }
+                else
+                {
+                    if (entry.IsActive)
+                        Services.BackgroundDownloadManager.Default.Complete(downloadId);
+                    row.Progress = 1;
+                    UpdateProgressDisplay();
+                    _dialogs.ShowInfo(string.Format(T("Updates.Loaded"), savedPath), T("Updates.CheckTitle"));
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                row.Progress = 1;
-                UpdateProgressDisplay();
-                _dialogs.ShowInfo(string.Format(T("Updates.Loaded"), savedPath), T("Updates.CheckTitle"));
+                // Отмена из индикатора главного окна: состояние Cancelled уже
+                // выставлено менеджером; здесь только журнал, без диалога.
+                _logger.Info($"Скачивание «{fileName}» отменено пользователем.");
+            }
+            catch (Exception ex)
+            {
+                Services.BackgroundDownloadManager.Default.Fail(downloadId, "Updates.NetworkError");
+                _logger.Error($"Ошибка скачивания «{fileName}» ({url})", ex);
+                _dialogs.ShowWarning(T("Updates.NetworkError"), T("Updates.CheckTitle"));
             }
         }
 

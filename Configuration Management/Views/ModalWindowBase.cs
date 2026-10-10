@@ -243,6 +243,16 @@ namespace Configuration_Management
         /// </summary>
         protected virtual bool UseGlassChrome => SystemDecorations != SystemDecorations.Full;
 
+        /// <summary>
+        /// Показывать ли в собственном chrome (без системного заголовка) кнопку
+        /// «Развернуть» (issue #324). По умолчанию выключено: обычные диалоги
+        /// фиксированного размера в максимизации не нуждаются. Окна с изменяемым
+        /// размером (например, «Серверы 1С») переопределяют на true. Со включённым
+        /// системным заголовком кнопка не рисуется вовсе — там максимумация
+        /// доступна средствами ОС, дублей нет.
+        /// </summary>
+        protected virtual bool SupportsMaximizeButton => false;
+
         protected override void OnClosed(EventArgs e)
         {
             // Событие живёт у синглтона локализации, а обработчик это метод
@@ -581,6 +591,23 @@ namespace Configuration_Management
                 Spacing = 2,
                 VerticalAlignment = VerticalAlignment.Center
             };
+
+            if (SupportsMaximizeButton)
+            {
+                var maximize = new DialogWindowControlButton(DialogWindowControlKind.Maximize);
+                // Подсказка меняется вместе с состоянием окна: развернуть ↔ свернуть в окно.
+                void UpdateMaximizeTooltip() => ToolTip.SetTip(maximize,
+                    WindowState == WindowState.Maximized
+                        ? LocalizationManager.T("Window.Restore")
+                        : LocalizationManager.T("Window.Maximize"));
+                UpdateMaximizeTooltip();
+                this.GetObservable(WindowStateProperty)
+                    .Subscribe(new WindowStateObserver(UpdateMaximizeTooltip));
+                maximize.Click += (_, _) => WindowState = WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+                buttons.Children.Add(maximize);
+            }
 
             var minimize = new DialogWindowControlButton(DialogWindowControlKind.Minimize);
             ToolTip.SetTip(minimize, LocalizationManager.T("Window.Minimize"));
@@ -1094,8 +1121,8 @@ namespace Configuration_Management
             public void OnNext(WindowState value) => _action();
         }
 
-        /// <summary>Вид кнопки управления окном диалога: свернуть или закрыть.</summary>
-        private enum DialogWindowControlKind { Minimize, Close }
+        /// <summary>Вид кнопки управления окном диалога: свернуть, развернуть или закрыть.</summary>
+        private enum DialogWindowControlKind { Minimize, Maximize, Close }
 
         /// <summary>
         /// Собственная кнопка управления окном диалога (свернуть/закрыть) в духе
@@ -1106,9 +1133,10 @@ namespace Configuration_Management
         private sealed class DialogWindowControlButton : Button
         {
             // Контуры в координатном поле 14 на 14 (как в разметке главного окна):
-            // черта и крест с округлёнными концами.
+            // черта, крест и «квадрат» (развернуть) с округлёнными концами.
             private const string MinimizeData = "M3,7 L11,7";
             private const string CloseData = "M3.5,3.5 L10.5,10.5 M10.5,3.5 L3.5,10.5";
+            private const string MaximizeData = "M4,4 L10,4 L10,10 L4,10 Z";
 
             /// <summary>Диаметр круглой подложки кнопки диалога.</summary>
             private const double CircleDiameter = 26;
@@ -1211,10 +1239,15 @@ namespace Configuration_Management
                     Width = UiMetrics.Scaled(14),
                     Height = UiMetrics.Scaled(14),
                     Stretch = Stretch.Uniform,
-                    StrokeThickness = _kind == DialogWindowControlKind.Close ? 1.7 : 2.0,
+                    StrokeThickness = _kind is DialogWindowControlKind.Close or DialogWindowControlKind.Maximize ? 1.7 : 2.0,
                     StrokeLineCap = PenLineCap.Round,
                     StrokeJoin = PenLineJoin.Round,
-                    Data = StreamGeometry.Parse(_kind == DialogWindowControlKind.Close ? CloseData : MinimizeData)
+                    Data = StreamGeometry.Parse(_kind switch
+                    {
+                        DialogWindowControlKind.Close => CloseData,
+                        DialogWindowControlKind.Maximize => MaximizeData,
+                        _ => MinimizeData
+                    })
                 };
                 Content = _glyph;
 
