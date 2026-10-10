@@ -129,6 +129,66 @@ public static class UpdateChainBuilder
     }
 
     /// <summary>
+    /// Адрес для кнопки «Скачать» одиночного обновления (issue #352.1, регрессия «Не
+    /// повышать»): при включённой галочке «Не повышать» и вычислимом кап-таргете
+    /// ВСЕГДА строится прямая ссылка <c>version_files?nick=&ver=<кап></c> — даже
+    /// когда кап совпадает с отображаемой «Последней версией» (ранее при равенстве
+    /// возвращался сырой URL каталога, и сервис резолвил глобальную последнюю версию,
+    /// предлагая файлы выше текущей). Дополнительно (рекомендация плана): при известной
+    /// целевой версии <paramref name="latestVersion"/> и адресе без <c>ver</c> строится
+    /// <c>version_files</c> по этой версии — без лишнего запроса каталога.
+    /// Чистый статический метод без UI — покрыт юнит-тестами.
+    /// </summary>
+    /// <param name="currentVersion">Текущая версия конфигурации (может быть пустой/непарсимой).</param>
+    /// <param name="latestVersion">Отображаемая целевая («Последняя») версия, известная окну.</param>
+    /// <param name="noVersionBump">Значение галочки «Не повышать».</param>
+    /// <param name="releases">Кэш каталога версий (может быть пустым).</param>
+    /// <param name="url">Исходный адрес строки (каталог проекта / релиз / файл).</param>
+    public static string ResolveSingleDownloadUrl(
+        string? currentVersion,
+        string? latestVersion,
+        bool noVersionBump,
+        IReadOnlyList<PlatformRelease>? releases,
+        string? url)
+    {
+        var sourceUrl = url ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceUrl))
+            return sourceUrl;
+
+        var nick = OneCUpdatesService.ExtractNickAndVersion(sourceUrl).Nick;
+        if (string.IsNullOrWhiteSpace(nick))
+            nick = OneCUpdatesService.ExtractNickFromProjectUrl(sourceUrl);
+        if (string.IsNullOrWhiteSpace(nick))
+            return sourceUrl;
+
+        string? target = null;
+        if (noVersionBump
+            && !string.IsNullOrWhiteSpace(currentVersion)
+            && releases is { Count: > 0 })
+        {
+            // «Не повышать»: кап-версия линии major.minor, БЕЗ сравнения с отображаемой
+            // «Последней версией» (issue #352.1: после ApplyNoVersionBump LatestVersion
+            // равна капу, и старая проверка равенства откатывалась к сырому URL).
+            target = SelectCappedTarget(currentVersion, releases);
+        }
+
+        if (string.IsNullOrWhiteSpace(target)
+            && string.IsNullOrWhiteSpace(OneCUpdatesService.ExtractNickAndVersion(sourceUrl).Ver)
+            && !string.IsNullOrWhiteSpace(latestVersion))
+        {
+            // Рекомендация плана: известная целевая версия + адрес без ver — строим
+            // version_files напрямую (каталог не запрашивается).
+            target = latestVersion.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(target))
+            return sourceUrl;
+
+        return OneCUpdatesService.ToAbsoluteVersionFilesUrl(
+            $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(target)}", sourceUrl);
+    }
+
+    /// <summary>
     /// True — версию <paramref name="currentVersion"/> нет в каталоге: она не совпадает
     /// ни с одной версией релизов и не упомянута в «Списках версий» ни одного релиза
     /// (issue #352: признак отозванного релиза). Пустая текущая версия — не «отсутствует».

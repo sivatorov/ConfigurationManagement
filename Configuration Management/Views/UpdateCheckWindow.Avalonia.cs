@@ -448,9 +448,11 @@ namespace Configuration_Management
                 try
                 {
                     // issue #352.4: при «Не повышать» скачивается ограниченная последняя версия.
+                    // issue #352.1 (0.3.12.2): известная «Последняя версия» передаётся сервису,
+                    // чтобы адрес без ver резолвился в неё, а не в глобальную последнюю.
                     var downloadUrl = ResolveDownloadUrl(row);
                     choices = await Task.Run(() =>
-                        _updates.GetReleaseFileChoicesAsync(downloadUrl, CancellationToken.None));
+                        _updates.GetReleaseFileChoicesAsync(downloadUrl, CancellationToken.None, row.LatestVersion));
                 }
                 catch (Exception ex)
                 {
@@ -471,7 +473,7 @@ namespace Configuration_Management
                 else if (choices.Count == 0)
                 {
                     // Fallback — прежний путь: страница скачивания по цепочке, имя «.zip».
-                    var targetPath = AskSavePath(BuildDownloadFileName(row, null));
+                    var targetPath = ResolveSavePath(BuildDownloadFileName(row, null));
                     if (string.IsNullOrWhiteSpace(targetPath))
                         return;
                     await DownloadUpdateFileAsync(row, row.Url, targetPath);
@@ -508,20 +510,35 @@ namespace Configuration_Management
         /// <summary>Скачивает выбранный вариант файла релиза (issue #352.1).</summary>
         private async Task DownloadUpdateChoiceAsync(UpdateCheckRowViewModel row, UpdateFileChoice choice)
         {
-            var targetPath = AskSavePath(BuildDownloadFileName(row, choice));
+            var targetPath = ResolveSavePath(BuildDownloadFileName(row, choice));
             if (string.IsNullOrWhiteSpace(targetPath))
                 return;
             await DownloadUpdateFileAsync(row, choice.Url, targetPath);
         }
 
-        /// <summary>Диалог сохранения с фильтром известных расширений дистрибутивов.</summary>
+        /// <summary>Путь сохранения одиночного скачивания (issue #352.2, 0.3.12.2): при
+        /// существующей папке цепочки в настройках файл сохраняется в неё БЕЗ диалога
+        /// «куда скачать»; иначе диалог с начальным каталогом из настроек.</summary>
+        private string? ResolveSavePath(string fileName)
+        {
+            var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
+            var direct = UpdateChainDownloadPlanner.ResolveSaveTarget(settingsFolder, fileName);
+            if (!string.IsNullOrWhiteSpace(direct))
+                return direct;
+
+            return AskSavePath(fileName);
+        }
+
+        /// <summary>Диалог сохранения с фильтром известных расширений дистрибутивов;
+        /// начальный каталог — сохранённая папка цепочки (issue #352.2), иначе профиль.</summary>
         private string? AskSavePath(string fileName)
         {
+            var settingsFolder = _repository.LoadSettings().UpdateChainFolder;
             return _dialogs.SaveFileDialog(
                 T("Updates.Download"),
                 fileName,
                 "Архивы (*.zip;*.rar;*.7z)|*.zip;*.rar;*.7z|Файлы 1С (*.cf;*.cfu)|*.cf;*.cfu|Все файлы (*.*)|*.*",
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+                UpdateChainDownloadPlanner.GetChainInitialFolder(settingsFolder));
         }
 
         /// <summary>Общая загрузка файла обновления с прогрессом и отчётом о результате.</summary>
@@ -753,29 +770,16 @@ namespace Configuration_Management
         }
 
         /// <summary>Адрес для кнопки «Скачать» (issue #352.4): при включённой галочке «Не
-        /// повышать» и известной ограниченной последней версии строится прямая ссылка
-        /// version_files?nick&ver этой версии — качается 3.1.x-максимум, а не глобальная
-        /// последняя (единообразно с цепочками).</summary>
+        /// повышать» строится прямая ссылка version_files?nick&ver кап-версии — даже когда
+        /// кап равен отображаемой «Последней версии» (0.3.12.2, issue #352.1: раньше при
+        /// равенстве возвращался сырой URL каталога и сервис резолвил глобальную последнюю);
+        /// при выключенной галочке и известной версии — version_files этой версии.
+        /// Логика — в чистом хелпере <see cref="UpdateChainBuilder.ResolveSingleDownloadUrl"/>
+        /// (юнит-тесты).</summary>
         private string ResolveDownloadUrl(UpdateCheckRowViewModel row)
         {
-            var url = row.Url;
-            if (!row.NoVersionBump || _catalogReleases is null || _catalogReleases.Count == 0
-                || string.IsNullOrWhiteSpace(row.CurrentVersion))
-                return url;
-
-            var capped = UpdateChainBuilder.SelectCappedTarget(row.CurrentVersion, _catalogReleases);
-            if (string.IsNullOrWhiteSpace(capped)
-                || string.Equals(capped, row.LatestVersion, StringComparison.OrdinalIgnoreCase))
-                return url;
-
-            var nick = OneCUpdatesService.ExtractNickAndVersion(url).Nick;
-            if (string.IsNullOrWhiteSpace(nick))
-                nick = OneCUpdatesService.ExtractNickFromProjectUrl(url);
-            if (string.IsNullOrWhiteSpace(nick))
-                return url;
-
-            return OneCUpdatesService.ToAbsoluteVersionFilesUrl(
-                $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(capped)}", url);
+            return UpdateChainBuilder.ResolveSingleDownloadUrl(
+                row.CurrentVersion, row.LatestVersion, row.NoVersionBump, _catalogReleases, row.Url);
         }
 
         /// <summary>Перестраивает строки таблицы вариантов цепочки («№» и «Список версий»).</summary>
@@ -928,90 +932,24 @@ namespace Configuration_Management
 
             try
             {
-                // issue #352 (комментарий 7OH от 2026-10-09): докачка цепочки — файлы,
-                // уже скачанные ранее (существуют и непусты), пропускаются ещё на старте;
-                // счётчик «Скачивается X из Y» считается только по требующим скачивания.
-                var baseName = SanitizeFileName(_row.Name);
-                var targetPaths = variant.Steps
-                    .Select(step => Path.Combine(folder, $"{baseName}_{step.Version}.zip"))
-                    .ToList();
-                var pending = UpdateChainDownloadPlanner.SelectPendingSteps(targetPaths);
-                var skipped = variant.Steps.Count - pending.Count;
-                if (skipped > 0)
-                    _logger.Info($"Пропущено уже скачанных файлов цепочки «{_row.Name}»: {skipped} из {variant.Steps.Count}.");
-
-                if (pending.Count == 0)
+                // issue #352.3 (0.3.12.2): повтор «Попробовать ещё раз?» — ЦИКЛ, а не
+                // рекурсия: рекурсивный вызов выходил по guard-у CanDownloadChain, т.к.
+                // IsChainDownloading сбрасывался только в finally внешнего вызова (после
+                // возврата рекурсии) — диалог закрывался «в никуда». Гварды и статус
+                // «идёт загрузка» — вне цикла; планировщик каждой попытки сам пропускает
+                // скачанные файлы и показывает корректный «Скачивается X из Y».
+                var retry = true;
+                while (retry)
                 {
-                    // Цепочка уже полностью скачана — фоновая запись сразу завершается.
-                    Services.BackgroundDownloadManager.Default.Complete(chainId);
-                    _dialogs.ShowInfo(string.Format(
-                            T("Updates.Chain.AllDownloaded"), variant.Steps.Count, folder),
-                        T("Updates.CheckTitle"));
-                    return;
-                }
-
-                var total = pending.Count;
-                var ok = 0;
-                var failed = 0;
-
-                for (var n = 0; n < total; n++)
-                {
-                    var i = pending[n];
-                    var step = variant.Steps[i];
-                    var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
-                    var targetPath = targetPaths[i];
-
-                    _row.ChainProgressText = string.Format(
-                        T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version);
-                    _row.ChainProgress = (double)n / total;
-
-                    var progress = new Progress<double>(p => Dispatcher.UIThread.Post(() =>
+                    retry = false;
+                    var (failed, total) = await DownloadChainAttemptAsync(
+                        folder, variant, chainId, backgroundEntry.Cancellation.Token);
+                    if (failed > 0)
                     {
-                        _row.ChainProgress = Math.Clamp((n + p) / total, 0, 1);
-                        Services.BackgroundDownloadManager.Default.ReportProgress(chainId, _row.ChainProgress);
-                    }));
-                    var saved = await Task.Run(() =>
-                        _updates.DownloadUpdateAsync(url, targetPath, progress, backgroundEntry.Cancellation.Token));
-
-                    if (!string.IsNullOrWhiteSpace(saved))
-                    {
-                        ok++;
-                        _logger.Info($"Скачана версия {step.Version} цепочки: {saved}");
+                        var message = string.Format(T("Updates.Chain.LoadedFailedDetailed"), failed, total);
+                        if (ChainRetryWindow.Ask(this, message))
+                            retry = true; // повтор: недостающие файлы докачиваются.
                     }
-                    else
-                    {
-                        failed++;
-                        _logger.Warn($"Не удалось скачать версию {step.Version} цепочки ({url}).");
-                    }
-
-                    _row.ChainProgress = (double)(n + 1) / total;
-                    _row.ChainProgressText = string.Format(
-                            T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version)
-                        + " " + string.Format(T("Updates.Chain.Remaining"), total - n - 1);
-                }
-
-                if (failed > 0)
-                {
-                    // issue #352.3: вместо предупреждения — диалог «Попробовать ещё раз?»
-                    // с обратным отсчётом; «Да» повторяет загрузку (планировщик сам пропустит
-                    // скачанное и покажет корректный «Скачивается X из Y»).
-                    var message = string.Format(T("Updates.Chain.LoadedFailedDetailed"), failed, total);
-                    if (ChainRetryWindow.Ask(this, message))
-                    {
-                        await DownloadChainAsync();
-                        return;
-                    }
-                }
-                else if (skipped > 0)
-                {
-                    _dialogs.ShowInfo(string.Format(
-                        T("Updates.Chain.LoadedOkSkipped"), ok, total, skipped, folder),
-                        T("Updates.CheckTitle"));
-                }
-                else
-                {
-                    _dialogs.ShowInfo(string.Format(T("Updates.Chain.LoadedOk"), ok, total, folder),
-                        T("Updates.CheckTitle"));
                 }
             }
             catch (OperationCanceledException)
@@ -1033,6 +971,95 @@ namespace Configuration_Management
                 _row.IsChainDownloading = false;
                 UpdateChainProgressDisplay();
             }
+        }
+
+        /// <summary>
+        /// Одна попытка скачивания цепочки (0.3.12.2, issue #352.3): расчёт целевых путей,
+        /// пропуск уже скачанных файлов (<see cref="UpdateChainDownloadPlanner"/>), цикл
+        /// скачивания с прогрессом и итоговые сообщения. Возвращает (число нескачанных,
+        /// всего требовалось) — повтор решает <see cref="DownloadChainAsync"/>.
+        /// </summary>
+        private async Task<(int Failed, int Total)> DownloadChainAttemptAsync(
+            string folder,
+            UpdateChainVariantViewModel variant,
+            string chainId,
+            CancellationToken downloadToken)
+        {
+            // issue #352 (комментарий 7OH от 2026-10-09): докачка цепочки — файлы,
+            // уже скачанные ранее (существуют и непусты), пропускаются ещё на старте;
+            // счётчик «Скачивается X из Y» считается только по требующим скачивания.
+            var baseName = SanitizeFileName(_row.Name);
+            var targetPaths = variant.Steps
+                .Select(step => Path.Combine(folder, $"{baseName}_{step.Version}.zip"))
+                .ToList();
+            var pending = UpdateChainDownloadPlanner.SelectPendingSteps(targetPaths);
+            var skipped = variant.Steps.Count - pending.Count;
+            if (skipped > 0)
+                _logger.Info($"Пропущено уже скачанных файлов цепочки «{_row.Name}»: {skipped} из {variant.Steps.Count}.");
+
+            if (pending.Count == 0)
+            {
+                // Цепочка уже полностью скачана — фоновая запись сразу завершается.
+                Services.BackgroundDownloadManager.Default.Complete(chainId);
+                _dialogs.ShowInfo(string.Format(
+                        T("Updates.Chain.AllDownloaded"), variant.Steps.Count, folder),
+                    T("Updates.CheckTitle"));
+                return (0, 0);
+            }
+
+            var total = pending.Count;
+            var ok = 0;
+            var failed = 0;
+
+            for (var n = 0; n < total; n++)
+            {
+                var i = pending[n];
+                var step = variant.Steps[i];
+                var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
+                var targetPath = targetPaths[i];
+
+                _row.ChainProgressText = string.Format(
+                    T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version);
+                _row.ChainProgress = (double)n / total;
+
+                var progress = new Progress<double>(p => Dispatcher.UIThread.Post(() =>
+                {
+                    _row.ChainProgress = Math.Clamp((n + p) / total, 0, 1);
+                    Services.BackgroundDownloadManager.Default.ReportProgress(chainId, _row.ChainProgress);
+                }));
+                var saved = await Task.Run(() =>
+                    _updates.DownloadUpdateAsync(url, targetPath, progress, downloadToken));
+
+                if (!string.IsNullOrWhiteSpace(saved))
+                {
+                    ok++;
+                    _logger.Info($"Скачана версия {step.Version} цепочки: {saved}");
+                }
+                else
+                {
+                    failed++;
+                    _logger.Warn($"Не удалось скачать версию {step.Version} цепочки ({url}).");
+                }
+
+                _row.ChainProgress = (double)(n + 1) / total;
+                _row.ChainProgressText = string.Format(
+                        T("Updates.Chain.DownloadProgress"), n + 1, total, step.Version)
+                    + " " + string.Format(T("Updates.Chain.Remaining"), total - n - 1);
+            }
+
+            if (failed == 0 && skipped > 0)
+            {
+                _dialogs.ShowInfo(string.Format(
+                    T("Updates.Chain.LoadedOkSkipped"), ok, total, skipped, folder),
+                    T("Updates.CheckTitle"));
+            }
+            else if (failed == 0)
+            {
+                _dialogs.ShowInfo(string.Format(T("Updates.Chain.LoadedOk"), ok, total, folder),
+                    T("Updates.CheckTitle"));
+            }
+
+            return (failed, total);
         }
 
         /// <summary>Колонка сводного ряда «Текущая / Последняя / Статус» (issue #352).

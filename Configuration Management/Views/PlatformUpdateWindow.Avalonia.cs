@@ -67,11 +67,13 @@ namespace Configuration_Management
                 (url, targetPath, progress, ct) =>
                     _updates.DownloadDistributionAsync(url, targetPath, progress, ct),
                 InstallFromZipAsync,
+                // issue #334 п.2 (0.3.12.2): диалог «куда скачать» открывается в сохранённой
+                // папке скачиваний платформы, а не в профиле пользователя.
                 defaultName => _dialogs.SaveFileDialog(
                     LocalizationManager.T("PlatformUpdate.DownloadOnly"),
                     defaultName ?? "platform.zip",
                     "Архивы (*.zip)|*.zip|Пакеты Linux (*.deb;*.rpm)|*.deb;*.rpm|Все файлы (*.*)|*.*",
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
+                    GetSaveDialogInitialDirectory(_repository)),
                 loadRunningProcesses: () => _running.GetRunning()
                     .Select(p => p.ProcessName)
                     .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -110,7 +112,10 @@ namespace Configuration_Management
                 // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
                 chooseDistribution: ChooseDistribution,
                 // issue #334: диалог выбора удаляемых старых версий (список с флажками).
-                chooseVersionsToDelete: ChooseOldVersionsToDelete);
+                chooseVersionsToDelete: ChooseOldVersionsToDelete,
+                // issue #334 п.1 (0.3.12.2): загрузки из этого окна видны в индикаторе
+                // главного окна и отменяются из него.
+                backgroundDownloads: Services.BackgroundDownloadManager.Default);
 
             BuildRows();
             foreach (var row in _viewModel.Rows)
@@ -124,6 +129,24 @@ namespace Configuration_Management
         /// <see cref="ModalWindowBase.ShowDialogSync(Window?)"/>, чтобы диалог можно было
         /// вызывать из ViewModel (не наследника окна).</summary>
         public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
+
+        /// <summary>Начальный каталог диалога сохранения: сохранённая папка скачиваний
+        /// платформы (issue #334 п.2, 0.3.12.2), иначе профиль пользователя.</summary>
+        private static string GetSaveDialogInitialDirectory(Services.IInfobaseRepository repository)
+        {
+            try
+            {
+                var directory = repository.LoadSettings().PlatformDownloadDirectory;
+                if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                    return directory;
+            }
+            catch
+            {
+                // Настройки недоступны — профиль пользователя.
+            }
+
+            return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
 
         /// <summary>
         /// Диалог выбора варианта дистрибутива (issue #334): список файлов для текущей ОС,

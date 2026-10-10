@@ -644,7 +644,7 @@ public sealed class PlatformUpdateServiceTests
             => Task.FromResult<string?>(null);
 
         public Task<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
-            string url, CancellationToken ct = default)
+            string url, CancellationToken ct = default, string? knownLatestVersion = null)
             => Task.FromResult<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>>(
                 System.Array.Empty<UpdateFileChoice>());
 

@@ -2648,6 +2648,7 @@
     "Updates.FileChoice.FullDistribution": "Полный дистрибутив",
     "Updates.FileChoice.Download": "Скачать",
     "Updates.FileChoice.Cancel": "Отмена",
+    "Updates.Distribution.Cancelled": "Выбор дистрибутива отменён",
     "Updates.SelectEdition": "Выберите редакцию",
     "Updates.SearchPlaceholder": "Поиск по наименованию, коду, сегменту адреса, нику, редакциям…",
     "Updates.ClearSearch": "Очистить поиск",

@@ -128,4 +128,27 @@ public sealed class UpdateChainDownloadPlannerTests : IDisposable
     {
         Assert.Empty(UpdateChainDownloadPlanner.SelectPendingSteps(Array.Empty<string>()));
     }
+
+    // ======================= ResolveSaveTarget (issue #352.2, 0.3.12.2) =======================
+
+    [Fact]
+    public void ResolveSaveTarget_ExistingSettingsFolder_CombinesPathWithoutDialog()
+    {
+        // Пожелание 7OH: при выбранной папке «куда скачать» не спрашивается —
+        // файл сохраняется в папку цепочки.
+        var target = UpdateChainDownloadPlanner.ResolveSaveTarget(_dir, "UT11_11.5.27.98.cf");
+
+        Assert.Equal(Path.Combine(_dir, "UT11_11.5.27.98.cf"), target);
+    }
+
+    [Fact]
+    public void ResolveSaveTarget_EmptyOrMissingFolder_ReturnsNull_ShowDialog()
+    {
+        // Пустая папка и несуществующая — диалог «куда скачать» остаётся.
+        Assert.Null(UpdateChainDownloadPlanner.ResolveSaveTarget(null, "file.zip"));
+        Assert.Null(UpdateChainDownloadPlanner.ResolveSaveTarget(string.Empty, "file.zip"));
+        Assert.Null(UpdateChainDownloadPlanner.ResolveSaveTarget("   ", "file.zip"));
+        Assert.Null(UpdateChainDownloadPlanner.ResolveSaveTarget(
+            Path.Combine(_dir, "missing_subdir"), "file.zip"));
+    }
 }

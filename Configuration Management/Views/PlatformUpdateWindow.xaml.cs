@@ -1,6 +1,7 @@
 #if WINDOWS
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,11 +49,13 @@ public partial class PlatformUpdateWindow : Window
             (url, targetPath, progress, ct) =>
                 updates.DownloadDistributionAsync(url, targetPath, progress, ct),
             InstallFromZipAsync,
+            // issue #334 п.2 (0.3.12.2): диалог «куда скачать» открывается в сохранённой
+            // папке скачиваний платформы, а не в профиле пользователя.
             defaultName => dialogs.SaveFileDialog(
                 LocalizationManager.T("PlatformUpdate.DownloadOnly"),
                 defaultName ?? "platform.zip",
                 "Архивы (*.zip)|*.zip|Все файлы (*.*)|*.*",
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
+                GetSaveDialogInitialDirectory(repository)),
             // Проверка готовности к установке (этап 0.3.9.214): процессы 1С, права,
             // свободное место, подпись; диалог подтверждения и уведомление о результате.
             loadRunningProcesses: () => running.GetRunning()
@@ -83,7 +86,10 @@ public partial class PlatformUpdateWindow : Window
             // issue #334: диалог выбора варианта дистрибутива после «Скачать и установить».
             chooseDistribution: ShowDistributionPicker,
             // issue #334: диалог выбора удаляемых старых версий (список с флажками).
-            chooseVersionsToDelete: ShowOldVersionsPicker);
+            chooseVersionsToDelete: ShowOldVersionsPicker,
+            // issue #334 п.1 (0.3.12.2): загрузки из этого окна видны в индикаторе
+            // главного окна и отменяются из него.
+            backgroundDownloads: BackgroundDownloadManager.Default);
 
         DataContext = _viewModel;
         RowsGrid.ItemsSource = _viewModel.Rows;
@@ -93,6 +99,24 @@ public partial class PlatformUpdateWindow : Window
 
         // Закрытие окна по Esc (паттерн ActualReleasesWindow, issue #264).
         PreviewKeyDown += OnWindow_PreviewKeyDown;
+    }
+
+    /// <summary>Начальный каталог диалога сохранения: сохранённая папка скачиваний
+    /// платформы (issue #334 п.2, 0.3.12.2), иначе профиль пользователя.</summary>
+    private static string GetSaveDialogInitialDirectory(IInfobaseRepository repository)
+    {
+        try
+        {
+            var directory = repository.LoadSettings().PlatformDownloadDirectory;
+            if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                return directory;
+        }
+        catch
+        {
+            // Настройки недоступны — профиль пользователя.
+        }
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
     /// <summary>Закрывает окно по Esc без модификаторов (issue #264).</summary>

@@ -76,7 +76,9 @@ public sealed class PlatformUpdateViewModelTests
         Func<string, string>? buildUninstall = null,
         Action<string>? copyCommand = null,
         Action<Action>? dispatchToUi = null,
-        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
+        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null,
+        Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null,
+        BackgroundDownloadManager? backgroundDownloads = null)
     {
         return new PlatformUpdateViewModel(
             service ?? OkService(),
@@ -99,7 +101,9 @@ public sealed class PlatformUpdateViewModelTests
             buildUninstall,
             copyCommand,
             dispatchToUi,
-            chooseVersionsToDelete: chooseVersionsToDelete);
+            chooseDistribution: chooseDistribution,
+            chooseVersionsToDelete: chooseVersionsToDelete,
+            backgroundDownloads: backgroundDownloads);
     }
 
     // ---------- CheckUpdatesAsync ----------
@@ -1401,6 +1405,213 @@ public sealed class PlatformUpdateViewModelTests
     }
 
     // ---------- Fake-сервисы ----------
+
+    // ============== Фоновая регистрация загрузок (issue #334 п.1, 0.3.12.2) ==============
+
+    [Fact]
+    public async Task DownloadOnlyAsync_WithBackgroundManager_RegistersStartsAndCompletes()
+    {
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        var manager = new BackgroundDownloadManager();
+        CancellationToken? seenCt = null;
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
+            {
+                seenCt = ct;
+                progress?.Report(0.5);
+                return Task.Delay(120).ContinueWith<string?>(_ => target);
+            },
+            saveDialog: _ => Path.Combine(Path.GetTempPath(), "cm_bg_test.zip"),
+            backgroundDownloads: manager);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        var entry = Assert.Single(manager.Snapshot());
+        Assert.Equal($"platform-update:8.3.27.2214:{file.FileName}", entry.Id);
+        Assert.Equal(BackgroundDownloadState.Completed, entry.State);
+        // Реальный токен отмены вместо CancellationToken.None (issue #334 п.1).
+        Assert.NotNull(seenCt);
+        Assert.True(seenCt!.Value.CanBeCanceled);
+    }
+
+    [Fact]
+    public async Task DownloadOnlyAsync_CancelledThroughManager_FailsWithCancelledKey()
+    {
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        var manager = new BackgroundDownloadManager();
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
+            {
+                // Имитация отмены из индикатора главного окна: запись в менеджере
+                // отменяется, загрузка возвращает null.
+                var entry = manager.Snapshot().FirstOrDefault(d => d.IsActive);
+                Assert.NotNull(entry);
+                manager.Cancel(entry!.Id);
+                return Task.FromResult<string?>(null);
+            },
+            saveDialog: _ => Path.Combine(Path.GetTempPath(), "cm_bg_cancel_test.zip"),
+            backgroundDownloads: manager);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        var entry = Assert.Single(manager.Snapshot());
+        Assert.Equal(BackgroundDownloadState.Failed, entry.State);
+        Assert.Equal("Main.Downloads.Cancelled", entry.ErrorKey);
+    }
+
+    [Fact]
+    public async Task DownloadOnlyAsync_WithoutManager_ReceivesCancellationTokenNone()
+    {
+        // Регрессия: без менеджера — прежнее поведение (CancellationToken.None).
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        CancellationToken? seenCt = null;
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
+            {
+                seenCt = ct;
+                return Task.FromResult<string?>(target);
+            },
+            saveDialog: _ => Path.Combine(Path.GetTempPath(), "cm_bg_none_test.zip"));
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        Assert.Equal(CancellationToken.None, seenCt);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallAsync_WithBackgroundManager_CompletesEntryAfterDownload()
+    {
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        var manager = new BackgroundDownloadManager();
+        var notified = new List<(string Title, string Message, NotificationKind Kind, NotificationEvent Evt)>();
+        var vm = CreateVm(
+            service,
+            install: (zip, version, dir, log, ct) =>
+                Task.FromResult((Success: true, ErrorKey: (string?)null, ExitCode: 0)),
+            notify: (title, message, kind, evt) => notified.Add((title, message, kind, evt)),
+            backgroundDownloads: manager);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadAndInstallAsync();
+
+        var entry = Assert.Single(manager.Snapshot());
+        Assert.Equal($"platform-update:8.3.27.2214:{file.FileName}", entry.Id);
+        Assert.Equal(BackgroundDownloadState.Completed, entry.State);
+    }
+
+    // ============== Отмена выбора дистрибутива (issue #334 п.2, 0.3.12.2) ==============
+
+    [Fact]
+    public async Task DownloadOnlyAsync_DistributionChoiceCancelled_NoSaveDialogNoDownload()
+    {
+        // Отмена в диалоге выбора дистрибутива прерывает операцию: диалог «куда скачать»
+        // НЕ показывается, скачивание не начинается, в журнале — сообщение об отмене.
+        var x64 = DistroFile(200 * MiB, "8.3.27.2214_x64.zip");
+        var x86 = new PlatformReleaseFile
+        {
+            FileName = "8.3.27.2214_x86.zip",
+            Url = "https://releases.1c.ru/dist/8.3.27.2214_x86.zip",
+            SizeBytes = 180 * MiB,
+            Architecture = "x86",
+            Kind = PlatformDistributionKind.WindowsSetupZip,
+        };
+        var service = OkService(Release("8.3.27.2214", x64, x86));
+        var saveDialogCalls = 0;
+        var downloadCalls = 0;
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
+            {
+                Interlocked.Increment(ref downloadCalls);
+                return Task.FromResult<string?>(target);
+            },
+            saveDialog: _ =>
+            {
+                Interlocked.Increment(ref saveDialogCalls);
+                return null;
+            },
+            chooseDistribution: _ => null);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        Assert.Equal(0, saveDialogCalls);
+        Assert.Equal(0, downloadCalls);
+        Assert.False(vm.IsBusy);
+        Assert.Contains(LocalizationManager.T("Updates.Distribution.Cancelled"), vm.LogText);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallAsync_DistributionChoiceCancelled_NoDownloadNoInstall()
+    {
+        var x64 = DistroFile(200 * MiB, "8.3.27.2214_x64.zip");
+        var x86 = new PlatformReleaseFile
+        {
+            FileName = "8.3.27.2214_x86.zip",
+            Url = "https://releases.1c.ru/dist/8.3.27.2214_x86.zip",
+            SizeBytes = 180 * MiB,
+            Architecture = "x86",
+            Kind = PlatformDistributionKind.WindowsSetupZip,
+        };
+        var service = OkService(Release("8.3.27.2214", x64, x86));
+        var installCalls = 0;
+        var vm = CreateVm(
+            service,
+            install: (zip, version, dir, log, ct) =>
+            {
+                Interlocked.Increment(ref installCalls);
+                return Task.FromResult((Success: true, ErrorKey: (string?)null, ExitCode: 0));
+            },
+            chooseDistribution: _ => null);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadAndInstallAsync();
+
+        Assert.Equal(0, installCalls);
+        Assert.False(vm.IsBusy);
+        Assert.Contains(LocalizationManager.T("Updates.Distribution.Cancelled"), vm.LogText);
+    }
+
+    [Fact]
+    public async Task DownloadOnlyAsync_SingleOption_StillDownloadsImmediately()
+    {
+        // Регрессия: единственный вариант дистрибутива качается без вопросов.
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        var saveDialogCalls = 0;
+        var vm = CreateVm(
+            service,
+            saveDialog: _ =>
+            {
+                Interlocked.Increment(ref saveDialogCalls);
+                return Path.Combine(Path.GetTempPath(), "cm_dist_test.zip");
+            },
+            chooseDistribution: _ => throw new InvalidOperationException("диалог не должен показываться"));
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        Assert.Equal(1, saveDialogCalls);
+        Assert.False(vm.IsBusy);
+    }
 
     /// <summary>Fake каталога версий: заранее заданные результаты и запоминание вызовов.</summary>
     private sealed class FakePlatformUpdateService : IPlatformUpdateService

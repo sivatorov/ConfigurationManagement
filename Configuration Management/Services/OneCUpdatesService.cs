@@ -961,8 +961,14 @@ public class OneCUpdatesService : IOneCUpdatesService
     /// без ver, issue #352.1 регрессия) последняя версия резолвится по полной таблице каталога
     /// (<see cref="BuildAllUpdatesCatalogUrl"/> + <see cref="FindLatestVersionFilesUrl"/>).
     /// </summary>
+    /// <param name="url">Ссылка релиза, файла или каталога проекта.</param>
+    /// <param name="ct">Токен отмены.</param>
+    /// <param name="knownLatestVersion">Известная вызывающему окну целевая версия (issue
+    /// #352.1, регрессия «Не повышать»): если в ссылке нет ver, страница файлов строится
+    /// для ЭТОЙ версии без запроса полной таблицы каталога (каталог остаётся запасным
+    /// путём при null/пустой версии).</param>
     public async Task<IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
-        string url, CancellationToken ct = default)
+        string url, CancellationToken ct = default, string? knownLatestVersion = null)
     {
         var result = new List<UpdateFileChoice>();
         if (string.IsNullOrWhiteSpace(url))
@@ -983,27 +989,40 @@ public class OneCUpdatesService : IOneCUpdatesService
             string versionFilesUrl;
             if (string.IsNullOrWhiteSpace(ver))
             {
-                // Каталог проекта (/project/<nick> без ver): резолвим страницу файлов
-                // последней версии по полной таблице каталога (issue #352.1).
-                var catalogUrl = BuildAllUpdatesCatalogUrl(url);
-                if (string.IsNullOrWhiteSpace(catalogUrl))
+                if (!string.IsNullOrWhiteSpace(knownLatestVersion))
                 {
-                    _logger.Info($"[Updates] Файлы релиза не запрошены: в ссылке нет ver ({url}).");
-                    return result;
+                    // Известная целевая версия (issue #352.1): страница файлов этой версии
+                    // строится напрямую — каталог проекта не запрашивается (при галочке
+                    // «Не повышать» резолв глобальной последней недопустим).
+                    versionFilesUrl = ToAbsoluteVersionFilesUrl(
+                        $"/version_files?nick={Uri.EscapeDataString(nick)}&ver={Uri.EscapeDataString(knownLatestVersion.Trim())}",
+                        url);
+                    _logger.Info($"[Updates] Файлы релиза запрашиваются для известной версии {knownLatestVersion.Trim()}.");
                 }
-
-                var catalogBody = await GetPageTextAsync(catalogUrl, ct).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(catalogBody))
+                else
                 {
-                    _logger.Warn($"[Updates] Каталог проекта недоступен: {catalogUrl}");
-                    return result;
-                }
+                    // Каталог проекта (/project/<nick> без ver): резолвим страницу файлов
+                    // последней версии по полной таблице каталога (issue #352.1).
+                    var catalogUrl = BuildAllUpdatesCatalogUrl(url);
+                    if (string.IsNullOrWhiteSpace(catalogUrl))
+                    {
+                        _logger.Info($"[Updates] Файлы релиза не запрошены: в ссылке нет ver ({url}).");
+                        return result;
+                    }
 
-                versionFilesUrl = FindLatestVersionFilesUrl(catalogBody, catalogUrl) ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(versionFilesUrl))
-                {
-                    _logger.Warn($"[Updates] В каталоге проекта не найдена ссылка version_files: {catalogUrl}");
-                    return result;
+                    var catalogBody = await GetPageTextAsync(catalogUrl, ct).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(catalogBody))
+                    {
+                        _logger.Warn($"[Updates] Каталог проекта недоступен: {catalogUrl}");
+                        return result;
+                    }
+
+                    versionFilesUrl = FindLatestVersionFilesUrl(catalogBody, catalogUrl) ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(versionFilesUrl))
+                    {
+                        _logger.Warn($"[Updates] В каталоге проекта не найдена ссылка version_files: {catalogUrl}");
+                        return result;
+                    }
                 }
             }
             else

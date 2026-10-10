@@ -45,4 +45,15 @@ public static class UpdateChainDownloadPlanner
         => !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
             ? settingsFolder
             : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>Путь сохранения одиночного скачивания (issue #352.2, пожелание 7OH):
+    /// если сохранённая папка цепочки существует — файл сохраняется в неё БЕЗ диалога
+    /// «куда скачать» (вопрос задаётся только когда папка не задана/не существует).
+    /// Null — показать диалог (папка не определена). Имя файла — результат
+    /// <c>BuildDownloadFileName</c> окна; partial-суффикс здесь не участвует.
+    /// Чистая логика без UI — покрыта юнит-тестами. Internal — для юнит-тестов.</summary>
+    internal static string? ResolveSaveTarget(string? settingsFolder, string fileName)
+        => !string.IsNullOrWhiteSpace(settingsFolder) && Directory.Exists(settingsFolder)
+            ? Path.Combine(settingsFolder, fileName)
+            : null;
 }

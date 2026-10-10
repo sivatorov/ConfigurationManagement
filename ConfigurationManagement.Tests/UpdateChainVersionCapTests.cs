@@ -171,6 +171,104 @@ public sealed class UpdateChainVersionCapTests
         Assert.True(set.IsDirectUpdate);
     }
 
+    // ===================== ResolveSingleDownloadUrl (issue #352.1, 0.3.12.2) =====================
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_NoBumpOn_CapDiffersFromLatest_UsesCap()
+    {
+        var releases = new List<PlatformRelease> { R("3.1.3.456"), R("3.2.3.456") };
+        var url = "https://releases.1c.ru/project/Trade110";
+
+        var resolved = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.2.3.456", noVersionBump: true, releases, url);
+
+        Assert.Equal("https://releases.1c.ru/version_files?nick=Trade110&ver=3.1.3.456", resolved);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_NoBumpOn_CapEqualsLatest_StillUsesCap()
+    {
+        // Регрессия 7OH (issue #352): после ApplyNoVersionBump LatestVersion == кап,
+        // старая проверка равенства откатывалась к сырому URL каталога, и сервис
+        // резолвил ГЛОБАЛЬНУЮ последнюю версию. Теперь кап строится всегда.
+        var releases = new List<PlatformRelease> { R("3.1.3.456"), R("3.2.3.456") };
+        var url = "https://releases.1c.ru/project/Trade110";
+
+        var resolved = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.1.3.456", noVersionBump: true, releases, url);
+
+        Assert.Equal("https://releases.1c.ru/version_files?nick=Trade110&ver=3.1.3.456", resolved);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_NoBumpOff_KnownLatest_BuildsVersionFiles()
+    {
+        // Рекомендация плана: известная целевая версия + адрес каталога без ver —
+        // version_files строится по известной версии без запроса каталога.
+        var releases = new List<PlatformRelease> { R("3.1.3.456"), R("3.2.3.456") };
+        var url = "https://releases.1c.ru/project/Trade110";
+
+        var resolved = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.2.3.456", noVersionBump: false, releases, url);
+
+        Assert.Equal("https://releases.1c.ru/version_files?nick=Trade110&ver=3.2.3.456", resolved);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_NoBumpOff_NoLatest_ReturnsOriginalUrl()
+    {
+        var url = "https://releases.1c.ru/project/Trade110";
+
+        var resolved = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", latestVersion: null, noVersionBump: false,
+            new List<PlatformRelease> { R("3.1.3.456") }, url);
+
+        Assert.Equal(url, resolved);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_EmptyCatalogOrUnparsableCurrent_ReturnsOriginalUrlWithoutExceptions()
+    {
+        var url = "https://releases.1c.ru/project/Trade110";
+
+        // Каталог пуст и «Последняя версия» неизвестна — исходный URL без исключений.
+        var resolvedEmpty = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", latestVersion: null, noVersionBump: true,
+            new List<PlatformRelease>(), url);
+        Assert.Equal(url, resolvedEmpty);
+
+        // Непарсимая текущая версия при включённой галочке — деградация к известной версии.
+        var resolvedUnparsable = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "не версия", "3.1.3.456", noVersionBump: true,
+            new List<PlatformRelease> { R("3.1.3.456") }, url);
+        Assert.Equal("https://releases.1c.ru/version_files?nick=Trade110&ver=3.1.3.456", resolvedUnparsable);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_UrlAlreadyHasVer_ReturnsOriginalUrl()
+    {
+        var releases = new List<PlatformRelease> { R("3.1.3.456") };
+        var url = "https://releases.1c.ru/version_files?nick=Trade110&ver=3.1.2.345";
+
+        var resolved = UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.1.3.456", noVersionBump: false, releases, url);
+
+        Assert.Equal(url, resolved);
+    }
+
+    [Fact]
+    public void ResolveSingleDownloadUrl_NoNickInUrl_ReturnsOriginalUrl()
+    {
+        var releases = new List<PlatformRelease> { R("3.1.3.456") };
+
+        Assert.Equal(string.Empty, UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.1.3.456", noVersionBump: true, releases, string.Empty));
+        Assert.Equal(string.Empty, UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.1.3.456", noVersionBump: true, releases, null));
+        Assert.Equal("https://releases.1c.ru/", UpdateChainBuilder.ResolveSingleDownloadUrl(
+            "3.1.2.345", "3.1.3.456", noVersionBump: true, releases, "https://releases.1c.ru/"));
+    }
+
     // ===================== GetChainInitialFolder (issue #352.2) =====================
 
     [Fact]

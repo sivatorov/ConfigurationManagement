@@ -65,8 +65,11 @@ public interface IOneCUpdatesService
     /// </summary>
     /// <param name="url">Ссылка релиза или файла (additional_file/version_file).</param>
     /// <param name="ct">Токен отмены.</param>
+    /// <param name="knownLatestVersion">Известная целевая версия (issue #352.1, регрессия
+    /// «Не повышать»): при адресе без ver страница файлов строится для этой версии без
+    /// запроса каталога; null — прежнее поведение (резолв по каталогу).</param>
     Task<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
-        string url, CancellationToken ct = default);
+        string url, CancellationToken ct = default, string? knownLatestVersion = null);
 
     /// <summary>
     /// Выполняет авторизованный GET (Basic Auth + cookie-сессия портала) по указанному

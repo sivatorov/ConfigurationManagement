@@ -2649,6 +2649,7 @@
     "Updates.FileChoice.FullDistribution": "Full distribution",
     "Updates.FileChoice.Download": "Download",
     "Updates.FileChoice.Cancel": "Cancel",
+    "Updates.Distribution.Cancelled": "Distribution selection cancelled",
     "Updates.SelectEdition": "Select edition",
     "Updates.SearchPlaceholder": "Search by name, code, address segment, nick, editions…",
     "Updates.ClearSearch": "Clear search",

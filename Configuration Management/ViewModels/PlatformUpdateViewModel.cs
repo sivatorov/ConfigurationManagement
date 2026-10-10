@@ -42,6 +42,12 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     private readonly Action<string, string, NotificationKind, NotificationEvent> _notify;
     private readonly Services.IAppLogger? _appLogger;
 
+    /// <summary>Менеджер фоновых загрузок (issue #334 п.1, 0.3.12.2): если задан,
+    /// скачивания «Только скачать»/«Скачать и установить» регистрируются в нём —
+    /// продолжаются после закрытия окна, видны в индикаторе главного окна и
+    /// отменяются из него. Null — прежнее поведение (тесты).</summary>
+    private readonly Services.BackgroundDownloadManager? _backgroundDownloads;
+
     // Удаление старых версий (этап 0.3.9.215) — всё через делегаты, чтобы класс
     // оставался чистым и тестируемым на обеих платформах.
     private readonly Func<IReadOnlyList<PlatformVersionInfo>> _loadInstalledVersionInfos;
@@ -175,11 +181,13 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Action<string>? copyToClipboard = null,
         Action<Action>? dispatchToUi = null,
         Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null,
-        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null)
+        Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null,
+        Services.BackgroundDownloadManager? backgroundDownloads = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
         _chooseDistribution = chooseDistribution;
+        _backgroundDownloads = backgroundDownloads;
         _infobaseRepository = infobaseRepository ?? throw new ArgumentNullException(nameof(infobaseRepository));
         _loadInstalledVersions = loadInstalledVersions ?? throw new ArgumentNullException(nameof(loadInstalledVersions));
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
@@ -381,20 +389,59 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Diag.SavePath"), zipPath));
             _appLogger?.Info(
                 $"Обновление платформы {row.Version}: скачивание {picked.FileName} из {picked.Url} в {zipPath}");
+
+            // issue #334 п.1 (0.3.12.2): скачивание перед установкой регистрируется в
+            // менеджере фоновых загрузок — видно в индикаторе главного окна, отменяется
+            // из него; реальный токен отмены вместо CancellationToken.None.
+            var entry = _backgroundDownloads is null
+                ? null
+                : _backgroundDownloads.Start($"platform-update:{row.Version}:{picked.FileName}", picked.FileName);
+            var downloadCancellationToken = entry?.Cancellation.Token ?? CancellationToken.None;
+            var downloadId = entry?.Id;
             var progress = new Progress<double>(v =>
             {
                 row.Progress = v;
                 Progress = v;
+                if (downloadId is not null)
+                    _backgroundDownloads!.ReportProgress(downloadId, v);
             });
-            var downloaded = await _downloadDistribution(picked.Url, zipPath, progress, CancellationToken.None)
-                .ConfigureAwait(false);
+            string? downloaded;
+            try
+            {
+                downloaded = await _downloadDistribution(picked.Url, zipPath, progress, downloadCancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Отмена из индикатора главного окна: состояние Cancelled уже выставлено
+                // менеджером в Cancel() (если отмена шла через него); ниже общий
+                // «не удалось скачать»-путь выставит Fail для остальных случаев.
+                AppendLog(LocalizationManager.T("Main.Downloads.Cancelled"));
+                _appLogger?.Info($"Обновление платформы {row.Version}: скачивание {picked.FileName} отменено пользователем");
+                downloaded = null;
+            }
+            catch (Exception)
+            {
+                // Ошибка загрузки — состояние Failed в менеджере (сетевой ключ), затем
+                // прежняя обработка исключения внешним catch.
+                if (downloadId is not null)
+                    _backgroundDownloads!.Fail(downloadId, "PlatformUpdate.Error.NetworkError");
+                throw;
+            }
             if (string.IsNullOrWhiteSpace(downloaded))
             {
+                if (downloadId is not null && downloadCancellationToken.IsCancellationRequested)
+                    _backgroundDownloads!.Fail(downloadId, "Main.Downloads.Cancelled");
+                else if (downloadId is not null)
+                    _backgroundDownloads!.Fail(downloadId, "PlatformUpdate.Error.NetworkError");
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.Network"));
                 _appLogger?.Error(
                     $"Обновление платформы {row.Version}: не удалось скачать {picked.FileName} из {picked.Url}");
                 return;
             }
+
+            if (downloadId is not null)
+                _backgroundDownloads!.Complete(downloadId);
 
             row.Progress = 1;
             Progress = 1;
@@ -475,7 +522,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
     /// <summary>«Только скачать»: ленивая подгрузка файлов релиза, выбор дистрибутива,
     /// диалог сохранения (инжектируемый делегат) и загрузка в указанный путь.
-    /// Отмена диалога (null) — no-op с записью в журнал.</summary>
+    /// Отмена диалога (null) — no-op с записью в журнал. Скачивание регистрируется
+    /// в менеджере фоновых загрузок (issue #334 п.1, 0.3.12.2), если он передан.</summary>
     public async Task DownloadOnlyAsync()
     {
         if (IsBusy || SelectedRow is null)
@@ -483,6 +531,9 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
 
         var row = SelectedRow;
         IsBusy = true;
+        // issue #334 п.1 (0.3.12.2): фоновая запись и токен видны в catch/finally —
+        // состояние выставляется ровно один раз (Complete/Fail).
+        Services.BackgroundDownloadManager.ActiveDownload? entry = null;
         try
         {
             if (!await EnsureReleaseFilesAsync(row).ConfigureAwait(false))
@@ -492,8 +543,8 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var picked = await ResolvePickedFileAsync(row).ConfigureAwait(false);
             if (picked is null)
             {
-                // Диагностика уже записана в журнал ResolvePickedFileAsync; скачивание
-                // не выполняется, установка после «Только скачать» не запускается.
+                // Диагностика уже записана в журнал ResolvePickedFileAsync (в т.ч. отмена
+                // выбора, issue #334 п.2, 0.3.12.2); скачивание не выполняется.
                 return;
             }
 
@@ -519,15 +570,30 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             _appLogger?.Info(
                 $"Обновление платформы {row.Version}: скачивание {picked.FileName} из {picked.Url} в {targetPath}");
 
+            // issue #334 п.1 (0.3.12.2): загрузка регистрируется в менеджере фоновых
+            // загрузок — продолжается после закрытия окна, видна в индикаторе главного
+            // окна, отменяется из него; реальный токен отмены вместо CancellationToken.None.
+            var downloadId = _backgroundDownloads is null
+                ? null
+                : $"platform-update:{row.Version}:{picked.FileName}";
+            entry = downloadId is null ? null : _backgroundDownloads!.Start(downloadId, picked.FileName);
+            var downloadCancellationToken = entry?.Cancellation.Token ?? CancellationToken.None;
+
             var progress = new Progress<double>(v =>
             {
                 row.Progress = v;
                 Progress = v;
+                if (downloadId is not null)
+                    _backgroundDownloads!.ReportProgress(downloadId, v);
             });
-            var saved = await _downloadDistribution(picked.Url, targetPath, progress, CancellationToken.None)
+            var saved = await _downloadDistribution(picked.Url, targetPath, progress, downloadCancellationToken)
                 .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(saved))
             {
+                if (downloadId is not null && downloadCancellationToken.IsCancellationRequested)
+                    _backgroundDownloads!.Fail(downloadId, "Main.Downloads.Cancelled");
+                else if (downloadId is not null)
+                    _backgroundDownloads!.Fail(downloadId, "PlatformUpdate.Error.NetworkError");
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.Network"));
                 _appLogger?.Error(
                     $"Обновление платформы {row.Version}: не удалось скачать {picked.FileName} из {picked.Url}");
@@ -536,6 +602,9 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                     LocalizationManager.T("PlatformUpdate.Error.Network")));
                 return;
             }
+
+            if (downloadId is not null)
+                _backgroundDownloads!.Complete(downloadId);
 
             row.Progress = 1;
             Progress = 1;
@@ -551,6 +620,13 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
                 NotificationKind.Success,
                 NotificationEvent.Update);
         }
+        catch (OperationCanceledException)
+        {
+            // Отмена из индикатора главного окна (issue #334 п.1): состояние Cancelled
+            // уже выставлено менеджером в Cancel(); здесь журнал.
+            AppendLog(LocalizationManager.T("Main.Downloads.Cancelled"));
+            _appLogger?.Info("Обновление платформы: скачивание отменено пользователем");
+        }
         catch (Exception ex)
         {
             AppendLog($"{LocalizationManager.T("PlatformUpdate.Error.Network")}: {ex.Message}");
@@ -560,6 +636,10 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         }
         finally
         {
+            // Успешное завершение — запись Completed; при отмене/ошибке состояние
+            // выставлено ранее (Fail/Cancel в менеджере).
+            if (entry is not null && entry.IsActive)
+                _backgroundDownloads!.Complete(entry.Id);
             row.IsDownloading = false;
             IsBusy = false;
         }
@@ -917,8 +997,18 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             return Task.FromResult<PlatformReleaseFile?>(options[0].File);
 
         var chosen = _chooseDistribution(options);
-        var file = chosen?.File ?? options.FirstOrDefault(o => o.IsRecommended)?.File ?? options[0].File;
-        return Task.FromResult<PlatformReleaseFile?>(file);
+        if (chosen is null)
+        {
+            // issue #334 п.2 (0.3.12.2): отмена выбора дистрибутива прерывает операцию —
+            // раньше отмена подменялась «рекомендуемым» файлом, поток доходил до диалога
+            // сохранения и после «Отмены» спрашивал «куда скачать».
+            AppendLog(LocalizationManager.T("Updates.Distribution.Cancelled"));
+            _appLogger?.Info(
+                $"Обновление платформы {row.Version}: выбор дистрибутива отменён пользователем");
+            return Task.FromResult<PlatformReleaseFile?>(null);
+        }
+
+        return Task.FromResult<PlatformReleaseFile?>(chosen.File);
     }
 
     /// <summary>Краткое описание файла дистрибутива для журнала: имя, размер, разрядность
