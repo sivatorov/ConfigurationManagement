@@ -400,4 +400,64 @@ public sealed class ConnectionReplaceViewModelTests
         Assert.Equal(3, list.Count); // исходный список не тронут
         Assert.Same(list[0], visible[0]);
     }
+
+    // ---------- Issue #357: закрытый ComboBox показывает ключ вместо значения ----------
+
+    /// <summary>
+    /// Closed ComboBox (WPF SelectionBoxItem и Avalonia без SelectionBoxItemTemplate)
+    /// может рендерить выбранный элемент через ToString() — он обязан возвращать
+    /// локализованный DisplayText, а не авто-представление позиционной записи.
+    /// </summary>
+    [Fact]
+    public void DisplayItem_ToString_ReturnsDisplayText()
+    {
+        var item = new DisplayItem<ConnectionField>(ConnectionField.Server, "Сервер");
+        Assert.Equal("Сервер", item.ToString());
+    }
+
+    [Fact]
+    public void DisplayItem_ToString_EqualsDisplayText_ForEveryVmItem()
+    {
+        var vm = CreateVm(new List<Infobase>());
+
+        foreach (var item in vm.Fields)
+        {
+            Assert.Equal(item.DisplayText, item.ToString());
+            Assert.False(string.IsNullOrWhiteSpace(item.ToString()));
+        }
+        foreach (var item in vm.Scopes)
+            Assert.Equal(item.DisplayText, item.ToString());
+        foreach (var item in vm.Modes)
+            Assert.Equal(item.DisplayText, item.ToString());
+    }
+
+    /// <summary>
+    /// ToString() элементов совпадает с локализованным текстом из хелперов VM
+    /// (FieldDisplayText/ScopeDisplayText/ModeDisplayText): закрытая часть комбобокса
+    /// показывает ровно тот же текст, что и элементы списка, при любом словаре
+    /// (в тестовой среде LocalizationManager возвращает ключ — и ToString() тоже
+    /// возвращает его, а не авто-представление записи).
+    /// </summary>
+    [Fact]
+    public void DisplayItem_ToString_MatchesDisplayHelpers()
+    {
+        var vm = CreateVm(new List<Infobase>());
+
+        foreach (var item in vm.Fields)
+        {
+            Assert.Equal(
+                ConnectionReplaceViewModel.FieldDisplayText(item.Value),
+                item.ToString());
+        }
+        foreach (var item in vm.Modes)
+        {
+            Assert.Equal(
+                ConnectionReplaceViewModel.ModeDisplayText(item.Value),
+                item.ToString());
+        }
+        foreach (var item in vm.Scopes)
+        {
+            Assert.Equal(item.DisplayText, item.ToString());
+        }
+    }
 }

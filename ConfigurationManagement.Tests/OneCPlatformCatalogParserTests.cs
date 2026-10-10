@@ -520,4 +520,97 @@ public sealed class OneCPlatformCatalogParserTests
 
         Assert.Empty(files);
     }
+
+    // ---------- Issue #330 п.2/#334 п.2: группы файлов релиза ----------
+
+    [Fact]
+    public void ParseDistributionFiles_HtmlWithGroupHeaders_AssignsGroupsInPageOrder()
+    {
+        // Разметка как на странице version_files: жирные заголовки групп, под каждым —
+        // ссылки на дистрибутивы; каждому файлу присваивается последний заголовок.
+        var html = """
+            <b>Технологическая платформа</b>
+            <a href="/distr/8.3.27.2214_x64.zip">Скачать</a>
+            <a href="/distr/8.3.27.2214_x86.zip">Скачать</a>
+            <b>Тонкий клиент 1С:Предприятия</b>
+            <a href="/distr/8.3.27.2214_thin_1c_x64.zip">Скачать</a>
+            <b>Сервер 1С:Предприятия</b>
+            <a href="/distr/8.3.27.2214_server_x64.zip">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Equal(4, files.Count);
+        Assert.Equal("Технологическая платформа", files[0].Group);
+        Assert.Equal("Технологическая платформа", files[1].Group);
+        Assert.Equal("Тонкий клиент 1С:Предприятия", files[2].Group);
+        Assert.Equal("Сервер 1С:Предприятия", files[3].Group);
+        // Порядок файлов — как на странице.
+        Assert.Equal(
+            new[] { "8.3.27.2214_x64.zip", "8.3.27.2214_x86.zip", "8.3.27.2214_thin_1c_x64.zip", "8.3.27.2214_server_x64.zip" },
+            files.Select(f => f.FileName).ToArray());
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_StrongTagHeaders_AlsoRecognized()
+    {
+        var html = """
+            <strong>Клиент 1С:Предприятия</strong>
+            <a href="/distr/8.3.27.2214_x64.rar">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        var rar = Assert.Single(files);
+        Assert.Equal("Клиент 1С:Предприятия", rar.Group);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_JsonWithoutGroups_FilesGetNullGroup()
+    {
+        // JSON-ответ/старые релизы без заголовков: Group = null — фолбэк-группа
+        // подставляется на слое отображения (ключ PlatformDownload.Group.Default).
+        var json = """
+            [{"name":"8.3.27.2214_x64.zip","url":"/distr/8.3.27.2214_x64.zip","size":1500000000}]
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(json);
+
+        var file = Assert.Single(files);
+        Assert.Null(file.Group);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_FilesBeforeFirstHeader_GetNullGroup()
+    {
+        // Файлы до первого заголовка попадают в фолбэк-группу (Group = null).
+        var html = """
+            <a href="/distr/8.3.27.2214_x64.zip">Скачать</a>
+            <b>Тонкий клиент 1С:Предприятия</b>
+            <a href="/distr/8.3.27.2214_thin_1c_x64.zip">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Equal(2, files.Count);
+        Assert.Null(files[0].Group);
+        Assert.Equal("Тонкий клиент 1С:Предприятия", files[1].Group);
+    }
+
+    [Fact]
+    public void ParseDistributionFiles_NoiseBoldText_IsNotMistakenForGroupHeader()
+    {
+        // Ссылки на дистрибутивы, адреса и числовые строки в жирном тексте
+        // заголовками групп не считаются.
+        var html = """
+            <b>8.3.27</b>
+            <b><a href="/distr/8.3.27.2214_x64.zip">Скачать</a></b>
+            <a href="/distr/8.3.27.2214_thin_1c_x64.zip">Скачать</a>
+            """;
+
+        var files = OneCPlatformCatalogParser.ParseDistributionFiles(html);
+
+        Assert.Equal(2, files.Count);
+        Assert.All(files, f => Assert.Null(f.Group));
+    }
 }

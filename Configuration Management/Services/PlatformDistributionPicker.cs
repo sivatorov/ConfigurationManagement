@@ -145,6 +145,28 @@ public static class PlatformDistributionPicker
     public const string Arch32 = "x86";
 
     /// <summary>
+    /// Фильтрует файлы релиза по разрядности (issue #330 п.1): остаются файлы
+    /// выбранной разрядности (x64/x86) и файлы без разрядности (Linux-пакеты,
+    /// архивы), у которых битность не определена. Чистый метод — единое правило
+    /// фильтра для вариантов дистрибутива и для списка файлов окна скачивания.
+    /// Пустой список — пустой результат; null — пустой результат.
+    /// </summary>
+    /// <param name="files">Файлы дистрибутива релиза.</param>
+    /// <param name="is64Bit">True — целевая разрядность x64, false — x86.</param>
+    public static IReadOnlyList<PlatformReleaseFile> FilterByArchitecture(
+        IReadOnlyList<PlatformReleaseFile> files, bool is64Bit)
+    {
+        if (files is null || files.Count == 0)
+            return Array.Empty<PlatformReleaseFile>();
+
+        var arch = is64Bit ? Arch64 : Arch32;
+        return files
+            .Where(f => string.IsNullOrWhiteSpace(f.Architecture)
+                || string.Equals(f.Architecture, arch, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
     /// Выбирает файл дистрибутива из списка файлов релиза по типу и разрядности.
     /// Приоритет: файлы подходящего типа (см. <paramref name="type"/>), затем файлы
     /// нужной разрядности (x64 для 64-битной ОС, x86 для 32-битной), затем первый

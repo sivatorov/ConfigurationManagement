@@ -82,6 +82,21 @@ public static class OneCPlatformCatalogParser
         @"""(?:size|filesize)""\s*:\s*(?<bytes>\d{1,15})",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Регулярное выражение жирного заголовка группы на странице
+    /// <c>version_files</c> (issue #330 п.2/#334 п.2): <c><b>…</b></c>/
+    /// <c><strong>…</strong></c> — «Технологическая платформа», «Тонкий
+    /// клиент 1С:Предприятия» и т.п. Захват ограничен 120 символами текста, чтобы
+    /// не схлопнуть в «заголовок» большой кусок разметки.</summary>
+    private static readonly Regex GroupHeaderRegex = new(
+        @"<(?:b|strong)(?:\s[^>]*)?>(?<text>(?:(?!</(?:b|strong)>)[\s\S]){1,120}?)</(?:b|strong)>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Регулярное выражение расширения дистрибутива (текст заголовка,
+    /// содержащий имя файла/ссылку на дистрибутив, группой не является).</summary>
+    private static readonly Regex DistributionExtensionRegex = new(
+        @"\.(?:zip|rar|7z|exe|arj|deb|rpm|tar\.gz)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>Регулярное выражение HTML-тегов (для снятия разметки строки таблицы при
     /// извлечении колонки «Список версий», issue #352).</summary>
     private static readonly Regex HtmlTagRegex = new("<[^>]+>", RegexOptions.Compiled | RegexOptions.Singleline);
@@ -241,6 +256,11 @@ public static class OneCPlatformCatalogParser
         var result = new List<PlatformReleaseFile>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Заголовки групп страницы (issue #330 п.2/#334 п.2): каждому файлу присваивается
+        // заголовок, последний перед его позицией в ответе. На страницах без групп
+        // (старые релизы, JSON) у всех файлов Group = null — фолбэк «Файлы релиза».
+        var groupHeaders = ExtractGroupHeaders(body);
+
         foreach (Match match in DistributionFileLinkRegex.Matches(body))
         {
             // HTML-сущности в href декодируются (issue #330): иначе адрес с «&»
@@ -266,6 +286,7 @@ public static class OneCPlatformCatalogParser
                 SizeBytes = FindSizeNear(body, fileName),
                 Architecture = DetectArchitecture(fileName),
                 Kind = ClassifyKind(fileName),
+                Group = AssignGroup(groupHeaders, match.Index),
             });
         }
 
@@ -294,10 +315,72 @@ public static class OneCPlatformCatalogParser
                 SizeBytes = FindSizeNear(body, fileName),
                 Architecture = DetectArchitecture(fileName),
                 Kind = ClassifyKind(fileName),
+                Group = AssignGroup(groupHeaders, match.Index),
             });
         }
 
         return result;
+    }
+
+    /// <summary>Извлекает заголовки групп из HTML-ответа страницы <c>version_files</c>
+    /// (issue #330 п.2/#334 п.2): жирные заголовки (<c><b></c>/<c><strong></c>)
+    /// с человекочитаемым текстом. Мусор отфильтровывается: ссылки, имена файлов
+    /// дистрибутивов, чисто числовые/версионные строки, слишком короткий/длинный текст.
+    /// Возвращает список «позиция в ответе → текст заголовка» в порядке появления.</summary>
+    private static List<(int Index, string Text)> ExtractGroupHeaders(string body)
+    {
+        var headers = new List<(int Index, string Text)>();
+        if (string.IsNullOrWhiteSpace(body) || body.IndexOf('<') < 0)
+            return headers;
+
+        foreach (Match match in GroupHeaderRegex.Matches(body))
+        {
+            // Жирные ссылки («<b><a href=…>Скачать</a></b>») заголовками групп не являются.
+            if (Regex.IsMatch(match.Groups["text"].Value, @"<a\s", RegexOptions.IgnoreCase))
+                continue;
+            var text = NormalizeGroupHeaderText(match.Groups["text"].Value);
+            if (!string.IsNullOrWhiteSpace(text))
+                headers.Add((match.Index, text));
+        }
+
+        return headers;
+    }
+
+    /// <summary>Нормализует текст заголовка группы (снятие вложенной разметки,
+    /// декодирование сущностей, схлопывание пробелов) или null, если текст не похож
+    /// на заголовок группы.</summary>
+    private static string? NormalizeGroupHeaderText(string raw)
+    {
+        var text = WebUtility.HtmlDecode(HtmlTagRegex.Replace(raw ?? string.Empty, " "));
+        text = Regex.Replace(text, @"\s+", " ").Trim();
+        if (text.Length < 2 || text.Length > 120)
+            return null;
+        if (text.Contains("://", StringComparison.Ordinal) ||
+            text.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (DistributionExtensionRegex.IsMatch(text))
+            return null;
+        // Чисто числовой/версионный текст («8.3.27») группой не является.
+        if (Regex.IsMatch(text, @"^[\d.,\s\-–—%()]+$"))
+            return null;
+        return text;
+    }
+
+    /// <summary>Возвращает заголовок группы, действующий на позиции <paramref name="position"/>
+    /// в ответе (последний заголовок до этой позиции), или null — файлы до первого
+    /// заголовка и страницы без групп получают фолбэк-группу на слое отображения.</summary>
+    private static string? AssignGroup(List<(int Index, string Text)> headers, int position)
+    {
+        string? group = null;
+        foreach (var (index, text) in headers)
+        {
+            if (index <= position)
+                group = text;
+            else
+                break;
+        }
+
+        return group;
     }
 
     /// <summary>

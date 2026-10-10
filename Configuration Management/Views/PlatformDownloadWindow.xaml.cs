@@ -29,6 +29,20 @@ public partial class PlatformDownloadWindow : Window
     private readonly IInfobaseRepository _repository;
     private readonly AppSettings _settings;
 
+    /// <summary>Заголовки групп в сгруппированном списке файлов не выбираются
+    /// (issue #330 п.2/#334 п.2): при клике на строку-заголовок выделение
+    /// возвращается на текущий вариант дистрибутива.</summary>
+    private void OnFileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FileCombo.SelectedItem is Services.PlatformDistributionOption)
+            return;
+        if (_viewModel?.SelectedDistribution is not null &&
+            !ReferenceEquals(FileCombo.SelectedItem, _viewModel.SelectedDistribution))
+        {
+            FileCombo.SelectedItem = _viewModel.SelectedDistribution;
+        }
+    }
+
     /// <summary>Открывает окно «Скачивание версии платформы 1С».</summary>
     public PlatformDownloadWindow()
     {
@@ -60,7 +74,10 @@ public partial class PlatformDownloadWindow : Window
             appLogger: logger,
             // issue #330: заполнение списка версий и связанных свойств — в UI-потоке
             // (WPF CollectionView запрещает изменения из фонового потока NotSupportedException).
-            dispatchToUi: action => Dispatcher.InvokeAsync(action));
+            dispatchToUi: action => Dispatcher.InvokeAsync(action),
+            // issue #334 п.1: скачивание регистрируется в менеджере фоновых загрузок —
+            // продолжается после закрытия окна и видно в индикаторе главного окна.
+            backgroundDownloads: Services.BackgroundDownloadManager.Default);
 
         DataContext = _viewModel;
 

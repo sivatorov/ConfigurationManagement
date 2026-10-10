@@ -1,5 +1,7 @@
 #if LINUX
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -53,39 +55,49 @@ namespace Configuration_Management
             header.Children.Add(title);
             header.Children.Add(description);
 
+            // issue #330 п.2/#334 п.2: список сгруппирован по заголовкам групп страницы
+            // релиза (строки-разделители PlatformFileGroupHeaderItem + варианты).
+            var groups = ViewModels.PlatformFileGroupViewModel.Build(
+                options, LocalizationManager.T("PlatformDownload.Group.Default"));
             _optionsList = new ListBox
             {
-                ItemsSource = options
+                ItemsSource = ViewModels.PlatformFileGroupViewModel.Flatten(groups)
             };
-            _optionsList.ItemTemplate = new FuncDataTemplate<PlatformDistributionOption>((option, _) =>
-            {
-                var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                panel.Children.Add(new TextBlock { Text = option.DisplayName, VerticalAlignment = VerticalAlignment.Center });
-                if (option.IsRecommended)
+            _optionsList.DataTemplates.Add(new FuncDataTemplate<ViewModels.PlatformFileGroupHeaderItem>(
+                (header, _) =>
                 {
-                    var rec = new TextBlock
+                    var title = new TextBlock
                     {
-                        Text = LocalizationManager.T("PlatformUpdate.DistributionPicker.Recommended"),
-                        FontSize = 11,
-                        VerticalAlignment = VerticalAlignment.Center
+                        Text = header?.Title ?? string.Empty,
+                        FontWeight = FontWeight.SemiBold,
+                        Margin = new Thickness(0, 6, 0, 2)
                     };
-                    rec.Foreground = new SolidColorBrush(Color.Parse("#16A34A"));
-                    panel.Children.Add(rec);
-                }
-                return panel;
-            });
-            _optionsList.DoubleTapped += OnOptionsList_DoubleTapped;
-            if (options is not null)
-            {
-                for (var i = 0; i < options.Count; i++)
+                    ThemeBrushes.Bind(title, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                    return title;
+                }, true));
+            _optionsList.DataTemplates.Add(new FuncDataTemplate<PlatformDistributionOption>(
+                (option, _) =>
                 {
-                    if (options[i].IsRecommended)
+                    var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                    panel.Children.Add(new TextBlock { Text = option?.DisplayName ?? string.Empty, VerticalAlignment = VerticalAlignment.Center });
+                    if (option?.IsRecommended == true)
                     {
-                        _optionsList.SelectedIndex = i;
-                        break;
+                        var rec = new TextBlock
+                        {
+                            Text = LocalizationManager.T("PlatformUpdate.DistributionPicker.Recommended"),
+                            FontSize = 11,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        rec.Foreground = new SolidColorBrush(Color.Parse("#16A34A"));
+                        panel.Children.Add(rec);
                     }
-                }
-            }
+                    return panel;
+                }, true));
+            _optionsList.DoubleTapped += OnOptionsList_DoubleTapped;
+            var recommended = (options ?? Array.Empty<PlatformDistributionOption>())
+                .FirstOrDefault(o => o.IsRecommended);
+            if (recommended is not null)
+                _optionsList.SelectedItem = recommended;
 
             var listBorder = new Border
             {
@@ -115,7 +127,7 @@ namespace Configuration_Management
             choose.Styled(ControlThemes.DialogConfirmButton);
             choose.Click += (_, _) =>
             {
-                if (_optionsList.SelectedItem is not null)
+                if (Result is not null)
                 {
                     DialogResult = true;
                     Close();
@@ -150,7 +162,8 @@ namespace Configuration_Management
 
         private void OnOptionsList_DoubleTapped(object? sender, TappedEventArgs e)
         {
-            if (_optionsList.SelectedItem is not null)
+            // Заголовок группы вариантом не является — закрываем только на выборе файла.
+            if (Result is not null)
             {
                 DialogResult = true;
                 Close();

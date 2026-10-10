@@ -3343,6 +3343,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding StatusBarInfo}"
                            Foreground="{DynamicResource TextOnAccentBrush}" FontSize="12"
@@ -3395,6 +3396,33 @@
                     <materialDesign:PackIcon Kind="PageLayoutSidebarRight" Width="18" Height="18"
                                              Foreground="{DynamicResource TextOnAccentBrush}"/>
                 </Button>
+                <!-- Индикатор фоновых загрузок (issue #334 п.1): скачивание платформы
+                     и цепочек продолжается после закрытия окон; здесь — текст статуса
+                     и кнопка отмены. Клик по тексту открывает окно скачивания платформы. -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0"
+                            Visibility="{Binding HasActiveDownloads, Converter={StaticResource BoolToVis}}">
+                    <Button Command="{Binding ShowPlatformDownloadCommand}"
+                            Style="{x:Null}" Background="Transparent" BorderThickness="0"
+                            Cursor="Hand" Padding="0" VerticalAlignment="Center"
+                            ToolTip="{Binding DownloadsStatusText}">
+                        <TextBlock Text="{Binding DownloadsStatusText}"
+                                   Foreground="{DynamicResource TextOnAccentBrush}" FontSize="12"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="360"/>
+                    </Button>
+                    <ProgressBar Value="{Binding ActiveDownloadsProgress, Mode=OneWay}" Width="110" Height="6"
+                                 Minimum="0" Maximum="1"
+                                 Foreground="{DynamicResource AccentBrush}"
+                                 Background="#22000000"
+                                 VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <Button Command="{Binding CancelDownloadsCommand}"
+                            Style="{DynamicResource StatusBarIconButton}"
+                            Margin="4,0,0,0"
+                            ToolTip="{loc:Loc Main.Downloads.Cancel}"
+                            VerticalAlignment="Center">
+                        <materialDesign:PackIcon Kind="CloseCircleOutline" Width="18" Height="18"
+                                                 Foreground="{DynamicResource TextOnAccentBrush}"/>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 

@@ -74,7 +74,10 @@ namespace Configuration_Management
                 notify: (title, message, kind, evt) => _notifier.Show(title, message, kind, evt),
                 appLogger: _logger,
                 // issue #330: заполнение списка версий и связанных свойств — в UI-потоке.
-                dispatchToUi: action => Dispatcher.UIThread.Post(action));
+                dispatchToUi: action => Dispatcher.UIThread.Post(action),
+                // issue #334 п.1: скачивание регистрируется в менеджере фоновых загрузок —
+                // продолжается после закрытия окна и видно в индикаторе главного окна.
+                backgroundDownloads: Services.BackgroundDownloadManager.Default);
 
             Content = BuildRoot();
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -258,20 +261,41 @@ namespace Configuration_Management
             archPanel.Children.Add(archBox);
             rightPanel.Children.Add(archPanel);
 
-            // Файл дистрибутива: варианты для текущей ОС (issue #330).
+            // Файл дистрибутива: варианты для текущей ОС, сгруппированные по заголовкам
+            // групп страницы релиза (issue #330 п.2/#334 п.2).
             var fileLabel = MakeLabel(T("PlatformDownload.File"), secondary: true);
             rightPanel.Children.Add(fileLabel);
-            var fileBox = new ComboBox { Height = 30, ItemsSource = _viewModel.DistributionOptions };
+            var fileBox = new ComboBox { Height = 30, ItemsSource = _viewModel.DistributionOptionsGrouped };
+            fileBox.DataTemplates.Add(new FuncDataTemplate<PlatformFileGroupHeaderItem>((header, _) =>
+            {
+                var title = new TextBlock
+                {
+                    Text = header?.Title ?? string.Empty,
+                    FontWeight = FontWeight.SemiBold
+                };
+                ThemeBrushes.Bind(title, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                return title;
+            }, true));
+            fileBox.DataTemplates.Add(new FuncDataTemplate<PlatformDistributionOption>((option, _) =>
+                new TextBlock
+                {
+                    Text = option?.DisplayName ?? string.Empty,
+                    VerticalAlignment = VerticalAlignment.Center
+                }, true));
             fileBox.SelectedItem = _viewModel.SelectedDistribution;
             fileBox.SelectionChanged += (_, _) =>
             {
                 if (fileBox.SelectedItem is PlatformDistributionOption option)
                     _viewModel.SelectedDistribution = option;
+                // Заголовок группы не выбирается — выделение возвращается на вариант.
+                else if (_viewModel.SelectedDistribution is not null &&
+                         !ReferenceEquals(fileBox.SelectedItem, _viewModel.SelectedDistribution))
+                    fileBox.SelectedItem = _viewModel.SelectedDistribution;
             };
             _viewModel.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(PlatformDownloadViewModel.DistributionOptions))
-                    fileBox.ItemsSource = _viewModel.DistributionOptions;
+                if (e.PropertyName == nameof(PlatformDownloadViewModel.DistributionOptionsGrouped))
+                    fileBox.ItemsSource = _viewModel.DistributionOptionsGrouped;
                 if (e.PropertyName == nameof(PlatformDownloadViewModel.SelectedDistribution) &&
                     !ReferenceEquals(fileBox.SelectedItem, _viewModel.SelectedDistribution))
                     fileBox.SelectedItem = _viewModel.SelectedDistribution;

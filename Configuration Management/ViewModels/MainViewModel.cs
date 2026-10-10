@@ -261,6 +261,10 @@ public partial class MainViewModel : ViewModelBase
         OneCLauncher.DesignerBatchStarted += OnDesignerBatchStarted;
         OneCLauncher.DesignerBatchCompleted += OnDesignerBatchCompleted;
 
+        // Индикатор фоновых загрузок в статусной строке (issue #334 п.1): подписка на
+        // общий менеджер (скачивание платформы/цепочек продолжается после закрытия окон).
+        InitializeBackgroundDownloadsIndicator();
+
         // Загружаем настройки интерфейса (состояние кнопок «Избранные» и «Группировать»).
         var settings = _repository.LoadSettings();
         _showFavoritesOnly = settings.ShowFavoritesOnly;

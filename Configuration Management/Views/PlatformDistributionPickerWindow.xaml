@@ -2,6 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:Configuration_Management.Localization"
+        xmlns:vm="clr-namespace:Configuration_Management.ViewModels"
+        xmlns:svc="clr-namespace:Configuration_Management.Services"
         Title="{loc:Loc PlatformUpdate.DistributionPicker.Title}"
         Icon="{StaticResource AppIcon}"
         Width="640" Height="420" MinWidth="540" MinHeight="320"
@@ -35,6 +37,8 @@
         <!-- Список вариантов -->
         <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
                 CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
+            <!-- issue #330 п.2/#334 п.2: список сгруппирован по заголовкам групп страницы
+                 релиза; шаблоны выбираются неявно по типу элемента (заголовок/вариант). -->
             <ListBox x:Name="OptionsList" BorderThickness="0" Background="Transparent"
                      SelectionMode="Single" Padding="4"
                      MouseDoubleClick="OnOptionsList_MouseDoubleClick">
@@ -44,8 +48,12 @@
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                     </Style>
                 </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
+                <ListBox.Resources>
+                    <DataTemplate DataType="{x:Type vm:PlatformFileGroupHeaderItem}">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,8,0,2"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type svc:PlatformDistributionOption}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
                             <TextBlock Margin="10,0,0,0" FontSize="11" VerticalAlignment="Center"
@@ -64,7 +72,7 @@
                             </TextBlock>
                         </StackPanel>
                     </DataTemplate>
-                </ListBox.ItemTemplate>
+                </ListBox.Resources>
             </ListBox>
         </Border>
 

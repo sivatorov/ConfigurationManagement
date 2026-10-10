@@ -459,5 +459,12 @@ public sealed class ConnectionReplaceViewModel : ViewModelBase
 /// <summary>
 /// Элемент выпадающего списка окна «Заменить в строках подключения…» (0.3.9.190):
 /// значение enum, которое пишется в VM-свойство, и локализованный отображаемый текст.
+/// <para><see cref="ToString"/> переопределён (issue #357): закрытая часть комбобокса
+/// на обеих платформах может рендериться через <c>ToString()</c> выбранного объекта
+/// (Avalonia <c>ComboBox.SelectionBoxItem</c> без шаблона), поэтому она обязана
+/// возвращать локализованный текст, а не авто-представление записи.</para>
 /// </summary>
-public sealed record DisplayItem<T>(T Value, string DisplayText);
+public sealed record DisplayItem<T>(T Value, string DisplayText)
+{
+    public override string ToString() => DisplayText;
+}

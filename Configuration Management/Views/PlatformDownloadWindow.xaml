@@ -5,6 +5,7 @@
         xmlns:loc="clr-namespace:Configuration_Management.Localization"
         xmlns:win="clr-namespace:Configuration_Management"
         xmlns:svc="clr-namespace:Configuration_Management.Services"
+        xmlns:vm="clr-namespace:Configuration_Management.ViewModels"
         Title="{loc:Loc PlatformDownload.WindowTitle}"
         Icon="{StaticResource AppIcon}"
         Width="980" Height="700"
@@ -203,10 +204,23 @@
                     <!-- Файл дистрибутива (варианты для текущей ОС, issue #330) -->
                     <TextBlock Text="{loc:Loc PlatformDownload.File}" Margin="0,10,0,4"
                                Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    <ComboBox Height="30" VerticalContentAlignment="Center"
-                              ItemsSource="{Binding DistributionOptions}"
+                    <!-- issue #330 п.2/#334 п.2: список файлов сгруппирован по заголовкам
+                         групп страницы релиза (PlatformFileGroupHeaderItem — строка-разделитель,
+                         PlatformDistributionOption — выбираемый вариант). -->
+                    <ComboBox x:Name="FileCombo" Height="30" VerticalContentAlignment="Center"
+                              ItemsSource="{Binding DistributionOptionsGrouped}"
                               SelectedItem="{Binding SelectedDistribution, Mode=TwoWay}"
-                              DisplayMemberPath="DisplayName"/>
+                              SelectionChanged="OnFileCombo_SelectionChanged">
+                        <ComboBox.Resources>
+                            <DataTemplate DataType="{x:Type vm:PlatformFileGroupHeaderItem}">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </DataTemplate>
+                            <DataTemplate DataType="{x:Type svc:PlatformDistributionOption}">
+                                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </ComboBox.Resources>
+                    </ComboBox>
                     <!-- issue #330: реальное имя файла, который будет скачан (не только подсказка) -->
                     <TextBlock Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
                                Foreground="{DynamicResource TextSecondaryBrush}">

@@ -238,8 +238,13 @@ namespace Configuration_Management
             var combo = new ComboBox { Width = 180, VerticalContentAlignment = VerticalAlignment.Center };
             combo.Styled(ControlThemes.ModernComboBox);
             combo.ItemsSource = items;
-            combo.ItemTemplate = new FuncDataTemplate<DisplayItem<T>>((item, _) =>
-                new TextBlock { Text = item.DisplayText });
+            // Issue #357: один и тот же шаблон для элементов списка и для закрытой части
+            // (SelectionBoxItemTemplate): без него Avalonia рендерит выбранное значение
+            // через ToString() элемента, а не локализованный текст.
+            var itemTemplate = new FuncDataTemplate<DisplayItem<T>>((item, _) =>
+                new TextBlock { Text = item?.DisplayText ?? string.Empty });
+            combo.ItemTemplate = itemTemplate;
+            combo.SelectionBoxItemTemplate = itemTemplate;
             combo.SelectionChanged += (_, _) =>
             {
                 if (combo.SelectedItem is DisplayItem<T> item)

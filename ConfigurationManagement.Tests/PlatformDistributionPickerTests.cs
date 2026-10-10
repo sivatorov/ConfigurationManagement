@@ -419,4 +419,87 @@ public sealed class PlatformDistributionPickerTests
             new[] { "deb64_8.3.27.2214.tar.gz", "8.3.27.2214_x86_64.rpm", "8.3.27.2214.tar.gz" },
             linux.Select(o => o.File.FileName).ToArray());
     }
+
+    // ---------- Issue #330 п.1: фильтр разрядности в списке файлов ----------
+
+    [Fact]
+    public void FilterByArchitecture_X64_KeepsX64AndNoArch_DropsX86()
+    {
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8.3.27.2214_x86.zip", "x86", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+            File("deb_8.3.27.2214.deb", null, PlatformDistributionKind.LinuxDeb),
+        };
+
+        var filtered = PlatformDistributionPicker.FilterByArchitecture(files, is64Bit: true);
+
+        // x86 отброшен; x64 и файлы без разрядности (Linux-пакеты) остались; порядок сохранён.
+        Assert.Equal(
+            new[] { "8.3.27.2214_x64.zip", "deb_8.3.27.2214.deb" },
+            filtered.Select(f => f.FileName).ToArray());
+    }
+
+    [Fact]
+    public void FilterByArchitecture_X86_KeepsX86AndNoArch_DropsX64()
+    {
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8.3.27.2214_x86.zip", "x86", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip),
+            File("8.3.27.2214.tar.gz", null, PlatformDistributionKind.LinuxTarGz),
+        };
+
+        var filtered = PlatformDistributionPicker.FilterByArchitecture(files, is64Bit: false);
+
+        Assert.Equal(
+            new[] { "8.3.27.2214_x86.zip", "8.3.27.2214.tar.gz" },
+            filtered.Select(f => f.FileName).ToArray());
+    }
+
+    [Fact]
+    public void FilterByArchitecture_LinuxPackagesWithoutArch_AreNotLost()
+    {
+        // Linux-пакеты без разрядности в имени файла не теряются ни при x64, ни при x86.
+        var linux = new List<PlatformReleaseFile>
+        {
+            File("deb64_8.3.27.2214.tar.gz", "x64", PlatformDistributionKind.LinuxDeb),
+            File("8.3.27.2214.tar.gz", null, PlatformDistributionKind.LinuxTarGz),
+        };
+
+        Assert.Equal(2, PlatformDistributionPicker.FilterByArchitecture(linux, is64Bit: true).Count);
+        Assert.Single(PlatformDistributionPicker.FilterByArchitecture(linux, is64Bit: false));
+    }
+
+    [Fact]
+    public void FilterByArchitecture_EmptyOrNull_ReturnsEmpty()
+    {
+        Assert.Empty(PlatformDistributionPicker.FilterByArchitecture(
+            new List<PlatformReleaseFile>(), is64Bit: true));
+        Assert.Empty(PlatformDistributionPicker.FilterByArchitecture(null!, is64Bit: true));
+
+        // Архитектурное сравнение без учёта регистра («X64» в данных).
+        var files = new List<PlatformReleaseFile>
+        {
+            File("8.3.27.2214.zip", "X64", PlatformDistributionKind.WindowsSetupZip),
+        };
+        Assert.Single(PlatformDistributionPicker.FilterByArchitecture(files, is64Bit: true));
+    }
+
+    [Fact]
+    public void BuildOptions_WithGroups_SortingAndCountNotBroken()
+    {
+        // Регресс (#330 п.2/#334 п.2): поле Group не влияет на сортировку/состав вариантов.
+        var windows = WindowsFiles();
+        windows[0].Group = "Технологическая платформа";
+        windows[1].Group = "Технологическая платформа";
+        windows[2].Group = "Тонкий клиент 1С:Предприятия";
+
+        var options = PlatformDistributionPicker.BuildOptions(windows, isWindows: true, is64Bit: true);
+
+        Assert.Equal(3, options.Count);
+        Assert.Equal(
+            new[] { "8.3.27.2214_x64.zip", "8.3.27.2214_x86.zip", "8.3.27.2214_thin_1c_x64.zip" },
+            options.Select(o => o.File.FileName).ToArray());
+    }
 }

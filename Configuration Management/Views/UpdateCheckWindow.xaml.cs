@@ -570,6 +570,11 @@ public partial class UpdateCheckWindow : Window
         _row.ChainProgress = 0;
         UpdateChainDisplay();
 
+        // issue #334 п.1: загрузка цепочки регистрируется в менеджере фоновых загрузок —
+        // продолжается после закрытия окна и видна в индикаторе главного окна.
+        var chainId = $"chain:{_row.Name}";
+        var backgroundEntry = Services.BackgroundDownloadManager.Default.Start(chainId, _row.Name);
+
         try
         {
             // issue #352 (комментарий 7OH от 2026-10-09): докачка цепочки — файлы,
@@ -586,6 +591,8 @@ public partial class UpdateCheckWindow : Window
 
             if (pending.Count == 0)
             {
+                // Цепочка уже полностью скачана — фоновая запись сразу завершается.
+                Services.BackgroundDownloadManager.Default.Complete(chainId);
                 _dialogs.ShowInfo(string.Format(
                         LocalizationManager.T("Updates.Chain.AllDownloaded"), variant.Steps.Count, folder),
                     LocalizationManager.T("Updates.CheckTitle"));
@@ -608,9 +615,12 @@ public partial class UpdateCheckWindow : Window
                 _row.ChainProgress = (double)n / total;
 
                 var progress = new Progress<double>(p =>
-                    _row.ChainProgress = Math.Clamp((n + p) / total, 0, 1));
+                {
+                    _row.ChainProgress = Math.Clamp((n + p) / total, 0, 1);
+                    Services.BackgroundDownloadManager.Default.ReportProgress(chainId, _row.ChainProgress);
+                });
                 var saved = await Task.Run(() =>
-                    _updates.DownloadUpdateAsync(url, targetPath, progress, CancellationToken.None));
+                    _updates.DownloadUpdateAsync(url, targetPath, progress, backgroundEntry.Cancellation.Token));
 
                 if (!string.IsNullOrWhiteSpace(saved))
                 {
@@ -655,14 +665,25 @@ public partial class UpdateCheckWindow : Window
                     LocalizationManager.T("Updates.CheckTitle"));
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Отмена из индикатора главного окна (issue #334 п.1): состояние Cancelled
+            // уже выставлено менеджером; здесь только журнал.
+            _logger.Info($"Загрузка цепочки обновлений «{_row.Name}» отменена пользователем.");
+        }
         catch (Exception ex)
         {
+            Services.BackgroundDownloadManager.Default.Fail(chainId);
             _logger.Error($"Ошибка загрузки цепочки обновлений «{_row.Name}»", ex);
             _dialogs.ShowError(LocalizationManager.T("Updates.NetworkError"),
                 LocalizationManager.T("Updates.CheckTitle"));
         }
         finally
         {
+            // Успешное завершение всей цепочки — запись Completed; при отмене/ошибке
+            // состояние выставлено ранее (Fail/Cancel).
+            if (backgroundEntry.IsActive)
+                Services.BackgroundDownloadManager.Default.Complete(chainId);
             _row.IsChainDownloading = false;
             UpdateChainDisplay();
         }

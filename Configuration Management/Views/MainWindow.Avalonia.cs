@@ -1992,6 +1992,7 @@ namespace Configuration_Management
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             _statusInfo = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
             ThemeBrushes.Bind(_statusInfo, TextBlock.ForegroundProperty, "TextOnAccentBrush");
@@ -2029,6 +2030,49 @@ namespace Configuration_Management
             toggleBtn.Bind(Button.CommandProperty, new Binding("ToggleRightPanelDetailsCommand"));
             grid.Children.Add(toggleBtn);
             Grid.SetColumn(toggleBtn, 3);
+
+            // Индикатор фоновых загрузок (issue #334 п.1): скачивание платформы и цепочек
+            // продолжается после закрытия окон; здесь — текст статуса, прогресс и отмена.
+            var downloadsPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+                IsVisible = false
+            };
+            downloadsPanel.Bind(Control.IsVisibleProperty, new Binding("HasActiveDownloads"));
+
+            var downloadsText = new TextBlock
+            {
+                FontSize = 12,
+                MaxWidth = 360,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ThemeBrushes.Bind(downloadsText, TextBlock.ForegroundProperty, "TextOnAccentBrush");
+            downloadsText.Bind(TextBlock.TextProperty, new Binding("DownloadsStatusText"));
+            downloadsText.Bind(ToolTip.TipProperty, new Binding("DownloadsStatusText"));
+            downloadsPanel.Children.Add(downloadsText);
+
+            var downloadsBar = new ProgressBar
+            {
+                Width = 110,
+                Height = 6,
+                Minimum = 0,
+                Maximum = 1,
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            downloadsBar.Bind(ProgressBar.ValueProperty, new Binding("ActiveDownloadsProgress"));
+            downloadsPanel.Children.Add(downloadsBar);
+
+            var cancelDownloadsBtn = StatusBarIconButton("IconClose");
+            ToolTip.SetTip(cancelDownloadsBtn, LocalizationManager.T("Main.Downloads.Cancel"));
+            cancelDownloadsBtn.Bind(Button.CommandProperty, new Binding("CancelDownloadsCommand"));
+            downloadsPanel.Children.Add(cancelDownloadsBtn);
+
+            grid.Children.Add(downloadsPanel);
+            Grid.SetColumn(downloadsPanel, 4);
 
             // Фон панели и цвет текста в разметке заданы явно (MainWindow.xaml:2300):
             // тёмная полоса SidebarBrush с контрастным текстом, а не прозрачная

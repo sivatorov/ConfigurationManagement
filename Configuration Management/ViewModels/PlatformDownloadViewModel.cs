@@ -51,6 +51,7 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private readonly Action<string, string, NotificationKind, NotificationEvent>? _notify;
     private readonly Services.IAppLogger? _appLogger;
     private readonly bool _isWindows;
+    private readonly Services.BackgroundDownloadManager? _backgroundDownloads;
 
     /// <summary>
     /// Маршаллер изменения UI-состояния в поток Dispatcher (issues #330/#334): обновление
@@ -72,6 +73,8 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private PlatformCatalogNode? _selectedVersionNode;
     private PlatformDistributionOption? _selectedDistribution;
     private IReadOnlyList<PlatformDistributionOption> _distributionOptions = Array.Empty<PlatformDistributionOption>();
+    private IReadOnlyList<PlatformFileGroupViewModel> _distributionFileGroups = Array.Empty<PlatformFileGroupViewModel>();
+    private IReadOnlyList<object> _distributionOptionsGrouped = Array.Empty<object>();
     private string _targetDirectory = string.Empty;
     private string _accountName = string.Empty;
     private bool _hasAccount;
@@ -143,6 +146,25 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     {
         get => _distributionOptions;
         private set => SetProperty(ref _distributionOptions, value ?? Array.Empty<PlatformDistributionOption>());
+    }
+
+    /// <summary>Файлы релиза, сгруппированные по заголовкам групп страницы релиза
+    /// (issue #330 п.2/#334 п.2): порядок групп и файлов — как на странице; файлы
+    /// без группы попадают в локализованную фолбэк-группу «Файлы релиза». Учитывает
+    /// фильтр разрядности (см. <see cref="DistributionOptions"/>).</summary>
+    public IReadOnlyList<PlatformFileGroupViewModel> DistributionFileGroups
+    {
+        get => _distributionFileGroups;
+        private set => SetProperty(ref _distributionFileGroups, value ?? Array.Empty<PlatformFileGroupViewModel>());
+    }
+
+    /// <summary>Плоский сгруппированный список для привязки ComboBox/ListBox на обеих
+    /// платформах: заголовки групп (<see cref="PlatformFileGroupHeaderItem"/>) как
+    /// отдельные строки-разделители, за ними — варианты (<see cref="PlatformDistributionOption"/>).</summary>
+    public IReadOnlyList<object> DistributionOptionsGrouped
+    {
+        get => _distributionOptionsGrouped;
+        private set => SetProperty(ref _distributionOptionsGrouped, value ?? Array.Empty<object>());
     }
 
     /// <summary>Выбранный пользователем вариант дистрибутива (определяет
@@ -307,6 +329,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     /// <param name="isWindows">True — целевая ОС Windows (выбор типа дистрибутива по умолчанию).</param>
     /// <param name="notify">Уведомление о результате (опционально).</param>
     /// <param name="appLogger">Журнал приложения (опционально).</param>
+    /// <param name="backgroundDownloads">Менеджер фоновых загрузок (issue #334 п.1):
+    /// при заданном менеджере скачивание регистрируется в нём и продолжается после
+    /// закрытия окна; null — регистрация не выполняется (юнит-тесты без менеджера).</param>
     public PlatformDownloadViewModel(
         IPlatformUpdateService service,
         Func<ItsAccount?> resolveAccount,
@@ -318,10 +343,12 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         bool isWindows = true,
         Action<string, string, NotificationKind, NotificationEvent>? notify = null,
         Services.IAppLogger? appLogger = null,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        Services.BackgroundDownloadManager? backgroundDownloads = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
+        _backgroundDownloads = backgroundDownloads;
         _resolveAccount = resolveAccount ?? (() => null);
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
         _openFolder = openFolder ?? (_ => false);
@@ -562,12 +589,25 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     /// (версия + разрядность + тип → файл, issue #330).</summary>
     private void RepickFile()
     {
-        var files = SelectedRelease?.Release.Files ?? (IReadOnlyList<PlatformReleaseFile>)Array.Empty<PlatformReleaseFile>();
+        var allFiles = SelectedRelease?.Release.Files
+            ?? (IReadOnlyList<PlatformReleaseFile>)Array.Empty<PlatformReleaseFile>();
+
+        // Issue #330 п.1: список файлов/вариантов фильтруется по выбранному переключателю
+        // разрядности — в списке остаются только дистрибутивы выбранной битности и файлы
+        // без разрядности (Linux-пакеты, архивы). Правило — в чистом методе FilterByArchitecture.
+        var files = PlatformDistributionPicker.FilterByArchitecture(allFiles, Is64Bit);
 
         // Варианты для целевой ОС: реальный выбор (полный/тонкий клиент, x64/x86, пакеты)
         // вместо единственного «Авто». Рекомендуемый помечен и предвыбран по умолчанию.
         var options = PlatformDistributionPicker.BuildOptions(files, _isWindows, Is64Bit);
         DistributionOptions = options;
+
+        // Группировка по заголовкам страницы релиза (issue #330 п.2/#334 п.2):
+        // порядок групп/файлов как на странице, фолбэк-группа «Файлы релиза».
+        var groups = PlatformFileGroupViewModel.Build(
+            options, LocalizationManager.T("PlatformDownload.Group.Default"));
+        DistributionFileGroups = groups;
+        DistributionOptionsGrouped = PlatformFileGroupViewModel.Flatten(groups);
 
         var types = PlatformDistributionPicker.AvailableTypes(files, _isWindows);
         AvailableDownloadTypes = types.Count > 0 ? types : new[] { PlatformDownloadType.Auto };
@@ -587,8 +627,11 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         {
             PickedFile = PlatformDistributionPicker.PickFile(files, Is64Bit, DownloadType, _isWindows)
                 ?? PlatformDistributionPicker.PickFile(files, Is64Bit, PlatformDownloadType.Auto, _isWindows);
-            SelectedDistribution = options.FirstOrDefault(o => ReferenceEquals(o.File, PickedFile))
-                ?? SelectedDistribution;
+            // Issue #330 п.1: выбранный вариант, не прошедший фильтр разрядности
+            // (файла больше нет в пересчитанных вариантах), сбрасывается.
+            SelectedDistribution = PickedFile is null
+                ? null
+                : options.FirstOrDefault(o => ReferenceEquals(o.File, PickedFile));
             return;
         }
 
@@ -623,6 +666,17 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             _appLogger?.Warn("Скачивание платформы: учётная запись ИТС не задана — авторизация портала не будет выполнена");
         }
 
+        // Регистрация в менеджере фоновых загрузок (issue #334 п.1): закрытие окна
+        // не прерывает загрузку, прогресс и отмена идут через менеджер, главное окно
+        // показывает индикатор активных загрузок.
+        var downloadId = _backgroundDownloads is null
+            ? null
+            : $"platform:{version}:{picked.FileName}";
+        var entry = downloadId is null
+            ? null
+            : _backgroundDownloads!.Start(downloadId, picked.FileName);
+        var cancellationToken = entry?.Cancellation.Token ?? CancellationToken.None;
+
         try
         {
             var targetDir = string.IsNullOrWhiteSpace(TargetDirectory)
@@ -641,12 +695,18 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             {
                 Progress = v;
                 OnPropertyChanged(nameof(LogText));
+                if (downloadId is not null)
+                    _backgroundDownloads!.ReportProgress(downloadId, v);
             });
-            var downloaded = await _downloadDistribution(picked.Url, targetPath, progress, CancellationToken.None)
+            var downloaded = await _downloadDistribution(picked.Url, targetPath, progress, cancellationToken)
                 .ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(downloaded))
             {
+                if (downloadId is not null && cancellationToken.IsCancellationRequested)
+                    _backgroundDownloads!.Fail(downloadId, "Main.Downloads.Cancelled");
+                else if (downloadId is not null)
+                    _backgroundDownloads!.Fail(downloadId, "PlatformUpdate.Error.NetworkError");
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.NetworkError"));
                 _notify?.Invoke(
                     LocalizationManager.T("PlatformDownload.WindowTitle"),
@@ -655,6 +715,9 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                     NotificationEvent.Update);
                 return;
             }
+
+            if (downloadId is not null)
+                _backgroundDownloads!.Complete(downloadId);
 
             Progress = 1;
             DownloadedPath = downloaded;
@@ -667,8 +730,17 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
                 NotificationKind.Success,
                 NotificationEvent.Update);
         }
+        catch (OperationCanceledException)
+        {
+            // Отмена из индикатора главного окна (issue #334 п.1): состояние Cancelled
+            // уже выставлено менеджером в Cancel(); здесь только сообщение в журнал.
+            AppendLog(LocalizationManager.T("Main.Downloads.Cancelled"));
+            _appLogger?.Info($"Скачивание платформы: загрузка {version} отменена пользователем");
+        }
         catch (Exception ex)
         {
+            if (downloadId is not null)
+                _backgroundDownloads!.Fail(downloadId, "PlatformUpdate.Error.NetworkError");
             var errorText = $"{LocalizationManager.T("PlatformUpdate.Error.NetworkError")}: {ex.Message}";
             AppendLog(errorText);
             _appLogger?.Error($"Скачивание платформы: исключение при загрузке {version}: {ex.GetType().Name}: {ex.Message}", ex);
@@ -740,4 +812,98 @@ public sealed record DownloadTypeOption(string Name, PlatformDownloadType Type)
 {
     /// <summary>Отображаемое имя варианта.</summary>
     public override string ToString() => Name;
+}
+
+/// <summary>
+/// Группа файлов релиза платформы 1С (issue #330 п.2/#334 п.2): заголовок со страницы
+/// релиза («Технологическая платформа», «Тонкий клиент 1С:Предприятия», …) и его
+/// варианты дистрибутива. Порядок групп и файлов внутри группы — как на странице.
+/// </summary>
+public sealed class PlatformFileGroupViewModel
+{
+    /// <summary>Заголовок группы (локализованный; фолбэк — «Файлы релиза»).</summary>
+    public string Title { get; }
+
+    /// <summary>Варианты дистрибутива группы.</summary>
+    public IReadOnlyList<PlatformDistributionOption> Files { get; }
+
+    public PlatformFileGroupViewModel(string title, IReadOnlyList<PlatformDistributionOption> files)
+    {
+        Title = title ?? string.Empty;
+        Files = files ?? Array.Empty<PlatformDistributionOption>();
+    }
+
+    /// <summary>
+    /// Группирует варианты дистрибутива по заголовкам групп страницы релиза
+    /// (<see cref="PlatformReleaseFile.Group"/>); файлы без группы (null/пусто —
+    /// старые релизы без заголовков) попадают в одну фолбэк-группу
+    /// <paramref name="defaultGroupTitle"/>. Чистый метод, покрыт юнит-тестами.
+    /// </summary>
+    public static IReadOnlyList<PlatformFileGroupViewModel> Build(
+        IReadOnlyList<PlatformDistributionOption> options, string defaultGroupTitle)
+    {
+        var result = new List<PlatformFileGroupViewModel>();
+        if (options is null || options.Count == 0)
+            return result;
+
+        var fallback = string.IsNullOrWhiteSpace(defaultGroupTitle)
+            ? "Файлы релиза"
+            : defaultGroupTitle;
+
+        // Порядок групп — по первому вхождению на странице.
+        var order = new List<string>();
+        var byGroup = new Dictionary<string, List<PlatformDistributionOption>>(StringComparer.Ordinal);
+        foreach (var option in options)
+        {
+            var key = string.IsNullOrWhiteSpace(option.File.Group)
+                ? fallback
+                : option.File.Group!.Trim();
+            if (!byGroup.TryGetValue(key, out var list))
+            {
+                list = new List<PlatformDistributionOption>();
+                byGroup[key] = list;
+                order.Add(key);
+            }
+
+            list.Add(option);
+        }
+
+        foreach (var key in order)
+            result.Add(new PlatformFileGroupViewModel(key, byGroup[key]));
+        return result;
+    }
+
+    /// <summary>Плоское представление групп для списков выбора (ComboBox/ListBox):
+    /// заголовок группы — отдельная строка-разделитель (<see cref="PlatformFileGroupHeaderItem"/>),
+    /// за ним — варианты группы. Заголовки не добавляются, если группа единственная —
+    /// в этом случае группировка не несёт информации.</summary>
+    public static IReadOnlyList<object> Flatten(IReadOnlyList<PlatformFileGroupViewModel> groups)
+    {
+        var items = new List<object>();
+        if (groups is null || groups.Count == 0)
+            return items;
+
+        foreach (var group in groups)
+        {
+            if (groups.Count > 1)
+                items.Add(new PlatformFileGroupHeaderItem(group.Title));
+            foreach (var file in group.Files)
+                items.Add(file);
+        }
+
+        return items;
+    }
+}
+
+/// <summary>Строка-заголовок группы в сгруппированном списке выбора (не выбирается,
+/// отображается жирным/вторичным цветом на обеих платформах).</summary>
+public sealed class PlatformFileGroupHeaderItem
+{
+    /// <summary>Заголовок группы.</summary>
+    public string Title { get; }
+
+    public PlatformFileGroupHeaderItem(string title) => Title = title ?? string.Empty;
+
+    /// <summary>Отображаемый текст (закрытая часть комбобокса и прочие ToString-рендеринги).</summary>
+    public override string ToString() => Title;
 }

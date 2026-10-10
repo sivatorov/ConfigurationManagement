@@ -68,22 +68,43 @@
                     <TextBlock Text="{loc:Loc ConnectionReplace.FieldLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox Width="190" Style="{StaticResource ModernComboBox}"
                               ItemsSource="{Binding Fields}" SelectedValuePath="Value"
-                              SelectedValue="{Binding SelectedField}" DisplayMemberPath="DisplayText"
-                              VerticalContentAlignment="Center" Padding="6,2"/>
+                              SelectedValue="{Binding SelectedField}"
+                              VerticalContentAlignment="Center" Padding="6,2">
+                        <!-- Issue #357: явный шаблон для элементов списка И выбранного
+                             значения (закрытая часть рендерится тем же шаблоном, что и
+                             выпадающий список) — всегда локализованный текст, не ключ. -->
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
                     <TextBlock Text="{loc:Loc ConnectionReplace.ScopeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox Width="160" Style="{StaticResource ModernComboBox}"
                               ItemsSource="{Binding Scopes}" SelectedValuePath="Value"
-                              SelectedValue="{Binding SelectedScope}" DisplayMemberPath="DisplayText"
-                              VerticalContentAlignment="Center" Padding="6,2"/>
+                              SelectedValue="{Binding SelectedScope}"
+                              VerticalContentAlignment="Center" Padding="6,2">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
                     <TextBlock Text="{loc:Loc ConnectionReplace.ModeLabel}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox Width="180" Style="{StaticResource ModernComboBox}"
                               ItemsSource="{Binding Modes}" SelectedValuePath="Value"
-                              SelectedValue="{Binding SelectedMatchMode}" DisplayMemberPath="DisplayText"
-                              VerticalContentAlignment="Center" Padding="6,2"/>
+                              SelectedValue="{Binding SelectedMatchMode}"
+                              VerticalContentAlignment="Center" Padding="6,2">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
                 <CheckBox Content="{loc:Loc ConnectionReplace.IgnoreCase}" VerticalAlignment="Center"
                           IsChecked="{Binding IgnoreCase}" Margin="0,0,14,0"/>

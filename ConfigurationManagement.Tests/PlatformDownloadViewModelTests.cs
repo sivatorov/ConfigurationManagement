@@ -48,7 +48,8 @@ public sealed class PlatformDownloadViewModelTests
         bool is64Bit = true,
         bool isWindows = true,
         Action<Action>? dispatchToUi = null,
-        IAppLogger? appLogger = null)
+        IAppLogger? appLogger = null,
+        BackgroundDownloadManager? backgroundDownloads = null)
     {
         var dir = directory ?? Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
         return new PlatformDownloadViewModel(
@@ -60,7 +61,8 @@ public sealed class PlatformDownloadViewModelTests
             defaultDirectory: dir,
             isWindows: isWindows,
             appLogger: appLogger,
-            dispatchToUi: dispatchToUi);
+            dispatchToUi: dispatchToUi,
+            backgroundDownloads: backgroundDownloads);
     }
 
     // ---------- Каталог и выбор файла ----------
@@ -194,6 +196,159 @@ public sealed class PlatformDownloadViewModelTests
 
         vm.Is64Bit = false;
         Assert.Equal("8.3.27.2214_x86.zip", vm.PickedFile!.FileName);
+    }
+
+    // ---------- Issue #330 п.1: фильтр разрядности в списке файлов ----------
+
+    [Fact]
+    public async Task SwitchTo32Bit_DistributionOptionsContainOnlyX86AndNoArchFiles()
+    {
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var fileX86 = File("8.3.27.2214_x86.zip", "x86", PlatformDistributionKind.WindowsSetupZip);
+        var fileTar = File("8.3.27.2214.tar.gz", null, PlatformDistributionKind.LinuxTarGz);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64, fileX86, fileTar) },
+            },
+        };
+        var vm = CreateVm(service, is64Bit: true);
+
+        await vm.LoadCatalogAsync();
+
+        // x64: в вариантах только 64-битный клиент (файлы без разрядности — не для Windows).
+        Assert.All(vm.DistributionOptions,
+            o => Assert.False(string.Equals(o.Architecture, "x86", StringComparison.OrdinalIgnoreCase),
+                "32-битный файл не должен попадать в список при x64"));
+        Assert.Contains(vm.DistributionOptions, o => o.File.FileName == "8.3.27.2214_x64.zip");
+        Assert.DoesNotContain(vm.DistributionOptions, o => o.File.FileName == "8.3.27.2214_x86.zip");
+
+        vm.Is64Bit = false;
+
+        // x86: в вариантах только 32-битный клиент; 64-битный исчез.
+        Assert.Contains(vm.DistributionOptions, o => o.File.FileName == "8.3.27.2214_x86.zip");
+        Assert.DoesNotContain(vm.DistributionOptions, o => o.File.FileName == "8.3.27.2214_x64.zip");
+        Assert.Equal("8.3.27.2214_x86.zip", vm.PickedFile!.FileName);
+    }
+
+    [Fact]
+    public async Task SwitchTo32Bit_SelectedDistributionOfOtherArch_IsReset()
+    {
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var fileX86 = File("8.3.27.2214_x86.zip", "x86", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64, fileX86) },
+            },
+        };
+        var vm = CreateVm(service, is64Bit: true);
+
+        await vm.LoadCatalogAsync();
+        Assert.NotNull(vm.SelectedDistribution);
+        Assert.Equal("8.3.27.2214_x64.zip", vm.SelectedDistribution!.File.FileName);
+
+        vm.Is64Bit = false;
+
+        // Невалидный выбор сброшен: вариант x64 больше не проходит фильтр разрядности.
+        Assert.NotNull(vm.SelectedDistribution);
+        Assert.Equal("8.3.27.2214_x86.zip", vm.SelectedDistribution!.File.FileName);
+        Assert.Contains(vm.SelectedDistribution, vm.DistributionOptions);
+    }
+
+    // ---------- Issue #330 п.2/#334 п.2: группы файлов релиза ----------
+
+    [Fact]
+    public void FileGroups_Build_GroupsByPageOrder_AndFallsBackToDefaultGroup()
+    {
+        var option = (string name, string? group) =>
+        {
+            var file = File(name, "x64", PlatformDistributionKind.WindowsSetupZip);
+            file.Group = group;
+            return new PlatformDistributionOption(file);
+        };
+
+        var options = new List<PlatformDistributionOption>
+        {
+            option("8.3.27.2214_x64.zip", "Технологическая платформа"),
+            option("8.3.27.2214_thin_x64.zip", "Тонкий клиент"),
+            option("8.3.27.2214_x86.zip", "Технологическая платформа"), // порядок страницы сохраняется
+            option("legacy_8.3.20.zip", null),
+        };
+
+        var groups = PlatformFileGroupViewModel.Build(options, "Файлы релиза");
+
+        Assert.Equal(3, groups.Count);
+        Assert.Equal("Технологическая платформа", groups[0].Title);
+        Assert.Equal(new[] { "8.3.27.2214_x64.zip", "8.3.27.2214_x86.zip" },
+            groups[0].Files.Select(f => f.File.FileName).ToArray());
+        Assert.Equal("Тонкий клиент", groups[1].Title);
+        Assert.Single(groups[1].Files);
+        Assert.Equal("Файлы релиза", groups[2].Title);
+        Assert.Equal("legacy_8.3.20.zip", groups[2].Files[0].File.FileName);
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_FilesWithoutGroups_SingleFallbackGroup_NoHeaderItems()
+    {
+        // Старые релизы без групп: одна фолбэк-группа, в плоском списке заголовков нет.
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var vm = CreateVm(service);
+
+        await vm.LoadCatalogAsync();
+
+        var group = Assert.Single(vm.DistributionFileGroups);
+        Assert.Single(group.Files);
+        Assert.DoesNotContain(vm.DistributionOptionsGrouped, i => i is PlatformFileGroupHeaderItem);
+        Assert.Contains(vm.PickedFile!, vm.DistributionOptionsGrouped.OfType<PlatformDistributionOption>().Select(o => o.File));
+    }
+
+    [Fact]
+    public async Task LoadCatalogAsync_GroupedFiles_FlatListHasHeadersThenOptions()
+    {
+        var grouped = new PlatformReleaseFile
+        {
+            FileName = "8.3.27.2214_thin_x64.zip",
+            Url = "https://releases.1c.ru/dist/8.3.27.2214_thin_x64.zip",
+            Architecture = "x64",
+            Kind = PlatformDistributionKind.WindowsSetupZip,
+            Group = "Тонкий клиент",
+        };
+        var plain = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", plain, grouped) },
+            },
+        };
+        var vm = CreateVm(service);
+
+        await vm.LoadCatalogAsync();
+
+        // Две группы → в плоском списке два заголовка-разделителя.
+        Assert.Equal(2, vm.DistributionFileGroups.Count);
+        Assert.Equal(2, vm.DistributionOptionsGrouped.OfType<PlatformFileGroupHeaderItem>().Count());
+        Assert.Equal(2, vm.DistributionOptionsGrouped.OfType<PlatformDistributionOption>().Count());
+
+        // Порядок: заголовок первой группы → её вариант → заголовок второй группы → вариант.
+        Assert.IsType<PlatformFileGroupHeaderItem>(vm.DistributionOptionsGrouped[0]);
+        Assert.IsType<PlatformDistributionOption>(vm.DistributionOptionsGrouped[1]);
+        Assert.IsType<PlatformFileGroupHeaderItem>(vm.DistributionOptionsGrouped[2]);
+        Assert.IsType<PlatformDistributionOption>(vm.DistributionOptionsGrouped[3]);
     }
 
     [Fact]
@@ -612,6 +767,143 @@ public sealed class PlatformDownloadViewModelTests
         // Файловый журнал: диагностика с числом файлов.
         Assert.Contains(logger.Infos, m => m.Contains("parsedFiles=1", StringComparison.Ordinal));
         Assert.NotNull(vm.PickedFile);
+    }
+
+    // ---------- Фоновые загрузки (issue #334 п.1) ----------
+
+    [Fact]
+    public async Task DownloadAsync_RegistersEntryInManager_AndCompletesIt()
+    {
+        var manager = new BackgroundDownloadManager();
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var vm = CreateVm(service, backgroundDownloads: manager);
+
+        await vm.LoadCatalogAsync();
+        await vm.DownloadAsync();
+
+        var snapshot = Assert.Single(manager.Snapshot());
+        Assert.Equal(BackgroundDownloadState.Completed, snapshot.State);
+        Assert.Equal("8.3.27.2214_x64.zip", snapshot.Title);
+        Assert.Equal(1.0, snapshot.Progress);
+        Assert.Equal(0, manager.ActiveCount);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_LivesAfterWindowClose_AndReportsProgress()
+    {
+        // Симуляция закрытия окна: окно уничтожено сразу после старта скачивания,
+        // загрузка продолжается через делегат и видна в менеджере.
+        var manager = new BackgroundDownloadManager();
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var downloadFinished = new TaskCompletionSource();
+        var vm = CreateVm(
+            service,
+            download: async (url, target, progress, ct) =>
+            {
+                await Task.Delay(30, ct);
+                progress?.Report(0.5);
+                await Task.Delay(30, ct);
+                downloadFinished.TrySetResult();
+                return target;
+            },
+            backgroundDownloads: manager);
+
+        await vm.LoadCatalogAsync();
+        var task = vm.DownloadAsync();
+
+        // «Окно закрыто»: локальных ссылок на VM больше не держим —
+        // асинхронная операция продолжает жить и завершает менеджер-запись.
+        var reported = await WaitUntilAsync(() => manager.Snapshot().Any(d => d.Progress > 0), TimeSpan.FromSeconds(5));
+        Assert.True(reported, "Прогресс фонового скачивания должен попадать в менеджер");
+
+        await task;
+        Assert.True(downloadFinished.Task.IsCompleted);
+        Assert.Equal(BackgroundDownloadState.Completed, manager.Snapshot().Single().State);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_CancelViaManager_CancelsDownload()
+    {
+        var manager = new BackgroundDownloadManager();
+        var cancelled = new TaskCompletionSource();
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var vm = CreateVm(
+            service,
+            download: async (url, target, progress, ct) =>
+            {
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, ct);
+                    return target;
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelled.TrySetResult();
+                    throw;
+                }
+            },
+            backgroundDownloads: manager);
+
+        await vm.LoadCatalogAsync();
+        var task = vm.DownloadAsync();
+
+        var started = await WaitUntilAsync(() => manager.ActiveCount > 0, TimeSpan.FromSeconds(5));
+        Assert.True(started);
+        Assert.True(manager.Cancel(manager.Snapshot().First(d => d.IsActive).Id));
+
+        var cancelledOk = await Task.WhenAny(cancelled.Task, Task.Delay(5000)) == cancelled.Task;
+        Assert.True(cancelledOk, "Отмена из менеджера должна дойти до загрузки");
+
+        await task; // OperationCanceledException обрабатывается внутри VM
+        Assert.Equal(BackgroundDownloadState.Cancelled, manager.Snapshot().Single().State);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_Failure_MarksManagerEntryFailed()
+    {
+        var manager = new BackgroundDownloadManager();
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var vm = CreateVm(
+            service,
+            download: (_, _, _, _) => Task.FromResult<string?>(null),
+            backgroundDownloads: manager);
+
+        await vm.LoadCatalogAsync();
+        await vm.DownloadAsync();
+
+        Assert.Equal(BackgroundDownloadState.Failed, manager.Snapshot().Single().State);
     }
 
     // ---------- Fake-сервис ----------

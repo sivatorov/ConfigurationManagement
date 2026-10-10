@@ -125,4 +125,38 @@ public sealed class ConnectionReplaceLocalizationTests
         var en = CollectDictionaryKeys(Path.Combine("Configuration Management", "Localization", "Languages", "en.json"));
         Assert.Equal(ru, en);
     }
+
+    // ---------- Issue #357: закрытый ComboBox рендерит выбранный элемент ----------
+
+    /// <summary>
+    /// WPF XAML окна обязан рендерить закрытую часть комбобоксов «Поле»/«Область»/
+    /// «Режим» тем же шаблоном, что и элементы списка: DisplayMemberPath заменён на
+    /// явный ItemTemplate с {Binding DisplayText} — по одному на каждый ComboBox.
+    /// </summary>
+    [Fact]
+    public void ConnectionReplaceWindowXaml_ComboboxesBindDisplayTextViaItemTemplate()
+    {
+        var xaml = ReadProjectFile(Path.Combine("Configuration Management", "Views", "ConnectionReplaceWindow.xaml"));
+
+        // Явный шаблон выбранного значения/элементов — три комбобокса, три шаблона.
+        Assert.Contains("ItemTemplate", xaml, StringComparison.Ordinal);
+        Assert.Equal(3, Regex.Matches(xaml, @"Text=""\{Binding DisplayText\}""").Count);
+        // DisplayMemberPath больше не используется: он конфликтует с SelectedValuePath
+        // и приводил к ToString()-рендерингу ключа в закрытой части.
+        Assert.DoesNotContain("DisplayMemberPath", xaml, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Avalonia-версия BuildCombo задаёт SelectionBoxItemTemplate (тот же FuncDataTemplate,
+    /// что и ItemTemplate): без него закрытая часть ComboBox рендерит ToString() элемента.
+    /// </summary>
+    [Fact]
+    public void ConnectionReplaceWindowAvalonia_BuildComboSetsSelectionBoxItemTemplate()
+    {
+        var source = ReadProjectFile(Path.Combine(
+            "Configuration Management", "Views", "ConnectionReplaceWindow.Avalonia.cs"));
+
+        Assert.Contains("combo.ItemTemplate", source, StringComparison.Ordinal);
+        Assert.Contains("combo.SelectionBoxItemTemplate", source, StringComparison.Ordinal);
+    }
 }
