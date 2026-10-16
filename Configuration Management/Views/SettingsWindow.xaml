@@ -2326,6 +2326,39 @@
                                 </StackPanel>
                             </Button>
                         </StackPanel>
+
+                        <!-- Блок перехода на Workspace 1C (0.3.12.70): программа переименована,
+                             предлагаем скачать новую версию или открыть страницу проекта. -->
+                        <Border Margin="0,0,0,16" Padding="12" CornerRadius="8"
+                                Background="{DynamicResource ItemHoverBrush}">
+                            <StackPanel>
+                                <TextBlock Text="{loc:Loc Workspace1C.AboutText}" FontSize="13" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Padding="10,6" Margin="0,0,8,0" Cursor="Hand"
+                                            Style="{DynamicResource SecondaryButton}"
+                                            Click="OnWorkspace1CDownload_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="CloudDownloadOutline" Width="14" Height="14"
+                                                                     Foreground="#16A34A" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{loc:Loc Workspace1C.AboutDownload}"
+                                                       VerticalAlignment="Center" FontSize="12"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Padding="10,6" Cursor="Hand"
+                                            Style="{DynamicResource SecondaryButton}"
+                                            Click="OnWorkspace1COpenPage_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="InformationOutline" Width="14" Height="14"
+                                                                     Foreground="#3B82F6" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{loc:Loc Workspace1C.AboutOpenPage}"
+                                                       VerticalAlignment="Center" FontSize="12"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="{loc:Loc Settings.About.Author}" FontSize="14"
                                    Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16"/>
                         <TextBlock Text="{loc:Loc Settings.About.Infostart}" FontWeight="SemiBold"

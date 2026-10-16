@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>0.3.12.70</Version>
-    <AssemblyVersion>0.3.12.70</AssemblyVersion>
-    <FileVersion>0.3.12.70</FileVersion>
-    <InformationalVersion>0.3.12.70</InformationalVersion>
+    <Version>0.3.12.71</Version>
+    <AssemblyVersion>0.3.12.71</AssemblyVersion>
+    <FileVersion>0.3.12.71</FileVersion>
+    <InformationalVersion>0.3.12.71</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -96,6 +96,9 @@
     <Compile Remove="Services\UpdateService.Avalonia.cs" />
     <Compile Remove="Services\ManualUpdateWindow.Avalonia.cs" />
     <Compile Remove="Services\UpdateProgressWindow.Avalonia.cs" />
+    <!-- Диалог перехода на Workspace 1C (Linux/Avalonia) собирается только на Linux
+         (#if LINUX). Явно исключаем из Windows-сборки, как остальные Avalonia-окна. -->
+    <Compile Remove="Services\Workspace1CMigrationWindow.Avalonia.cs" />
   </ItemGroup>
 
   <!-- WPF-ресурсы иконок (embedded, только Windows) -->
@@ -623,6 +626,9 @@
          на Linux вопрос задаётся через AvaloniaDialogService. -->
     <Compile Remove="Services\UpdateService.cs" />
     <Compile Remove="Services\UpdateAvailableWindow.xaml.cs" />
+    <!-- WPF-диалог перехода на Workspace 1C исключается; на Linux его заменяет
+         Workspace1CMigrationWindow.Avalonia.cs (подключается дефолтным глобом). -->
+    <Compile Remove="Services\Workspace1CMigrationWindow.xaml.cs" />
     <Compile Remove="Services\OneCLauncher.cs" />
     <Compile Remove="Services\OneCLauncher.DesignerBatch.cs" />
     <Compile Remove="Services\OneCLauncher.Arguments.cs" />

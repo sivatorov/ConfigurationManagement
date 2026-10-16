@@ -3186,6 +3186,22 @@
     "PlatformDownload.Result.Summary": "Downloaded: {0}. File saved to: {1}. Next you can open the folder with the file — installation is never automatic.",
     "Notify.PlatformUpdateDone": "Platform version {0} installed",
     "Notify.PlatformUpdateRemoved": "Old platform versions removed: {0}",
-    "Notify.PlatformUpdateError": "Platform update failed: {0}"
+    "Notify.PlatformUpdateError": "Platform update failed: {0}",
+
+    "Workspace1C.Title": "Workspace 1C",
+    "Workspace1C.DialogText": "The \"1C Configuration Management\" program has been renamed to Workspace 1C. All features are preserved, and version numbering starts from 1.0.0.0.",
+    "Workspace1C.Download": "Download",
+    "Workspace1C.OpenPage": "Open page",
+    "Workspace1C.Later": "Later",
+    "Workspace1C.OpenFolder": "Open folder",
+    "Workspace1C.Downloading": "Downloading Workspace 1C…",
+    "Workspace1C.DownloadProgressFormat": "Downloading: {0}%",
+    "Workspace1C.Downloaded": "File saved: {0}",
+    "Workspace1C.DownloadFailed": "Failed to download Workspace 1C. Check your internet connection and try again.",
+    "Workspace1C.NoDownloadUrl": "No file found for your operating system in the latest release.",
+    "Workspace1C.ErrorTitle": "Error",
+    "Workspace1C.AboutText": "The program has been renamed to Workspace 1C. Download the new version or open the project page.",
+    "Workspace1C.AboutDownload": "Download Workspace 1C",
+    "Workspace1C.AboutOpenPage": "Open page"
   }
 }

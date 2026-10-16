@@ -140,6 +140,10 @@ public static class AppServices
         // Завершение процесса 1С по PID (инспектор процессов): Windows — Process.Kill
         // вместе с деревом потомков, Linux — kill через /proc со сверкой времени старта.
         services.AddSingleton<IOneCProcessKiller, OneCProcessKiller>();
+        // Переход на новую программу Workspace 1C (0.3.12.70): получение последнего
+        // выпуска из GitHub API и скачивание с прогрессом. Кроссплатформенный сервис —
+        // используется и Windows/WPF, и Linux/Avalonia.
+        services.AddSingleton<Workspace1CMigrationService>();
         services.AddTransient<MainViewModel>();
         services.AddTransient<MainWindow>();
 

@@ -490,6 +490,44 @@ namespace Configuration_Management
                 // Внутренние ошибки уже показаны в UpdateService; здесь только страхуемся.
             }
         }
+
+        /// <summary>
+        /// «Скачать Workspace 1C» из вкладки «О программе» (0.3.12.70): открывает тот же
+        /// диалог перехода, который скачивает новую программу с прогрессом в самом окне.
+        /// </summary>
+        private void OnWorkspace1CDownload_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var migrationService = AppServices.GetRequiredService<Workspace1CMigrationService>();
+                var window = new Workspace1CMigrationWindow(migrationService) { Owner = this };
+                window.ShowDialog();
+            }
+            catch
+            {
+                // Диалог не должен ронять окно настроек.
+            }
+        }
+
+        /// <summary>
+        /// «Открыть страницу» из вкладки «О программе» (0.3.12.70): открывает страницу
+        /// проекта Workspace 1C в браузере по умолчанию.
+        /// </summary>
+        private void OnWorkspace1COpenPage_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Workspace1CMigrationService.ProjectUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                // Браузер не открылся — ничего страшного.
+            }
+        }
     }
 }
 #endif

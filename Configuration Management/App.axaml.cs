@@ -317,10 +317,31 @@ namespace Configuration_Management
                     mainWindow.Show();
                     LogStartupStage(startupLogger, "Главное окно показано");
 
-                    // Фоновая проверка обновлений (Linux/Avalonia): запускаем после показа
-                    // главного окна, чтобы не задерживать старт. Если пользователь отключил
-                    // проверку в настройках — пропускаем. При обнаружении новой версии всегда
-                    // показывается единый диалог с вопросом о применении обновления.
+                    // Диалог перехода на Workspace 1C (0.3.12.70): показывается ОДИН раз.
+                    // Флаг устанавливается при показе независимо от выбора пользователя,
+                    // чтобы диалог не появлялся повторно. Ошибки показа не роняют запуск.
+                    if (!settings.Workspace1CMigrationShown)
+                    {
+                        settings.Workspace1CMigrationShown = true;
+                        try { repository.SaveSettings(settings); }
+                        catch { /* флаг не сохранился — диалог покажется при следующем запуске */ }
+
+                        try
+                        {
+                            var migrationService = AppServices.GetRequiredService<Workspace1CMigrationService>();
+                            var migrationWindow = new Workspace1CMigrationWindowAvalonia(migrationService);
+                            migrationWindow.ShowDialog(mainWindow);
+                        }
+                        catch
+                        {
+                            // Диалог не должен ронять запуск приложения.
+                        }
+                    }
+
+                    // Фоновая проверка обновлений ОТКЛЮЧЕНА (0.3.12.70): программа переименована
+                    // в Workspace 1C, обновления распространяются через новый репозиторий.
+                    // Кнопка «Проверить обновления» во вкладке «О программе» остаётся и
+                    // показывает «актуальная версия».
                     var updateService = AppServices.GetRequiredService<UpdateService>();
                     // Флаг ставится всегда, а не только вместе с фоновой проверкой: тот же
                     // экземпляр службы обслуживает кнопку «Проверить обновления» во вкладке
@@ -330,8 +351,8 @@ namespace Configuration_Management
                     // вопрос о согласии и вопрос о моменте перезапуска.
                     updateService.ApplyAutoUpdatePolicy(settings.AutoUpdateEnabled);
 
-                    if (settings.CheckForUpdatesOnStartup)
-                        CheckForUpdatesInBackground(updateService);
+                    // if (settings.CheckForUpdatesOnStartup)
+                    //     CheckForUpdatesInBackground(updateService);
 
                     // Задания по расписанию (issue #286): запускаем планировщик после
                     // входа в профиль и показа главного окна. Он работает, пока приложение

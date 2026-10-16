@@ -316,6 +316,14 @@ public class AppSettings
     /// <summary>Автоматически устанавливать новые версии без подтверждения (self-update при запуске).</summary>
     public bool AutoUpdateEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Флаг «диалог перехода на Workspace 1C показан» (0.3.12.70): при первом запуске
+    /// приложение один раз показывает модальный диалог о переименовании программы
+    /// в Workspace 1C. Флаг устанавливается при показе диалога независимо от выбора
+    /// пользователя, чтобы диалог не появлялся повторно.
+    /// </summary>
+    public bool Workspace1CMigrationShown { get; set; }
+
     /// <summary>Показывать колонку «Версия платформы» в списке баз.</summary>
     public bool ShowVersionColumn { get; set; } = true;
 

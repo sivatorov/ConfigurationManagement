@@ -4315,6 +4315,105 @@ namespace Configuration_Management
             panel.Children.Add(LinkBlock(LocalizationManager.T("Settings.About.GitHub"),
                 "https://github.com/sivatorov/ConfigurationManagement"));
 
+            // Блок перехода на Workspace 1C (0.3.12.70): программа переименована,
+            // предлагаем скачать новую версию или открыть страницу проекта.
+            var workspaceBlock = new StackPanel
+            {
+                Margin = new Thickness(0, 16, 0, 0),
+                Spacing = 10
+            };
+            var workspaceText = new TextBlock
+            {
+                Text = LocalizationManager.T("Workspace1C.AboutText"),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 13
+            };
+            ThemeBrushes.Bind(workspaceText, TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            workspaceBlock.Children.Add(workspaceText);
+
+            var workspaceButtons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8
+            };
+
+            // «Скачать Workspace 1C»: открывает тот же диалог перехода, который
+            // скачивает новую программу с прогрессом в самом окне.
+            var downloadCaption = new TextBlock
+            {
+                Text = LocalizationManager.T("Workspace1C.AboutDownload"),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12
+            };
+            var downloadIcon = IconHelper.MakeIcon("IconCloudDownload", 14,
+                new SolidColorBrush(Color.Parse("#16A34A")));
+            downloadIcon.VerticalAlignment = VerticalAlignment.Center;
+            downloadIcon.Margin = new Thickness(0, 0, 5, 0);
+            var downloadButton = new Button
+            {
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Children = { downloadIcon, downloadCaption }
+                },
+                Padding = new Thickness(10, 6)
+            };
+            downloadButton.Styled(ControlThemes.SecondaryButton);
+            downloadButton.Click += (_, _) =>
+            {
+                try
+                {
+                    var migrationService = AppServices.GetRequiredService<Workspace1CMigrationService>();
+                    var window = new Workspace1CMigrationWindowAvalonia(migrationService);
+                    window.ShowDialog(this);
+                }
+                catch
+                {
+                    // Диалог не должен ронять окно настроек.
+                }
+            };
+            workspaceButtons.Children.Add(downloadButton);
+
+            // «Открыть страницу»: открывает страницу проекта Workspace 1C в браузере.
+            var openPageCaption = new TextBlock
+            {
+                Text = LocalizationManager.T("Workspace1C.AboutOpenPage"),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12
+            };
+            var openPageIcon = IconHelper.MakeIcon("IconInfo", 14,
+                new SolidColorBrush(Color.Parse("#3B82F6")));
+            openPageIcon.VerticalAlignment = VerticalAlignment.Center;
+            openPageIcon.Margin = new Thickness(0, 0, 5, 0);
+            var openPageButton = new Button
+            {
+                Content = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Children = { openPageIcon, openPageCaption }
+                },
+                Padding = new Thickness(10, 6)
+            };
+            openPageButton.Styled(ControlThemes.SecondaryButton);
+            openPageButton.Click += (_, _) =>
+            {
+                if (!OneCLauncher.OpenUrl(Workspace1CMigrationService.ProjectUrl))
+                {
+                    // Браузер не открылся — копируем адрес в буфер обмена.
+                    try
+                    {
+                        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                        if (clipboard is not null)
+                            _ = clipboard.SetTextAsync(Workspace1CMigrationService.ProjectUrl);
+                    }
+                    catch { /* копирование не должно ронять окно */ }
+                }
+            };
+            workspaceButtons.Children.Add(openPageButton);
+
+            workspaceBlock.Children.Add(workspaceButtons);
+            panel.Children.Add(workspaceBlock);
+
             // Спонсорская картинка во вкладке «О программе», встроенная в ресурсы
             // сборки (см. donat.png в csproj), как в разметке WPF. По клику
             // открывается в полном размере.

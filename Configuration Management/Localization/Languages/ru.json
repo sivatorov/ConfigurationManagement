@@ -3185,6 +3185,22 @@
     "PlatformDownload.Result.Summary": "Скачано: {0}. Файл сохранён в: {1}. Дальше вы можете открыть папку с файлом — установка не выполняется автоматически.",
     "Notify.PlatformUpdateDone": "Установлена версия платформы {0}",
     "Notify.PlatformUpdateRemoved": "Удалены старые версии платформы: {0}",
-    "Notify.PlatformUpdateError": "Не удалось обновить платформу: {0}"
+    "Notify.PlatformUpdateError": "Не удалось обновить платформу: {0}",
+
+    "Workspace1C.Title": "Workspace 1C",
+    "Workspace1C.DialogText": "Программа «Управление конфигурациями 1С» переименована в Workspace 1C. Все возможности сохранены, нумерация версий начинается с 1.0.0.0.",
+    "Workspace1C.Download": "Скачать",
+    "Workspace1C.OpenPage": "Открыть страницу",
+    "Workspace1C.Later": "Позже",
+    "Workspace1C.OpenFolder": "Открыть папку",
+    "Workspace1C.Downloading": "Загрузка Workspace 1C…",
+    "Workspace1C.DownloadProgressFormat": "Загрузка: {0}%",
+    "Workspace1C.Downloaded": "Файл сохранён: {0}",
+    "Workspace1C.DownloadFailed": "Не удалось скачать Workspace 1C. Проверьте подключение к интернету и повторите попытку.",
+    "Workspace1C.NoDownloadUrl": "Для последнего выпуска не найден файл для вашей операционной системы.",
+    "Workspace1C.ErrorTitle": "Ошибка",
+    "Workspace1C.AboutText": "Программа переименована в Workspace 1C. Скачать новую версию или открыть страницу проекта.",
+    "Workspace1C.AboutDownload": "Скачать Workspace 1C",
+    "Workspace1C.AboutOpenPage": "Открыть страницу"
   }
 }

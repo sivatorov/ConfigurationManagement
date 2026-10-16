@@ -87,10 +87,16 @@ public sealed class UtilitiesMenuResolverTests
     }
 
     [Fact]
-    public void CollectNewItems_NullLayout_ReturnsEmpty()
+    public void CollectNewItems_NullLayout_DoesNotThrow()
     {
+        // Пустая компоновка (null) не должна ронять резолвер. Пункты-«новинки» каталога
+        // (сейчас это NotificationChannels, добавлен в 0.3.12.69) при пустой компоновке
+        // считаются неразмещёнными и попадают в «Новинки программы» — штатное поведение
+        // (issue #374). Раньше тест ожидал пустой результат, но каталог с тех пор
+        // получил новый пункт, и утверждение перестало соответствовать контракту.
         var newItems = UtilitiesMenuResolver.CollectNewItems(null);
-        Assert.Empty(newItems);
+        Assert.NotNull(newItems);
+        Assert.Contains(newItems, i => i.Id == "NotificationChannels");
     }
 
     [Fact]

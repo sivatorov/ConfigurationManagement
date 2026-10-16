@@ -289,19 +289,37 @@ namespace Configuration_Management
                 // на явный, иначе закрытие окна входа гасило приложение до появления главного.
                 ShutdownMode = shutdownModeBeforeStartup;
 
-                // Фоновая проверка обновлений (Windows/WPF): запускаем после показа
-                // главного окна, чтобы не задерживать старт. Если пользователь отключил
-                // проверку в настройках — пропускаем. Работа выполняется асинхронно,
-                // UI при этом не блокируется.
-                if (settings.CheckForUpdatesOnStartup)
+                // Диалог перехода на Workspace 1C (0.3.12.70): показывается ОДИН раз.
+                // Флаг устанавливается при показе независимо от выбора пользователя,
+                // чтобы диалог не появлялся повторно. Ошибки показа не роняют запуск.
+                if (!settings.Workspace1CMigrationShown)
                 {
-                    var updateService = AppServices.GetRequiredService<UpdateService>();
-                    // Передаём флаг автообновления из настроек. При обнаружении новой версии
-                    // фоновая проверка ВСЕГДА покажет единый диалог с вопросом «Перезапустить
-                    // сейчас / Обновить после закрытия», независимо от этого флага.
-                    updateService.AutoUpdateEnabled = settings.AutoUpdateEnabled;
-                    CheckForUpdatesInBackground(updateService);
+                    settings.Workspace1CMigrationShown = true;
+                    try { repository.SaveSettings(settings); }
+                    catch { /* флаг не сохранился — диалог покажется при следующем запуске */ }
+
+                    try
+                    {
+                        var migrationService = AppServices.GetRequiredService<Workspace1CMigrationService>();
+                        var migrationWindow = new Workspace1CMigrationWindow(migrationService);
+                        migrationWindow.ShowDialog();
+                    }
+                    catch
+                    {
+                        // Диалог не должен ронять запуск приложения.
+                    }
                 }
+
+                // Фоновая проверка обновлений ОТКЛЮЧЕНА (0.3.12.70): программа переименована
+                // в Workspace 1C, обновления распространяются через новый репозиторий.
+                // Кнопка «Проверить обновления» во вкладке «О программе» остаётся и
+                // показывает «актуальная версия».
+                // if (settings.CheckForUpdatesOnStartup)
+                // {
+                //     var updateService = AppServices.GetRequiredService<UpdateService>();
+                //     updateService.AutoUpdateEnabled = settings.AutoUpdateEnabled;
+                //     CheckForUpdatesInBackground(updateService);
+                // }
 
                 // Задания по расписанию (issue #286): запускаем планировщик после входа
                 // в профиль и показа главного окна. Он работает, пока приложение запущено.
